@@ -1,0 +1,44 @@
+# instrument_meta/RB.yaml
+
+# ── 静态属性 ──────────────────────────────────
+symbol: RB
+exchange: SHFE
+contract_multiplier: 10
+tick_size: 1.0
+currency: CNY
+delivery_method: physical
+
+# ── 交易成本历史 ──────────────────────────────
+transaction_cost_history:
+  - effective_date: "2015-01-01"
+    commission_rate: 0.0001
+    commission_per_lot: null
+  - effective_date: "2020-03-01"
+    commission_rate: null
+    commission_per_lot: 3.0
+
+# ── 保证金历史 ────────────────────────────────
+margin_history:
+  - effective_date: "2015-01-01"
+    exchange_margin_rate: 0.08
+    broker_margin_rate: 0.10
+  - effective_date: "2022-11-01"
+    exchange_margin_rate: 0.12
+    broker_margin_rate: 0.15
+
+# ── 交易时段历史 ──────────────────────────────
+sessions_history:
+  - effective_date: "2015-01-01"
+    day_sessions:
+      - ["09:00", "10:15"]
+      - ["10:30", "11:30"]
+      - ["13:30", "15:00"]
+    night_sessions: []
+
+  - effective_date: "2012-07-09"
+    day_sessions:
+      - ["09:00", "10:15"]
+      - ["10:30", "11:30"]
+      - ["13:30", "15:00"]
+    night_sessions:
+      - ["21:00", "23:00"]
