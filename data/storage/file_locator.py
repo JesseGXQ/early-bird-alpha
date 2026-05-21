@@ -12,7 +12,7 @@ import warnings
 
 class FileLocator:
     """
-    文件寻址器。寻找相关的 CSV 或 Parquet 源数据文件路径
+    文件寻址器。寻找某合约的 CSV 或 Parquet 源数据文件路径
     
     1 min 或 TICK 级别数据文件搜寻通用。
 

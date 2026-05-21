@@ -1,20 +1,20 @@
-import pandas as pd
-import os
-import glob
-from datetime import date
+from __future__ import annotations
 
+from typing import TYPE_CHECKING
+import pandas as pd
+from datetime import date
+from pathlib import Path
+
+from data.config import RolloverConfig
 
 class RolloverDetector:
     """
-    换月探测器(The "Scout")
-    扫描分离的 1min 合约文件，提取日频持仓量(OI)，计算出带有缓冲和阈值逻辑的主力连续日历。
+    换月探测器
+
+    计算出带有缓冲和阈值逻辑的主力合约换月日历。
 
     Parameters
     ------
-    data_dir: str
-        1min 数据所在文件夹路径
-    symbol_root: str
-        品种代码前缀，例如'RB'
     buffer_days: int, default = 3
         换月缓冲天数
     ratio_threshold: float, default = 1.1
@@ -22,69 +22,34 @@ class RolloverDetector:
 
     Methods
     ------
-    generate_rollover_calendar()
+    generate_rollover_calendar(oi_matrix)
         生成换月日历 (rollover_calendar)。
         
     """
     
-    def __init__(self, data_dir: str, symbol_root:str, 
-                 buffer_days: int = 3, ratio_threshold: float = 1.1):
-
-        self.data_dir = data_dir
-        self.symbol_root = symbol_root.upper()
+    def __init__(self, 
+                 buffer_days: int = 3, 
+                 ratio_threshold: float = 1.1):
         self.buffer_days = buffer_days
         self.ratio_threshold = ratio_threshold
-
-    def _build_oi_matrix(self) -> pd.DataFrame:
-        #TODO [Tech Debt]
-        # 不应该允许这个类直接和硬盘打交道
-        """从分离的 1min 文件中降维提取每日最终持仓量矩阵"""
-        search_pattern = os.path.join(self.data_dir, f'{self.symbol_root}*.*')
-        file_paths = glob.glob(search_pattern)
-
-        if not file_paths:
-            raise FileNotFoundError(f'【Stitching】在 {self.data_dir} 未找到 {self.symbol_root}的合约文件。')
-        
-        oi_series_list = []
-        for file_path in file_paths:
-            #从文件名中提取物理合约代码，例如从'RB2405.csv'中提取'RB2405'
-            filename = os.path.basename(file_path)
-            contract_code = filename.split(".")[0].upper()
-
-            #读取数据
-            # TODO: [Tech Debt] 
-            #  当前直接调用了 pd.read_csv 破坏了解耦原则并绕过了 cleaning 模块。
-            # 未来应通过传入 BarDataLoader 对象来获取干净的切片数据。
-            print(f'读取数据文件 {filename}')
-            df = pd.read_csv(file_path)
-            df['date'] = pd.to_datetime(df['datetime']).dt.date
-
-            #核心降维：按日期分组，取每天最后一条记录的持仓量
-            # TODO:  [逻辑错误]
-            # 此处last()方法会调用夜盘（属于下一个交易日）的最后一分钟的OI。正确的方法是调用日盘15:00收盘的OI（也是交易所官方公布的每日持仓量）。
-            daily_oi = df.groupby('date')['open_interest'].last()
-            daily_oi.name = contract_code
-
-            oi_series_list.append(daily_oi)
-
-        #把所有合约的 Series 按日期横向拼成一个 DataFrame
-        #缺失值填写0（该合约当天还没上市或已退市）
-        oi_matrix = pd.concat(oi_series_list, axis=1).fillna(0)
-        oi_matrix.sort_index(inplace=True)
-
-        return oi_matrix
     
-    def generate_rollover_calendar(self) -> pd.DataFrame:
+    def generate_rollover_calendar(self, oi_matrix: pd.DataFrame) -> pd.DataFrame:
         """
-        带有比例阈值的状态机，生成日频级别的主力合约，以及最大持仓量的那张合约。
-        换月条件: 新合约的持仓量大于等于旧合约的ratio_threshold倍，且连续buffer_days，则将新合约定义为主力。
+        带有比例阈值的状态机，生成日频级别的主力合约，以及最大持仓量合约。
+
+        换月条件: 新合约的持仓量大于等于旧合约的 ratio_threshold 倍，且连续 buffer_days ，则将新合约定义为主力。
+
+        Parameters
+        ------
+        oi_matrix: pd.DataFrame
+            日频持仓量数据。每一行为一个交易日期，各列为各合约的持仓量 (OpenInterest)。
 
         Returns
         ------
         Pandas DataFrame
-            换月日历表 (rollover_calendar) 。Index: Date. Columns: Dominant_Contract, Max_OI_Contract_Today
+            换月日历表 (rollover_calendar) 。索引为交易日期，列为 Dominant_Contract, Max_OI_Contract_Today。
         """
-        oi_matrix = self._build_oi_matrix()
+        oi_matrix = oi_matrix.copy().sort_index() # 入口处做一次复制
 
         rollover_calendar = []
         current_dominant = None
@@ -131,86 +96,45 @@ class RolloverDetector:
         
         rollover_calendar = pd.DataFrame(rollover_calendar).set_index('Date')
         return rollover_calendar 
-    
-class AdjustmentCalculator:
-    """
-    复权跳空计算器(The "Surgeon")。根据换月日历，计算每个交易日的累计加法复权因子。
 
-    复权方法：前向调整法——锚定最新价格不变，调整历史合约价格。英文为Backward Adjustment。
+class RollGapCalculator:
+    """
+    换月缺口计算器
+
+    接收换月日历 (rollover_calendar) ，根据价格数据计算换月当天的 Price_Gap，拼装出换月总表 (master Table) 。
 
     Parameters
     ------
-    data_dir: str
-        1min 数据所在路径
-    symbol_root: str
-        品种代码前缀，例如'RB'
+    无
 
     Methods
     ------
-    calculate_adjustment_factors(rollover_calendar)
-        内部计算加法复权因子，输出换月总表。
-
-    Examples
-    ------
+    build_master_table(rollover_calendar, daily_matrix)
+        生成换月日历（包含Dominant_Contract 和 Price_Gap 列）。索引为交易日期。
 
     """
-
-    def __init__(self, data_dir: str, symbol_root: str):
-        self.data_dir = data_dir
-        self.symbol_root = symbol_root
-
-    def _build_daily_close_matrix(self) -> pd.DataFrame:
-        """
-        内部辅助函数，和Detector类似，提取所有合约的日线收盘价(Close)，拼成一张横表。Date as index, different Contracts as columns
-
-        """
-        search_pattern = os.path.join(self.data_dir, f"{self.symbol_root}*.*")
-        file_paths = glob.glob(search_pattern)
-
-        close_series_list = []
-        for file_path in file_paths:
-            filename = os.path.basename(file_path)
-            contract_code = filename.split(".")[0].upper()
-
-            #read file 
-            # TODO: [Tech Debt] 
-            # 当前直接调用了 pd.read_csv 破坏了解耦原则并绕过了 cleaning 模块。
-            # 未来应通过传入 BarLoader 对象来获取干净的切片数据。
-            df = pd.read_csv(file_path)
-            df['Date'] = pd.to_datetime(df['datetime']).dt.date
-
-            #取每天最后一分钟的收盘价作为日收盘价
-            daily_close = df.groupby('Date')['close'].last()
-            daily_close.name = contract_code
-            close_series_list.append(daily_close)
-
-        close_matrix = pd.concat(close_series_list, axis=1).sort_index()
-        
-        return close_matrix
+    def __init__(self):
+        pass
     
-    def calculate_adjustment_factors(self, rollover_calendar: pd.DataFrame) -> pd.DataFrame:
+    def build_master_table(self, 
+                           rollover_calendar: pd.DataFrame,
+                           daily_matrix: pd.DataFrame) -> pd.DataFrame:
         """
-        核心逻辑：计算加法复权因子(标准英文是Back Adjustment)
-        公式： Adj_Factor(t-1)  = Adj_Factor(t) + (P_new_dominant - P_old_dominant)[仅在换月日触发]
+        生成换月日历（包含Dominant_Contract 和 Price_Gap 列）。索引为交易日期。
 
         Parameters
         ------
-        rollover_calendar: Pandas DataFrame
-            换月日历。由RolloverDetector的generate_rollover_calendar方法生成。Index:Date. 含有Dominant_Contract列。
-
-        Returns
-        ------
-        Pandas DataFrame
-            换月总表(master_table)。 Index: Date. Columns: Dominant_Contract, Price_Gap, Adj_Factor
+        rollover_caledar: pd.DataFrame
+            换月日历
+        daily_matrix: pd.DataFrame
+            日频价格数据。每一行为一个交易日，各列为不同合约的价格（例如收盘价）。
+        
         """
-        close_matrix = self._build_daily_close_matrix()
-
+        
         #日历从最新到从前降序排列，方便后续做遍历
         master_table = rollover_calendar.copy().sort_index(ascending=False)
 
-        master_table['Adj_Factor'] = 0.0
         master_table['Price_Gap'] = 0.0
-        cumulative_factor = 0.0
 
         #记录最新主力合约
         new_dominant = None 
@@ -221,39 +145,45 @@ class AdjustmentCalculator:
             #如果发生了主力切换
             if new_dominant is not None and old_dominant != new_dominant:
                 try:
-                    price_old_dominant = close_matrix.at[date, old_dominant] #日期上更早的主力合约价格
-                    price_new_dominant = close_matrix.at[date, new_dominant] #日期上更新的主力合约价格
+                    price_old_dominant = daily_matrix.at[date, old_dominant] #日期上更早的主力合约价格
+                    price_new_dominant = daily_matrix.at[date, new_dominant] #日期上更新的主力合约价格
 
-                    #跳空缺口
-                    gap = price_new_dominant - price_old_dominant
+                    #跳空缺口 — 确保价格为数值型，兼容字符串等不可减类型
+                    p_old = pd.to_numeric(price_old_dominant, errors='coerce')
+                    p_new = pd.to_numeric(price_new_dominant, errors='coerce')
 
-                    #累加到cumulative_factor
-                    cumulative_factor += gap
+                    if pd.isna(p_old) or pd.isna(p_new):
+                        raise ValueError(f'非数值类型价格: old={price_old_dominant}, new={price_new_dominant}')
+
+                    gap = p_new - p_old
 
                     master_table.at[date,'Price_Gap'] = gap
 
-                    print(f"【复权计算】 {date}: {new_dominant} ({price_new_dominant}) -> {old_dominant} ({price_old_dominant}) | 缺口: {gap}")
+                    print(f"【复权计算】 {date}: {new_dominant} ({p_new}) -> {old_dominant} ({p_old}) | 缺口: {gap}")
                 except KeyError as e:
                     #如果找不到某天的收盘价
                     print(f'【AdjustmentCalculator】{date} 缺失价格数据，跳空计算跳过一次。Error: {e}')
             
-            master_table.at[date, 'Adj_Factor'] = cumulative_factor
-            
             new_dominant = old_dominant # 由于df是按日期倒序做loop，所以对于下一次循环提取的是更早的主力合约(old_dominant)，那么相对应的本次循环的主力合约（相对下一次的）应该是时间上更新的new_domiant。
 
-        master_table = master_table[['Dominant_Contract', 'Price_Gap', 'Adj_Factor']]
-        return master_table
-    
+        master_table = master_table[['Dominant_Contract', 'Price_Gap']]
+        return master_table.sort_index() #再按日期做顺序排序
+
 class ContinuousContractManager:
     """
-    连续合约大管家，输入换月总表，对下游feed子模块提供"品种->物理合约"的解析，支持换月窗口期的双合约输出。
+    连续合约大管家
+    
+    对下游feed子模块提供"品种->物理合约"的解析，支持换月窗口期的双合约输出。
 
     Parameters
     ------
-    master_table: Pandas DataFrame.
-        换月总表，包含 Dominant_Contract, Price_Gap, Adj_Factor  (索引为 Date)，日频。
-    transition_days: int.
-        换月过渡期窗口，默认为1。
+    symbol_root: str
+        品种代码前缀，例如'RB'。
+    rollover_config: RolloverConfig, optional
+        换月规则配置类实例，包含 buffer_days, ratio_threshold, transition_days。默认值为 RolloverConfig()，即 buffer_days=3, ratio_threshold=1.1, transition_days=1。
+    master_table_dir: str
+        本地持久化的 master_table 文件目录路径。
+        ContinuousContractManager 会根据 rollover_config 中的参数 signature 来寻找对应的 master_table 文件，例如 RB_b3_r110_t1.parquet。
 
     Methods
     ------
@@ -264,16 +194,44 @@ class ContinuousContractManager:
 
     """
 
-    def __init__(self, master_table: pd.DataFrame, transition_days: int = 1):
-        self.master_table = master_table.sort_index() #将master_table按日期顺序排列（最早在前），因为前面的AdjustmentCalculator的calculate_adjustment_factors方法返回的DataFrame是按日期逆序排列的（最新在前）
-        self.transition_days = transition_days
+    def __init__(self,
+                 symbol_root: str,
+                 master_table_dir: str,
+                 rollover_config: RolloverConfig = RolloverConfig()
+                 ):
+        # 读取本地持久化的 master_table （换月日历）。文件名如 RB_b3_r110_t1.parquet
+        file_name = f'{symbol_root}_{rollover_config.signature}.parquet'
+        file_path = Path(master_table_dir) / file_name
 
-        #提取所有交易日序列
+        if file_path.exists():
+            print(f'【ContinuousContractManager】加载本地持久化的 master_table: {file_path}')
+            try:
+                self.master_table = pd.read_parquet(file_path)
+            except Exception as e:
+                raise RuntimeError(f'【ContinuousContractManager】读取 master_table 文件 {file_path} 失败: {e}')
+        else: # 直接抛出错误，提示调用./scripts/run_stitching_etl.py 生成相应指纹的 master_table
+                error_msg = (
+                f"\n【Data Engine】无法初始化 ContinuousContractManager！\n"
+                f"原因: 未能在元数据仓库中找到品种 {symbol_root} 对应当前参数指纹的换月总表文件。\n"
+                f"预期路径: {file_path}\n"
+                f"参数:\n"
+                f"  - 平滑天数 (buffer_days): {rollover_config.buffer_days}\n"
+                f"  - 持仓阈值 (ratio_threshold): {rollover_config.ratio_threshold}\n"
+                f"  - 过渡天数 (transition_days): {rollover_config.transition_days}\n"
+                f"  - 唯一签名 (signature): {rollover_config.signature}\n"
+                f"【行动指南】: 请先运行离线 ETL 脚本生成该指纹的换月总表 (master_table) ，然后再启动回测：\n"
+            )
+                raise FileNotFoundError(error_msg)
+
+        #记录配置中的换月过渡期参数
+        self.transition_days = rollover_config.transition_days
+
+        # 提取所有交易日序列
         self.dates_list = self.master_table.index.tolist()
 
     def get_active_physical_contracts(self, query_date: date) -> list[str]:
         """
-        核心路由接口A（供下游 feed 子模块的 SimulationFeed 实盘/回测执行使用）
+        核心路由接口A （供下游 feed 子模块的 SimulationFeed 实盘/回测执行使用）
         功能：传入一个日期，返回当天应该订阅/交易的物理合约列表。如果处于换月期间，返回一个包含两个元素的列表。
 
         Parameters
@@ -288,11 +246,13 @@ class ContinuousContractManager:
 
         """
         if query_date not in self.master_table.index:
-            print(f'【Data Engine-Stitching-ContinousContractManager】在已有数据中找不到所查询的日期 {date} 。返回空列表。')
+            raise ValueError(f'【ContinuousContractManager】在已有数据中找不到所查询的日期 {query_date} 。')
             return []
         
         current_idx = self.dates_list.index(query_date)
         curr_dominant = self.master_table.at[query_date, 'Dominant_Contract']
+        # ensure string type (pandas may return bytes/Scalar)
+        curr_dominant = str(curr_dominant)
 
         #如果是第一天，直接返回
         if current_idx == 0:
@@ -306,6 +266,7 @@ class ContinuousContractManager:
         for i in range(idx_start, current_idx):
             past_date = self.dates_list[i]
             past_dominant = self.master_table.at[past_date, 'Dominant_Contract']
+            past_dominant = str(past_dominant)
 
             #若发现旧主力和新主力不同，且旧主力没有包含在需要返回的列表中
             if past_dominant != curr_dominant and past_dominant not in active_contracts:

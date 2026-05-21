@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from utils.validation_utils import check_df_columns_exist
     from data.storage.file_locator import FileLocator
     from data.storage.bar_loader import BarLoader
+    from data.config import AdjustmentConfig
 
 
 class TickStreamGenerator:
@@ -189,15 +190,9 @@ class SimulationFeed:
                     logical_symbol: {_contract: _tick.copy() for _contract, _tick in snapshot.items()} #做一次拷贝放出去，防止外部修改这里的原始 tick 值。
                 }
 
-
-
-#Note: ResearchFeed类需要支持输出一个True_Range序列
-#在非换月日，True_Return = (今天收盘价 / 昨天收盘价) - 1。但在换月日（假设昨天是旧主力，今天是新主力），这天的真实收益率必须用今天新主力的收盘价除以昨天新主力的收盘价来计算。
-# 绝对不能用今天的新主力去比昨天的旧主力，这会把换月升贴水混入收益中。这要求 Data Engine 必须具备跨合约提取历史价格的能力。
-
 class ResearchFeed:
     """
-    投研价格向量提取器(The "Quant Laboratory")
+    投研价格向量提取器(The "Vector Extractor")
 
     将主力合约映射表和物理合约价格匹配，并根据复权因子调整，生成复权价格。
     同时，提供“真实收益率”(True Return)的全量历史时间序列。
@@ -207,17 +202,19 @@ class ResearchFeed:
     symbol_root: str
         品种代码前缀，例如'RB'。
     contract_manager: ContinuousContractManager
-
+        连续合约大管家，包含 master_table 属性(换月总表)，有 Dominant_Contract, Price_Gap 列。
     meta_manager: InstrumentMetaManager
-
+        合约元数据管理器，提供合约的交易时间、交易小节划分等元信息查询功能。
     calendar: TradingCalendar
-
+        交易日历实例，提供交易日、交易小节、分钟偏移等查询功能。
     file_locator: FileLocator
-
+        文件寻址器，提供根据合约名称和日期查询 1min 数据文件路径的功能。
     bar_loader: BarLoader
-
+        K 线数据加载器，提供读取 1min 原始数据并返回 DataFrame 的功能。
     bar_aggregator: BarAggregator
-    
+        K 线降频采样聚合器，提供将 1min 数据聚合成其他频率数据的功能。
+    adj_config: AdjustmentConfig
+        复权配置参数，包含复权方向(direction)和复权计算方法(method)。
 
     Methods
     ------
@@ -226,27 +223,29 @@ class ResearchFeed:
 
     """
 
-    def __init__(self, 
-                 symbol_root: str,
-                 contract_manager: ContinuousContractManager, 
-                 meta_manager: InstrumentMetaManager, 
-                 calendar: TradingCalendar, 
-                 file_locator: FileLocator, 
-                 bar_loader: BarLoader, 
-                 bar_aggregator: BarAggregator
-                 ):
+    def __init__(
+            self, 
+            symbol_root: str,
+            contract_manager: ContinuousContractManager, 
+            meta_manager: InstrumentMetaManager, 
+            calendar: TradingCalendar, 
+            file_locator: FileLocator, 
+            bar_loader: BarLoader, 
+            bar_aggregator: BarAggregator,
+            adj_config: AdjustmentConfig):
         self.symbol_root = symbol_root.upper()
 
-        self.contract_manager = contract_manager #包含 master_table 属性(换月总表)，有Dominant_Contract, Price_Gap, Adj_Factor列
+        self.contract_manager = contract_manager #包含 master_table 属性(换月总表)，有Dominant_Contract, Price_Gap 列
         self.meta_manager = meta_manager
         self.calendar = calendar
         self.file_locator = file_locator
         self.bar_loader = bar_loader
         self.bar_aggregator = bar_aggregator
+        self.adj_config = adj_config
 
     def get_historical_vector(self, 
-                              start_date: date | str, 
-                              end_date: date | str,
+                              start_date: date, 
+                              end_date: date,
                               freq: str = '1d') -> pd.DataFrame:
         """
         返回指定日期范围内，特定频率的历史复权主力合约价格。
@@ -259,7 +258,9 @@ class ResearchFeed:
         end_date : datetime.date or str
             结束交易日(Trading Date)，数据截止至该交易日日盘收盘 15:00。
         freq : str, default "1d"
-            K 线频率，例如 "1d", "1min", "5min", "1H", "2H"，默认1d，即日频 。
+            K 线频率，格式同 Pandas Offset aliases 保持一致。
+            例: 1min, 5min, 15min, 30min, 1h, 2h, 4h, 1d。
+            默认1d，即日频 。
 
         Returns
         -------
@@ -292,7 +293,7 @@ class ResearchFeed:
         # 1. 找连续合约大管家索要指定日期范围的物理合约映射表
         # 这里 master_table (换月总表)的 index 应该是 Trading Date 概念，即“交易日期”(标签)。
         try:
-            master_df_query = self.contract_manager.master_table.loc[start_date:end_date]
+            master_df_query = self.contract_manager.master_table.loc[start_date:end_date].copy()
         except KeyError:
             master_table_dates = self.contract_manager.master_table.index.sort_values()
             master_table_start_date = master_table_dates[0]
@@ -307,23 +308,15 @@ class ResearchFeed:
 
         for trading_date, row in master_df_query.iterrows():
             contract = row['Dominant_Contract']
-            adj_factor = row['Adj_Factor']
 
-            # 查找本地文件地址 -> 加载
-            # TODO [潜在漏洞]
-            # 这里的查找文件和加载必须确保能够将上一个夜盘也读进来
-            # 例：trading_date 是4月23日，那么必须将4月22日（日历日）夜盘的数据也能读进来
-            # get_file_path 应该可接受三个参数任选其一: trading_date, calendar_date, calendar_timestamp
-            # 其能实现根据这三个参数任意一者，定为到相关的数据源文件（可能内部需要调用 TradingCalendar )
-            # 这里我觉得还可以把"寻址"这一步封装到 BarLoader 里面，这里就直接根据 contract, trading_date 读取数据，更加直观；这里先暂时保留“两步法”
-            file_path = self.file_locator.get_file_path(contract=contract, trading_date=trading_date)
+            # 查找本地 1min 数据文件地址，并加载
+            file_path = self.file_locator.get_1min_file_path(contract)
             df = self.bar_loader.load_1min_bar(file_path)
 
-            if df.empty():
+            if df.empty:
                 continue
             else:
                 df['Dominant_Contract'] = contract
-                df['Adj_Factor'] = adj_factor
                 to_concat_raw_datas.append(df)
 
         if not to_concat_raw_datas:
@@ -334,8 +327,6 @@ class ResearchFeed:
 
         # 降维聚合，呼叫核心计算引擎
         # 注意，resampled_df （以及最后本函数在其之上返回的 DataFrame 的 index 都是 "calendar timestamp"，
-        # 同时 DataFrame 包含 trading_date（交易日标签）列。
-        # 例：index 为 2026-04-22 21:00:00， 交易日标签为 "2026-04-23"
         resampled_df = self.bar_aggregator.aggregate(
             raw_df=raw_continous,
             freq=freq,
@@ -345,12 +336,34 @@ class ResearchFeed:
         if resampled_df.empty:
             return resampled_df
         
-        # 对于Index中的每一个（日历）交易时间，生成相对应的交易日期标签
+        # 手动利用 TradingCalenar生成交易日期：对于Index中的每一个（日历）交易时间，生成相对应的交易日期标签
         resampled_df['trading_date'] = self.calendar.get_trading_dates(resampled_df.index)
 
         # 4. 计算复权价格和True_Return
         check_df_columns_exist(resampled_df, ['Open','High','Low','Close'])
-        # 复权价格
+        
+        # 4.1 在换月表上，计算（日频的）复权因子
+        if self.adj_config.direction == 'BACKWARD' and self.adj_config.method == 'ADDITIVE': # 前复权 + 等差法
+            master_df_query.sort_index(inplace=True) # 首先确保换月表按交易日期顺序排列
+            master_df_query['Adj_Factor'] = master_df_query['Price_Gap'].iloc[::-1].cumsum().iloc[::-1].shift(-1).fillna(0)
+        else:
+            raise ValueError(
+                f'''
+                【ResearchFeed】目前仅支持: 复权方向为前复权(前向调整法, 即 Backward Adjustment, 且复权计算方法为等差法)。 
+                不支持复权方向：{self.adj_config.direction}。
+                不支持复权计算方法：{self.adj_config.method}。
+                '''
+                )
+        # 4.2 将复权因子按交易日期匹配到 resampled_df 上
+        resampled_df = pd.merge(
+            master_df_query['Adj_Factor'], 
+            resampled_df, 
+            left_index=True, 
+            right_on=['trading_date'],
+            how='inner'
+            )
+
+        # 4.3 计算复权价格
         for x in ['Open','High','Low','Close']:
             resampled_df.rename(columns={x: f'Raw_{x}'}, inplace=True) #将原始价格列重新命名，加上'Raw_'
             resampled_df[f'Adj_{x}'] = resampled_df[f'Raw_{x}'] + resampled_df['Adj_Factor'] #生成根据复权因子调整的bar(OHLC)
@@ -372,6 +385,7 @@ class ResearchFeed:
             resampled_df.at[roll_ts, 'is_roll'] = True
 
             new_dominant_contract = resampled_df.at[roll_ts, 'Dominant_Contract']
+            new_dominant_contract = str(new_dominant_contract) #确保是字符串，和 file_locator.get_1min_file_path() 的输入格式一致
             p_new_new_dominant = resampled_df.at[roll_ts, 'Raw_Close']
 
             #找到换月点前一个聚合K线的时间戳，根据 resampled_df 的格式，这里是日历日的时间戳

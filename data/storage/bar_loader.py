@@ -7,6 +7,16 @@ class BarLoader:
 
     将文件读取进内存，输出 DataFrame 。内部带 LRU (Least Recently Used) 缓存机制。
 
+    Parameters
+    ------
+    max_cache_size: int, optional
+        LRU 缓存的最大条目数，默认值为 100。超过此限制时，最久未使用的缓存条目将被自动移除。
+    
+    Methods
+    ------
+    load_1min_bar(file_path, normalize_col_names=True)
+        读取 1min K 线数据文件，返回标准化的 DataFrame。包含 Open, High, Low, Close, Volume, OpenInterest 列，索引为 DatetimeIndex。
+
     """
     def __init__(self, max_cache_size: int = 100):
         self.max_cache_size = max_cache_size
@@ -49,12 +59,12 @@ class BarLoader:
         file_path: str
             1min K 线数据路径
         normalize_col_names: bool, default True
-            标准化列名，统一为 Open, High, Low, Close, Volume, OpenInterest, Datetime 
+            标准化列名，统一为 Open, High, Low, Close, Volume, OpenInterest。索引: Datetime 。
         
         Returns
         ------
         pd.DataFrame
-            1min K 线数据。索引为pd.DatatimeIndex。
+            1min K 线数据，包含 Open, High, Low, Close, Volume, OpenInterest。索引为pd.DatatimeIndex。
 
         """
         if not file_path: # file_path 为空字符串
@@ -96,7 +106,7 @@ class BarLoader:
         self._cache[file_path] = df 
         # 判断是否超出缓存数量
         if len(self._cache) > self.max_cache_size:
-            self._cache.popitem(last=False) #踢调最久未使用的数据
+            self._cache.popitem(last=False) #踢掉最陈旧的一个未使用数据
         
         return df.copy() # 返回副本，防止外部修改
     

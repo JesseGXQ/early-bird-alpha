@@ -3,51 +3,57 @@ data/factory.py
 
 工厂函数：负责构造和组装对象
 """
-from data.stitching.stitching import RolloverDetector, AdjustmentCalculator, ContinuousContractManager
+from data.stitching.stitching import  ContinuousContractManager
 from data.metadata.meta_manager import InstrumentMetaManager
 from data.calendar.calendar import TradingCalendar
 from data.feed.aggregator import BarAggregator
 from data.feed.feed import ResearchFeed
+from data.storage.file_locator import FileLocator
+from data.storage.bar_loader import BarLoader
 
-import config
+from data.config import RolloverConfig, AdjustmentConfig, SamplingConfig, EnvironmentConfig 
 
-
-def create_research_feed(symbol_root: str) -> ResearchFeed:
-    """组装并返回一个 ResearchFeed 实例。"""
-    #1. 构造连续合约大管家: contract_manager
-    detector = RolloverDetector(
-        data_dir=config.ONE_MINUTE_DATA_DIR,
-        symbol_root=symbol_root,
-        buffer_days=config.BUFFER_DAYS,
-        ratio_threshold=config.RATIO_THRESHOLD,
-    )
-    rollover_calendar = detector.generate_rollover_calendar()
-    calculator = AdjustmentCalculator(
-        data_dir=config.ONE_MINUTE_DATA_DIR, 
-        symbol_root=symbol_root)
-    master_table = calculator.calculate_adjustment_factors(rollover_calendar=rollover_calendar)
-    contract_manager = ContinuousContractManager(
-        master_table, 
-        transition_days=config.TRANSITION_DAYS)
+def create_research_feed(
+        symbol_root: str,
+        rollover_config: RolloverConfig = RolloverConfig(),
+        adj_config: AdjustmentConfig = AdjustmentConfig(),
+        sample_config: SamplingConfig = SamplingConfig(),
+        env_config: EnvironmentConfig = EnvironmentConfig()
+        ) -> ResearchFeed:
+    """
+    根据四组参数（配置），组装并返回一个 ResearchFeed 实例。
     
-    #2. 构造期货品种数据管家: meta_manager
-    meta_manager = InstrumentMetaManager(meta_dir=config.META_DIR)
+    配置类分别为：换月配置类、复权配置类、抽样配置类和环境配置类。
 
-    #3. 构造交易日历: calendar
+    """
+    #1. 解析环境
+    meta_manager = InstrumentMetaManager(
+        meta_dir=env_config.meta_dir
+        )
     calendar = TradingCalendar(
+        symbol_root=symbol_root, 
+        meta_manager=meta_manager, 
+        calendar_dir=env_config.calendar_dir
+        )
+    file_locator = FileLocator(
+        data_dir=env_config.data_dir_1min, 
+        calendar=calendar
+        )
+    bar_loader = BarLoader(
+        max_cache_size=env_config.bar_loader_max_cache_size
+        )
+
+    # 2. 注入换月规则
+    contract_manager = ContinuousContractManager(
         symbol_root=symbol_root,
-        meta_manager=meta_manager,
-        calendar_dir=config.CALENDAR_DIR
-    )
+        rollover_config=rollover_config,
+        master_table_dir=env_config.master_table_dir
+        )
 
-    #4. 构造 file_locator 和 bar_loader
-    file_locator = FileLocator()
-    bar_loader = BarLoader()
-
-    #5. 构造K线聚合器: bar_aggregator
-    bar_aggregator = BarAggregator(calendar=calendar)
-
-    #最后一步，组装
+    # 3. 注入 K 线聚合规则
+    bar_aggregator = BarAggregator(calendar=calendar,
+                                   sample_config=sample_config)
+    # 4. 组装 ResearchFeed
     return ResearchFeed(
         symbol_root=symbol_root,
         contract_manager=contract_manager,
@@ -56,6 +62,8 @@ def create_research_feed(symbol_root: str) -> ResearchFeed:
         file_locator=file_locator,
         bar_loader=bar_loader,
         bar_aggregator=bar_aggregator,
+        adj_config=adj_config #复权计算在 ResearchFeed 的内部
     )
+
 
 

@@ -1,10 +1,15 @@
+from __future__ import annotations
+from typing import TYPE_CHECKING, Iterable, Literal
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from datetime import date, time
-import copy
-from data.metadata.meta_manager import InstrumentMetaManager
+from datetime import date
 import warnings
+
+if TYPE_CHECKING:
+    from data.metadata.meta_manager import InstrumentMetaManager
+    from data.metadata.meta_manager import Session
+
 
 """
 TradingCalendar, InstrumentMetaManager 相关数据储存方式的说明
@@ -359,37 +364,150 @@ class TradingCalendar:
         return np.array([
             self.get_minute_offset(ts) for ts in calendar_timestamps
         ])
-
-
     
-
-
-                
-
-
-            
-
-            
-
-
-
+    def get_calendar_timestamp_from_date_session_offset(self, 
+                                                        trading_date: date, 
+                                                        session_id: int, 
+                                                        minute_offset: int) -> pd.Timestamp:
+        """
+        反向翻译器（单值版本）：根据交易日期(trading_date)、交易小节(session_id)和分钟偏移量(minute_offset)，返回交易时间戳。
         
-        
+        Parameters
+        ------
+        trading_date: datetime.date
+            交易日期。
+        session_id: int
+            交易小节。0(夜盘), 1(早盘), 2(午盘)。
+        minute_offset: int
+            分钟偏移量，即距离交易小节起点的分钟数。
 
+        Returns
+        ------
+        pd.Timestamp
+            交易时间戳。
+        """
+        session = self.meta_manager.get_sessions(self.symbol_root, trading_date=trading_date)
+        # 若需要翻译的是夜盘(session_id==0)
+        if session_id == 0:
+            minutes_passed = 0 #夜盘累计分钟数
+            for start_str, end_str in session.night_sessions:
+                start_ts = pd.Timestamp(f'{trading_date.isoformat()} {start_str}')
+                end_ts = pd.Timestamp(f'{trading_date.isoformat()} {end_str}')
+                if end_ts.time() < start_ts.time(): #根据是否跨零点决定实际的结束时间戳
+                    end_ts += pd.Timedelta(days=1)
+                minutes_passed += int((end_ts - start_ts).total_seconds() /60)
+                if minutes_passed >= minute_offset:  #夜盘累计分钟数大于分钟偏移量
+                    minutes_to_end = minutes_passed - minute_offset #所需要的时间戳距离末端的分钟距离
+                    return end_ts - pd.Timedelta(minutes=minutes_to_end)
+            # 如果循环结束都没有返回，说明分钟偏移量超过了夜盘的总分钟数，抛出异常
+            raise ValueError(f'【TradingCalendar】分钟偏移量 {minute_offset} 超过了 {self.symbol_root} 在 {trading_date} 的夜盘总分钟数 {minutes_passed}。请检查输入的分钟偏移量是否合理。')
+
+        # 若需要翻译的是早盘(session_id==1)
+        elif session_id == 1:
+            minutes_passed = 0 #早盘累计分钟数
+            for start_str, end_str in session.day_sessions[:-1]: #早盘时间段列表，注意排除最后一个午盘时间段
+                start_ts = pd.Timestamp(f'{trading_date.isoformat()} {start_str}')
+                end_ts = pd.Timestamp(f'{trading_date.isoformat()} {end_str}')
+                minutes_passed += int((end_ts - start_ts).total_seconds() /60)
+                if minutes_passed >= minute_offset: #早盘累计分钟数大于分钟偏移量
+                    minutes_to_end = minutes_passed - minute_offset #所需要的时间戳距离末端的分钟距离
+                    return end_ts - pd.Timedelta(minutes=minutes_to_end)
+            # 如果循环结束都没有返回，说明分钟偏移量超过了早盘的总分钟数，抛出异常
+            raise ValueError(f'【TradingCalendar】分钟偏移量 {minute_offset} 超过了 {self.symbol_root} 在 {trading_date} 的早盘总分钟数 {minutes_passed}。请检查输入的分钟偏移量是否合理。')
+        
+        else: # 午盘(session_id==2)
+            start_str, end_str = session.day_sessions[-1]
+            start_ts = pd.Timestamp(f'{trading_date.isoformat()} {start_str}')
+            return start_ts + pd.Timedelta(minutes=minute_offset)
+
+    def get_calendar_timestamps_from_date_session_offset(self,
+                                                         trading_dates: Iterable[date],
+                                                         session_ids: Iterable[int],
+                                                         minute_offsets: Iterable[int]) -> np.ndarray:
+        """
+        反向翻译器（向量化版本）：根据交易日期(trading_date)、交易小节(session_id)和分钟偏移量(minute_offset)，返回交易时间戳。
+        
+        内部调用单值版本
+
+        Parameters
+        ------
+        trading_dates: Iterable[datetime.date]
+            交易日期列表。
+        session_ids: Iterable[int]
+            交易小节列表。
+        minute_offsets: Iterable[int]
+            分钟偏移量列表。
+
+        Returns
+        ------
+        np.ndarray
+            交易时间戳列表。
+        """
+        return np.array([
+            self.get_calendar_timestamp_from_date_session_offset(trading_date, session_id, minute_offset)
+            for trading_date, session_id, minute_offset in zip(trading_dates, session_ids, minute_offsets)
+        ])
     
+    def get_standard_timestamps(self, start_date: date, end_date: date, freq: str) -> np.ndarray:
+        """
+        获取日期时间段内，特定频率的“完美”（即无空缺的）交易时间戳。
+
+        Parameters
+        ------
+            start_date: datetime.date
+                起始日期。
+            end_date: datetime.date
+                结束日期。
+            freq: str
+                时间频率。格式同 Pandas Offset Aliases 保持一致。
+
+        Returns
+        ------
+        np.ndarray
+            交易时间戳列表。
+
+        """
+
+        # 从 exchange_trading_dates 中提取从 start_date 至 end_date 的交易日期列表
+        trading_dates = self.exchange_trading_dates[self.exchange_trading_dates.slice_indexer(start=start_date, end=end_date)].date
         
-        
+        standard_timestamps = []
 
-
-
-
-
-
-    
-
-        
+        for dt in trading_dates:
+            session = self.meta_manager.get_sessions(symbol_root=self.symbol_root, trading_date=dt)
             
+            #日盘（无需处理是否跨零点问题）
+            day_sessions = session.day_sessions
+            day_timestamps = [
+                ts
+                for sub_session in day_sessions
+                for ts in pd.date_range(
+                    start=f'{dt.isoformat()} {sub_session[0]}',
+                    end=f'{dt.isoformat()} {sub_session[1]}',
+                    freq=freq,
+                    inclusive='left'
+                )
+            ]
+            standard_timestamps.extend(day_timestamps)
+            
+            #夜盘（需要处理是否跨零点）
+            night_sessions = session.night_sessions
+            night_timestamps = []
+            for sub_session in night_sessions:
+                start_str, end_str = sub_session
+                start_ts = pd.Timestamp(f'{dt.isoformat()} {start_str}')
+                end_ts = pd.Timestamp(f'{dt.isoformat()} {end_str}')
+                if end_ts < start_ts:
+                    end_ts += pd.Timedelta(days=1)
+                sub_session_timestamps = pd.date_range(
+                    start=start_ts,
+                    end=end_ts,
+                    freq=freq,
+                    inclusive='left'
+                ).tolist()
+                night_timestamps.extend(sub_session_timestamps)
+            
+            standard_timestamps.extend(night_timestamps)
 
+        return np.array(standard_timestamps)
 
-
-        
