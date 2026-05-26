@@ -1,19 +1,10 @@
 from __future__ import annotations
 import pandas as pd
 import warnings
-from typing import Generator, Dict, Any, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 from datetime import date
 import os
 
-
-# TODO [change to TYPE_CHECKING]
-# from __future__ import annotations
-# from typing import TYPE_CHECKING
-
-# if TYPE_CHECKING:
-#  ...
-# 此处ResearchFeed接收的都是外部注入的实例，自己不构造任何依赖，因此所有的注入都可以放入 TYPE_CHECKING 
-# 这是一种防御措施，避免未来出现循环导入的报错(feed.py 导入 calendar.py的某个类，calendar.py 导入 feed.py的某个类 <- 循环导入 ，是架构分层被破坏的症状)
 if TYPE_CHECKING:
     from data.stitching.stitching import ContinuousContractManager
     from data.metadata.meta_manager import InstrumentMetaManager
@@ -25,170 +16,6 @@ if TYPE_CHECKING:
     from data.config import AdjustmentConfig
 
 
-class TickStreamGenerator:
-
-    """
-    内部流式生成器(The "Crusher")
-    PASS
-    """
-
-    def __init__(self):
-        pass
-
-    def generate_stream(self, chunk_df: pd.DataFrame) -> Optional[Generator[dict, None, None]]: #returns a Generator or None(only alternative for Optional[...])
-        """
-        核心碾碎逻辑。将 Pandas DataFrame 数据块转换为生成器，逐笔输出 TICK 。
-
-        Parameters
-        ---
-        chunk_df: pd.DataFrame
-            包含时间戳、LastPrice和Volume、涨跌停状态等列的TICK数据集
-        
-        Returns
-        ------
-        Generator[Dict[str, Any], None, None]
-            以生成器形式将输入数据块转化为逐次流出的 TICK (每个元素为字典)
-            逐笔 TICK 字典是 数据集(Pandas DataFrame)的每一行(利用 to_dict 方法转化得来)
-        """
-        if chunk_df is None or chunk_df.empty:
-            return
-        
-        #提速：不要使用 Pandas 的 iterrows方法，使用 to_dict方法转化为字典。
-        records = chunk_df.to_dict('records')
-
-        #逐笔 yield 吐出
-        for record in records:
-            yield record
-
-class SimulationFeed:
-    """
-    回测用事件分发器(The "Event Dispatcher")
-
-    Data Engine 面对回测引擎(Execution模块)的唯一实盘流式接口。
-    正常日期分发单合约数据，换月窗口期实现多合约“最新值对齐”，并吐出
-    一个字典，包含新旧主力的 TICK 快照。供下游平滑换仓。
-
-    Parameters
-    ------
-    contract_manager: ContinousContractManager
-        连续合约大管家，包含get_active_physical_contracts(query_date)方法。
-    symbol_root: str
-        品种代码前缀，例如'RB'。
-
-
-    Methods
-    ------
-    stream_tick_event(query_date: datetime.date)
-        返回逻辑品种的事件流生成器。
-    
-
-    Examples
-    ------
-
-    """
-
-    def __init__(self, contract_manager: ContinuousContractManager, 
-                 data_dir: str, symbol_root: str):
-        self.contract_manager = contract_manager
-        self.data_dir = data_dir
-        self.symbol_root = symbol_root
-
-        self.crusher = TickStreamGenerator()
-
-    def _load_physical_chunk(self, contract: str, query_date: date) -> pd.DataFrame:
-        """
-        内部辅助函数：调用 storage 和 cleaning 模块加载 TICK 级原始数据，并清洗切片数据。
-
-        (Gemini: 为了保持代码独立可测，这里用简单的 read_csv 模拟底层流水线；后续需要修改成正式的 storage 和 cleaning 模块的调用)
-
-        说明：
-        storage 中的 两个 loader(CSVTickLoader 和 
-        ParquetTickLoader) 类都接受file_path作为参数，因此我可能还需要建立
-        一个 contract + date -> file_path 的功能。
-                
-        """
-        # TODO: [Tech Debt]
-        # 不应该允许feed子模块直接读取硬盘数据集
-        # 相应的下面这个stream_tick_event也要修改
-        # 将其改为调用 storage 和 cleaning 模块加载并清洗切片数据。如上面的docstring所说。
-
-        file_path = os.path.join(self.data_dir, f"{contract}_{query_date.strftime('%Y%md')}.csv")
-        if os.path.exists(file_path):
-            return pd.read_csv(file_path)
-        return pd.DataFrame()
-    
-    def stream_tick_events(self, query_date: date) -> Optional[Generator[Dict[str, Any], None, None]]:
-        """
-        核心分发逻辑：合并物理数据，维持横截面快照，吐出逻辑品种的事件流。
-
-        Parameters
-        ------
-        query_date: datetime.date
-            需要查询的日期
-
-        Returns
-        ------
-        Generator[Dic[str, Any], None, None]
-            事件生成器，每次返回一个字典: {'Timestamp': xxx, logical_symbol: {合约名称: 逐笔 TICK }}。
-            其中，logical_symbol 类似 'RB_MAIN' 。合约名称为 str, 逐笔 TICK 也是一个字典。
-            换月期 logical_symbol 下可能有两个键：即包含新、旧两个主力合约——{旧主力合约: 逐笔 TICK, 新主力合约: 逐笔 TICK }。
-        """
-        # 1. 询问连续合约大管家，今天应该查询哪几个物理合约？
-        active_contracts = self.contract_manager.get_active_physical_contracts(query_date=query_date)
-        # 若没有主力合约，返回 None
-        if not active_contracts:
-            return
-        
-        # 将主力合约（一个或两个）收集起来
-        to_concat_dfs = []
-        for contract in active_contracts:
-            df = self._load_physical_chunk(contract=contract, query_date=query_date)
-            if not df.empty:
-                to_concat_dfs.append(df)
-
-        # 若未能加载任何数据集，返回 None 
-        if not to_concat_dfs:
-            return
-        
-        # 2. 混合时间线，将活跃合约（正常时期仅一个，换月期有两个）拼接在一起，并按时间戳排序
-        combined_df = pd.concat(to_concat_dfs, axis=0, ignore_index=True)
-
-        #首先做个检查，数据集必须包含如下列: Timestamp, Contract
-        check_df_columns_exist(combined_df, ['Timestamp', 'Contract'])
-
-        # 这里我们假设获取到的数据集包含 Timestamp 列
-        # TODO [Tech Debt]
-        # 在我购买的原始 CSV 格式的 TICK 数据中，有的是 TradingDay, UpdateTime and UpdateMillisec三列，
-        # 需要先把这三列合并为 Timestamp 列。此步应该在数据清洗部分，即 cleaning 子模块完成。
-        # 具体实现方法是创建一个新的滤芯，实现合并功能。当然我可以把滤芯下的具体实现的小函数放到utils中去，以便复用。
-        # ⚠️核爆级警告：必须注意夜盘时间线错乱问题。交易所发来的夜盘 TICK 数据，日期上对应于后一个交易日，即周五晚上 21:00:00.000 的 TradingDay 是下周一。所以拼接时
-        # 要特别注意。可能需要根据“是否属于夜盘时间”来调整到前一个交易日。
-        combine_df.sort_values('Timestamp', inplace=True)
-
-        # 3. 将排序后的 DataFrame 送入 cursher，生成逐笔 TICK 的生成器
-        raw_tick_stream = self.crusher.generate_stream(combined_df)
-
-        # 4. 核心：横截面快照(Cross-Sectional Snapshot)
-        # 按照时间戳顺序，yield 吐出 {'Timestamp': xxx, logical_symbol: {合约名称: 逐笔TICK}}
-        # 注意，当换月期间时，某一时刻，必须新旧主力合约的 TICK 都为非空时，才允许吐出
-        snapshot = {contract: None for contarct in active_contracts}
-        logical_symbol = self.symbol_root + '_MAIN'
-
-        for tick in raw_tick_stream:
-            # 取出当前 tick 的物理合约(Contract)
-            contract = tick.pop('Contract')
-            # 记录当前时间戳
-            curr_timestamp = tick['Timestamp']
-
-            # 更新快照中该合约的状态
-            snapshot[contract] = tick #这里的 tick 字典中已经不包含 Contract 键
-
-            # 检查是否所有合约（一个或换月期的两个）都有快照，若都有才 yield 吐出
-            if all(_tick is not None for _tick in snapshot.values()):
-                yield {
-                    'Timestamp': curr_timestamp,
-                    logical_symbol: {_contract: _tick.copy() for _contract, _tick in snapshot.items()} #做一次拷贝放出去，防止外部修改这里的原始 tick 值。
-                }
 
 class ResearchFeed:
     """
@@ -323,12 +150,12 @@ class ResearchFeed:
             return pd.DataFrame()
         
         # 拼接
-        raw_continous = pd.concat(to_concat_raw_datas, axis=0)
+        raw_continuous = pd.concat(to_concat_raw_datas, axis=0)
 
         # 降维聚合，呼叫核心计算引擎
         # 注意，resampled_df （以及最后本函数在其之上返回的 DataFrame 的 index 都是 "calendar timestamp"，
         resampled_df = self.bar_aggregator.aggregate(
-            raw_df=raw_continous,
+            raw_df=raw_continuous,
             freq=freq,
             add_trading_date_col = False #这个参数用于控制是否根据 calendar timestamp 生成交易日期标签，这里选否，下面手动做这一步
         )
@@ -417,39 +244,4 @@ class ResearchFeed:
                 resampled_df.at[roll_ts, 'pre_bar_calendar_timestamp'] = _pre_ts
         
         return resampled_df
-
-
-        
-
-        
-
-
-                
-
-            
-
-
-
-            
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-            
-
-
-
-
-
-
 

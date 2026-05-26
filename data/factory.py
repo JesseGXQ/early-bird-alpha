@@ -7,7 +7,7 @@ from data.stitching.stitching import  ContinuousContractManager
 from data.metadata.meta_manager import InstrumentMetaManager
 from data.calendar.calendar import TradingCalendar
 from data.feed.aggregator import BarAggregator
-from data.feed.feed import ResearchFeed
+from data.feed.research_feed import ResearchFeed
 from data.storage.file_locator import FileLocator
 from data.storage.bar_loader import BarLoader
 

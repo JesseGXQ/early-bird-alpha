@@ -130,12 +130,20 @@ class CleaningPipeline:
     
     def process(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        数据流过流水线
+        原始数据流过（加入若干滤芯的）流水线，获得清洗后的数据。     
+        
         """
         processed_df = df
         for filter_item in self._filters:
             processed_df = filter_item.apply(processed_df)
         return processed_df
+    
+# TODO [添加滤芯]
+# 按照 `SimulationFeed` 的要求，添加额外的滤芯。
+# 1. data enrichment（UpperLimitPrice 和 LowerLimitPrice）
+# 2. 保证清洗流水线后，流出的数据列为['contract', 'calendar_timestamp', 'last', 'bid', 'ask', 'volume', 'open_interest']。注意保证列中元素类型的要求。见 ContractTick 的定义。
+
+
 
 # ==========================================
 # 本地验证测试

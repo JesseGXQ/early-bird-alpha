@@ -33,6 +33,7 @@ def build_symbol_master_table(symbol_root: str,
     loader = DailySnapshotLoader(daily_snapshot_dir=daily_snapshot_dir)
     daily_raw_df = loader.load(symbol_root)
     
+    
     # 2. 构建 OI 矩阵和收盘价矩阵
     check_df_columns_exist(daily_raw_df, ['TradingDate', 'Contract', 'OpenInterest','Close'])
 

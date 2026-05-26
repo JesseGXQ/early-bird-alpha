@@ -3,6 +3,7 @@ import os
 import pyarrow as pa
 import pyarrow.parquet as pq
 import time
+from typing import Generator
 
 from abc import ABC, abstractmethod
 
@@ -13,11 +14,9 @@ class DataLoaderBase(ABC):
     '''
 
     @abstractmethod
-    def get_tick_stream(self):
+    def get_tick_df_chunk_stream(self) -> Generator[pd.DataFrame, None, None]:
         """
-        对外服务窗口。
-        所有继承此类的子类，必须强制实现这个方法！
-        否则 Python 将拒绝实例化该子类。
+        返回一个生成器，每次吐出一个原始 TICK 数据的 DataFrame。
         """
         pass
 
@@ -49,7 +48,7 @@ class CSVTickLoader(DataLoaderBase):
         except Exception as e:
             raise RuntimeError(f'读取 CSV 文件时发生物理损坏或错误： {e}')
     
-    def get_tick_stream(self):
+    def get_tick_df_chunk_stream(self):
 
         return self._stream_data()
     
@@ -71,14 +70,14 @@ class TickDataConverter:
         start_time = time.time()
 
         loader = CSVTickLoader(filepath=csv_filepath, chunk_size=chunk_size)
-        tick_stream = loader.get_tick_stream()
+        tick_df_chunk_stream = loader.get_tick_df_chunk_stream()
 
         writer = None
         total_rows = 0 
 
         try:
             # 核心循环：抽一桶，压一桶
-            for i, chunk_df in enumerate(tick_stream):
+            for i, chunk_df in enumerate(tick_df_chunk_stream):
                 # parquet：所有列名需要为字符串
                 chunk_df.columns = chunk_df.columns.astype(str)
 
@@ -137,7 +136,7 @@ class ParquetTickLoader(DataLoaderBase):
         except Exception as e:
             raise RuntimeError(f'读取 Parquet 文件时发生物理损坏或错误： {e}')
         
-    def get_tick_stream(self):
+    def get_tick_df_chunk_stream(self):
 
         return self._stream_data()
     
@@ -177,7 +176,7 @@ if __name__ == "__main__":
         
         loader = TickLoaderFactory.create_loader(filepath)
 
-        stream = loader.get_tick_stream()
+        stream = loader.get_tick_df_chunk_stream()
       
         # 2. 抽第一桶水看看
         first_batch = next(stream)

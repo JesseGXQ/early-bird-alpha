@@ -66,9 +66,9 @@ class FileLocator:
 
     def get_tick_file_path(self,
                            contract: str, 
-                           trading_date: date | None,
-                           calendar_date: date | None,
-                           calendar_timestamp: pd.Timestamp | None
+                           trading_date: date | None = None,
+                           calendar_date: date | None = None,
+                           calendar_timestamp: pd.Timestamp | None = None
                            ) -> str:
         """
         根据日期或时间戳以及合约名，返回 TICK 数据储存路径。
@@ -92,7 +92,7 @@ class FileLocator:
             Parquet 或 CSV 数据文件路径。
         
         """
-        #1. 先将日期统一起来
+        #1. 先将日期统一起来：统一为 trading_date
         if trading_date and (not calendar_date) and (not calendar_timestamp) :
             #传入了 trading_date 参数，但实际上并非交易日
             if not self.calendar.is_trading_date(trading_date):

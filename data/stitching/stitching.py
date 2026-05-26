@@ -187,10 +187,10 @@ class ContinuousContractManager:
 
     Methods
     ------
-    get_active_physical_contracts(query_date)
-        核心路由接口A，根据查询日期返回物理合约（名称）列表。   
-    get_continuous_info(query_date)
-        核心路由接口B，根据查询日期返回一个包含主力合约（名称）和复权因子的字典。
+    get_active_physical_contracts(trading_date)
+        根据查询的交易日返回物理合约（名称）列表。   
+    get_continuous_info(trading_date)
+        根据查询的交易日返回一个包含主力合约（名称）和换月价差的字典。
 
     """
 
@@ -229,15 +229,15 @@ class ContinuousContractManager:
         # 提取所有交易日序列
         self.dates_list = self.master_table.index.tolist()
 
-    def get_active_physical_contracts(self, query_date: date) -> list[str]:
+    def get_active_physical_contracts(self, trading_date: date) -> list[str]:
         """
         核心路由接口A （供下游 feed 子模块的 SimulationFeed 实盘/回测执行使用）
-        功能：传入一个日期，返回当天应该订阅/交易的物理合约列表。如果处于换月期间，返回一个包含两个元素的列表。
+        功能：传入一个交易日，返回当天应该订阅/交易的物理合约列表。如果处于换月期间，返回[旧主力, 新主力]。
 
         Parameters
         ------
-        query_date: datetime.date
-            需要查询的日期
+        trading_date: datetime.date
+            需要查询的交易日
         
         Returns
         ------
@@ -245,12 +245,11 @@ class ContinuousContractManager:
             包含物理合约（名称）的列表。非换月期输出[主力]，换月期间输出[旧主力，新主力]。
 
         """
-        if query_date not in self.master_table.index:
-            raise ValueError(f'【ContinuousContractManager】在已有数据中找不到所查询的日期 {query_date} 。')
-            return []
+        if trading_date not in self.master_table.index:
+            raise ValueError(f'【ContinuousContractManager】在已有数据中找不到所查询的日期 {trading_date} 。')
         
-        current_idx = self.dates_list.index(query_date)
-        curr_dominant = self.master_table.at[query_date, 'Dominant_Contract']
+        current_idx = self.dates_list.index(trading_date)
+        curr_dominant = self.master_table.at[trading_date, 'Dominant_Contract']
         # ensure string type (pandas may return bytes/Scalar)
         curr_dominant = str(curr_dominant)
 
@@ -258,7 +257,7 @@ class ContinuousContractManager:
         if current_idx == 0:
             return [curr_dominant]
         
-        #检查是否属于“换月过渡期”，若是，则需要输出active_contracts = [旧合约, 新合约]
+        #检查是否属于“换月过渡期”，若是，则需要输出active_contracts = [旧主力, 新主力]
         active_contracts = [curr_dominant] #当然，必须包含新主力
 
         #开始寻找是否在过渡期窗口（transition_days)内，旧主力和新主力不同
@@ -274,34 +273,33 @@ class ContinuousContractManager:
         
         return active_contracts
     
-    def get_continuous_info(self, query_date: date) -> dict:
+    def get_continuous_info(self, trading_date: date) -> dict:
         """
-        核心路由接口 B （供下游 feed 子模块的 ResearchFeed 拼接历史切片使用）
-        功能：获取当天主力合约（名称）和复权因子
+        功能：获取当天主力合约（名称）和换月价差（Price_Gap）。
 
         Parameters
         ------
-        query_date: datetime.date
-            需要查询的日期
+        trading_date: datetime.date
+            需要查询的交易日
         
         Returns
         ------
         dict
-            包含如下键的字典：
+            包含如下键
 
             - ``dominant_contract``: str
                 主力合约
-            - ``adj_factor``: float
-                （累计）复权因子
+            - ``price_gap``: float
+                换月时的价格缺口
         """
         
-        if query_date not in self.dates_list:
-            return {'dominant': None, 'adj_factor': 0.0}
+        if trading_date not in self.dates_list:
+            return {'dominant': None, 'price_gap': 0.0}
         
-        curr_dominant = self.master_table.at[query_date, 'Dominant_Contract']
-        adj_factor = self.master_table.at[query_date, 'Adj_Factor']
+        curr_dominant = self.master_table.at[trading_date, 'Dominant_Contract']
+        price_gap = self.master_table.at[trading_date, 'Price_Gap']
 
-        return {'dominant': curr_dominant, 'adj_factor': adj_factor}
+        return {'dominant': curr_dominant, 'price_gap': price_gap}
 
 
 
