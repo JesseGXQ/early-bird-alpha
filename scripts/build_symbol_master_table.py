@@ -31,7 +31,7 @@ def build_symbol_master_table(symbol_root: str,
     
     # 1. 读取日频快照数据
     loader = DailySnapshotLoader(daily_snapshot_dir=daily_snapshot_dir)
-    daily_raw_df = loader.load(symbol_root)
+    daily_raw_df = loader.load(symbol_root, columns=['TradingDate', 'Contract', 'OpenInterest','Close'])
     
     
     # 2. 构建 OI 矩阵和收盘价矩阵

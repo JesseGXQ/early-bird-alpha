@@ -1,14 +1,13 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from data.calendar.calendar import TradingCalendar
-
-import os
 import pandas as pd
 from pathlib import Path
 from datetime import date
 import warnings
+
+if TYPE_CHECKING:
+    from data.calendar.calendar import TradingCalendar
 
 class FileLocator:
     """
@@ -58,7 +57,7 @@ class FileLocator:
         # 若未找到 parquet，fall back to csv
         csv_file_path = self.data_dir / f'{contract}.csv'
         if csv_file_path.exists():
-            warnings.warn(f'【FileLocator】未找到相关 Parquet数据: str(pq_file_path)，使用低效率的 CSV 文件。')
+            warnings.warn(f'【FileLocator】未找到相关 Parquet数据: str(pq_file_path)，将使用低效率的 CSV 文件。')
             return str(csv_file_path)
         #若都没找到，警告一下，返回空字符串
         warnings.warn(f'【FileLocator】未找到相关 Parquet 或 CSV 数据：{str(pq_file_path), str(csv_file_path)}')

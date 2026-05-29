@@ -5,7 +5,6 @@ import pandas as pd
 from typing import TYPE_CHECKING, Generator
 import heapq
 from datetime import date
-import os
 import warnings
 
 from data.storage.tick_loader import TickLoaderFactory
@@ -50,11 +49,16 @@ class TickStreamGenerator:
             yield ContractTick(
                 contract=str(row.contract), #做一次 explicit conversion，收紧类型，下同
                 calendar_timestamp=pd.Timestamp(row.calendar_timestamp),  #type: ignore
+                trading_date=pd.Timestamp(row.trading_date).date(), # type: ignore
                 last=float(row.last),  #type: ignore
                 bid=float(row.bid), #type: ignore
                 ask=float(row.ask), #type: ignore
                 volume=int(row.volume), #type: ignore
-                open_interest=float(row.open_interest) #type: ignore
+                ask_volume=int(row.ask_volume), #type: ignore
+                bid_volume=int(row.bid_volume), #type: ignore
+                open_interest=float(row.open_interest), #type: ignore
+                is_limit_up = bool(row.is_limit_up), 
+                is_limit_down = bool(row.is_limit_down)
             )
 
 class SimulationFeed:
@@ -154,7 +158,7 @@ class SimulationFeed:
                                       trading_date: date, 
                                       contract: str) -> Generator[ContractTick, None, None]:
         
-        """为单个合约的单个交易日生成完整的 ContractTick 流"""
+        """根据输入的交易日和合约，寻找 TICK 数据地址，创建加载器，获取原始 TICK 数据块流，通过清洗流水线，最终生成 ContractTick 流"""
 
         # 寻找相应的 TICK 数据地址，并创建相应的 TICK 数据加载器
         file_path = self.file_locator.get_tick_file_path(
@@ -167,11 +171,6 @@ class SimulationFeed:
         for raw_tick_df_chunk in raw_tick_df_chunk_stream:
             # 通过（已加载滤芯的）清洗流水线，得到干净的数据块
             cleaned_tick_df_chunk = self.clean_pipeline.process(raw_tick_df_chunk) 
-            # 确保所需的列存在，先做个检查
-            check_df_columns_exist(
-                cleaned_tick_df_chunk,
-                ['contract', 'calendar_timestamp', 'last', 'bid', 'ask', 'volume', 'open_interest']
-                )
             # 生成 ContractTick 流
             yield from self.tsg.generate_stream(cleaned_tick_df_chunk)
 
@@ -196,7 +195,7 @@ class SimulationFeed:
         # 这里需要处理一个边界问题：若 dominant_gen 或 outgoing_gen 中有任意一者是空生成器（当天一笔 TICK 都无）。
         dominant_tick = next(generators['dominant'], None)
         if not dominant_tick: #若 dominant_gen 是空生成器
-            warnings.warn(f'（新）主力合约 {contracts[1]} 的 TICK 流在 {trading_date.isoformat()} 缺失，跳过该交易日。')
+            warnings.warn(f'（新）主力合约 {contracts[1]} 的 TICK 流在 {trading_date} 缺失，跳过该交易日。')
             return 
         ts = dominant_tick.calendar_timestamp
         priority = 1
@@ -205,7 +204,7 @@ class SimulationFeed:
         if outgoing_gen: #若换月期，outgoing_gen 不是 None
             outgoing_tick = next(generators['outgoing'], None)
             if not outgoing_tick: #若 outgoing_gen 是空生成器
-                warnings.warn(f'（旧）主力合约 {contracts[0]} 的 TICK 流在 {trading_date.isoformat()} 缺失，市场快照流将仅包含（新主力）合约 {contracts[1]}')
+                warnings.warn(f'（旧）主力合约 {contracts[0]} 的 TICK 流在 {trading_date} 缺失，市场快照流将仅包含（新主力）合约 {contracts[1]}')
                 pass
             else:
                 ts = outgoing_tick.calendar_timestamp

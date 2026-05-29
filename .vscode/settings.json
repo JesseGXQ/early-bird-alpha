@@ -2,5 +2,6 @@
     "python-envs.defaultEnvManager": "ms-python.python:conda",
     "python-envs.defaultPackageManager": "ms-python.python:conda",
     "python.analysis.autoImportCompletions": true,
-    "python.defaultInterpreterPath":"C:\\Users\\Jesse\\AppData\\Local\\anaconda3\\python.exe"
+    "python.defaultInterpreterPath": "C:\\Users\\Jesse\\AppData\\Local\\anaconda3\\python.exe",
+    "cursorpyright.analysis.autoImportCompletions": true
 }

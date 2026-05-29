@@ -1,9 +1,9 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Iterable, Literal
+from typing import TYPE_CHECKING, Iterable
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from datetime import date
+from datetime import date, time, timedelta
 import warnings
 
 if TYPE_CHECKING:
@@ -56,24 +56,38 @@ class TradingCalendar:
     ------
     symbol_root:
         品种代码前缀，例如'RB'。
+    meta_manager: InstrumentMetaManager
+        元数据管家。用于查询品种对应的交易所，从而加载相应的交易日历。
     calendar_dir: str
         (各交易所的)交易日历 CSV 文件储存路径。
 
-
     Methods
     ------
-    is_trading_date(...)
-        判断某个日期是否为交易日。
-    next_trading_date(...)
+    is_trading_date(date)
+        判断指定日期是否为交易日。
+    next_trading_date(date)
         返回指定日期之后的下一个交易日。
-    get_trading_date(...)
-        返回日历交易时间戳归属的交易日(Trading Date), 夜盘时间戳归属于下一个交易日。
-    get_session_id(...)
-        判断每个时间戳落在哪一个交易小节。
-    get_minute_offset(...)
-        计算时间戳距离其所属 Session 起点的绝对分钟数。
-    get_trading_dates(...) / get_session_ids() / get_minute_offsets()
-        相应methods的向量化版本。
+    get_trading_date(calendar_timestamp)
+        返回时间戳对应的交易日，夜盘归属于下一交易日。
+    get_session_id(calendar_timestamp)
+        判断时间戳所属的交易小节。
+    get_time_offset(calendar_timestamp)
+        计算时间戳距所属交易小节起点的时间偏移。
+    get_minute_offset(calendar_timestamp)
+        计算时间戳距所属交易小节起点的分钟数偏移。
+    get_trading_dates(calendar_timestamps)
+        批量返回时间戳对应的交易日。
+    get_session_ids(calendar_timestamps)
+        批量返回时间戳所属的交易小节。
+    get_minute_offsets(calendar_timestamps)
+        批量返回时间戳距所属交易小节起点的分钟数偏移。
+    get_calendar_timestamp_from_date_session_offset(trading_date, session_id, minute_offset)
+        反向翻译交易日、交易小节和分钟偏移为时间戳。
+    get_calendar_timestamps_from_date_session_offset(trading_dates, session_ids, minute_offsets)
+        批量反向翻译为交易时间戳。
+    get_standard_timestamps(start_date, end_date, freq)
+        获取区间内指定频率的完美交易时间戳。
+
     """
     def __init__(self, 
                  symbol_root: str,
@@ -277,7 +291,7 @@ class TradingCalendar:
             night_start = session.night_sessions[0][0]
             night_start_t = pd.Timestamp(night_start).time()
             #若跨过了0点(时间戳的时间部分小于night_start_t，例如01:30 小于 21:30)
-            if t <= night_start_t:
+            if t < night_start_t: #必须小于，而不是小于等于
                 _prev_calendar_date_str = (calendar_timestamp - pd.Timedelta(days=1)).normalize().date().isoformat()
                 offset = calendar_timestamp - pd.Timestamp(f'{_prev_calendar_date_str} {night_start}')
             else:
@@ -365,6 +379,25 @@ class TradingCalendar:
             self.get_minute_offset(ts) for ts in calendar_timestamps
         ])
     
+    def _get_prev_trading_date(self, trading_date: date) -> date:
+        """获取输入交易日的前一个交易日"""
+        try:
+            _idx = self.exchange_trading_dates.get_loc(trading_date) # this raises a KeyError if not found
+        except KeyError:
+            raise ValueError(f'【TradingCalendar】交易日期 {trading_date} 不在 {self.symbol_root} 的交易日列表中。')
+        if _idx == 0: # 此时 _idx -1 = -1,会返回最后一个交易日，逻辑错误。
+            raise ValueError(f'【TradingCalendar】品种 {self.symbol_root} 没有比 {trading_date} 更早的交易日了。')
+        return self.exchange_trading_dates[_idx - 1].date()
+    
+    def _get_cal_ts_for_night_sesssion(self, night_start_t: time, t: time, trading_date: date, ) -> pd.Timestamp:
+        """内部辅助函数：对于夜盘，利用夜盘开始时间（night_start_t），所需翻译的时间（t）和交易日（trading_date），翻译出日历交易时间戳。"""
+        if t < night_start_t: # 超过了零点，日历日为 trading_date 的前一个交易日的后一个自然日
+            cal_dt = self._get_prev_trading_date(trading_date) + timedelta(days=1)
+        else: # 若没有超过零点，则日历日为 trading_date 的前一个交易日
+            cal_dt = self._get_prev_trading_date(trading_date)
+        calendar_timestamp = pd.Timestamp(f'{cal_dt.isoformat()} {str(t)}')
+        return calendar_timestamp
+    
     def get_calendar_timestamp_from_date_session_offset(self, 
                                                         trading_date: date, 
                                                         session_id: int, 
@@ -389,16 +422,29 @@ class TradingCalendar:
         session = self.meta_manager.get_sessions(self.symbol_root, trading_date=trading_date)
         # 若需要翻译的是夜盘(session_id==0)
         if session_id == 0:
+            night_start = session.night_sessions[0][0]
+            night_start_t = pd.Timestamp(night_start).time()
+
             minutes_passed = 0 #夜盘累计分钟数
+
             for start_str, end_str in session.night_sessions:
-                start_ts = pd.Timestamp(f'{trading_date.isoformat()} {start_str}')
-                end_ts = pd.Timestamp(f'{trading_date.isoformat()} {end_str}')
-                if end_ts.time() < start_ts.time(): #根据是否跨零点决定实际的结束时间戳
-                    end_ts += pd.Timedelta(days=1)
+                # 利用内部辅助函数，翻译出该sub_session的开始时间戳和结束时间戳
+                start_t = pd.Timestamp(start_str).time()
+                end_t = pd.Timestamp(end_str).time()
+                start_ts = self._get_cal_ts_for_night_sesssion(
+                    night_start_t=night_start_t, 
+                    t=start_t,
+                    trading_date=trading_date)
+                end_ts = self._get_cal_ts_for_night_sesssion(
+                    night_start_t=night_start_t,
+                    t=end_t,
+                    trading_date=trading_date
+                )
                 minutes_passed += int((end_ts - start_ts).total_seconds() /60)
-                if minutes_passed >= minute_offset:  #夜盘累计分钟数大于分钟偏移量
+                if minutes_passed >= minute_offset:  #在这个sub_session，夜盘累计分钟数大于分钟偏移量，说明需要的时间戳在这个sub_session里
                     minutes_to_end = minutes_passed - minute_offset #所需要的时间戳距离末端的分钟距离
                     return end_ts - pd.Timedelta(minutes=minutes_to_end)
+            
             # 如果循环结束都没有返回，说明分钟偏移量超过了夜盘的总分钟数，抛出异常
             raise ValueError(f'【TradingCalendar】分钟偏移量 {minute_offset} 超过了 {self.symbol_root} 在 {trading_date} 的夜盘总分钟数 {minutes_passed}。请检查输入的分钟偏移量是否合理。')
 
@@ -450,21 +496,22 @@ class TradingCalendar:
     
     def get_standard_timestamps(self, start_date: date, end_date: date, freq: str) -> np.ndarray:
         """
-        获取日期时间段内，特定频率的“完美”（即无空缺的）交易时间戳。
+        获取日期时段内，特定频率的“完美”（即无空缺的）交易时间戳。
+        这里的时间戳指的是日历交易时间戳。
 
         Parameters
         ------
             start_date: datetime.date
-                起始日期。
+                起始日期（交易日）。
             end_date: datetime.date
-                结束日期。
+                结束日期（交易日）。
             freq: str
                 时间频率。格式同 Pandas Offset Aliases 保持一致。
 
         Returns
         ------
         np.ndarray
-            交易时间戳列表。
+            （日历）交易时间戳列表。
 
         """
 
@@ -473,8 +520,8 @@ class TradingCalendar:
         
         standard_timestamps = []
 
-        for dt in trading_dates:
-            session = self.meta_manager.get_sessions(symbol_root=self.symbol_root, trading_date=dt)
+        for trading_date in trading_dates:
+            session = self.meta_manager.get_sessions(symbol_root=self.symbol_root, trading_date=trading_date)
             
             #日盘（无需处理是否跨零点问题）
             day_sessions = session.day_sessions
@@ -482,8 +529,8 @@ class TradingCalendar:
                 ts
                 for sub_session in day_sessions
                 for ts in pd.date_range(
-                    start=f'{dt.isoformat()} {sub_session[0]}',
-                    end=f'{dt.isoformat()} {sub_session[1]}',
+                    start=f'{trading_date.isoformat()} {sub_session[0]}',
+                    end=f'{trading_date.isoformat()} {sub_session[1]}',
                     freq=freq,
                     inclusive='left'
                 )
@@ -492,13 +539,24 @@ class TradingCalendar:
             
             #夜盘（需要处理是否跨零点）
             night_sessions = session.night_sessions
+            night_start_t = pd.Timestamp(night_sessions[0][0]).time()
+
             night_timestamps = []
             for sub_session in night_sessions:
                 start_str, end_str = sub_session
-                start_ts = pd.Timestamp(f'{dt.isoformat()} {start_str}')
-                end_ts = pd.Timestamp(f'{dt.isoformat()} {end_str}')
-                if end_ts < start_ts:
-                    end_ts += pd.Timedelta(days=1)
+                start_t = pd.Timestamp(start_str).time()
+                end_t = pd.Timestamp(end_str).time()
+                # 利用内部辅助函数，翻译出该sub_session的开始时间戳和结束时间戳
+                start_ts = self._get_cal_ts_for_night_sesssion(
+                    night_start_t=night_start_t,
+                    t=start_t,
+                    trading_date=trading_date
+                )
+                end_ts = self._get_cal_ts_for_night_sesssion(
+                    night_start_t=night_start_t,
+                    t=end_t,
+                    trading_date=trading_date
+                )
                 sub_session_timestamps = pd.date_range(
                     start=start_ts,
                     end=end_ts,
@@ -511,3 +569,92 @@ class TradingCalendar:
 
         return np.array(standard_timestamps)
 
+    def get_calendar_timestamp_from_trading_date_and_time(self, 
+                                                          trading_date: date, 
+                                                          t: time) -> pd.Timestamp:
+        """
+        翻译器（单值版本）：将交易日期和时间翻译为日历交易时间戳。
+        时间是指时间戳的时间部分（时分秒）。
+
+        Parameters
+        ------
+        trading_date: datetime.date
+            交易日期。
+        t: datetime.time
+            时间（时分秒）。
+
+        Returns
+        ------
+        pd.Timestamp
+            日历交易时间戳。
+        
+        """
+        # 实现逻辑：
+        # 1. 首先利用元数据管家，获取在 trading_date 的 交易时段规则(session)
+        # 2. 利用交易时段规则，判断出该时间(t) 是否属于夜盘：
+        #   * 若不属于夜盘，则日历日等于交易日。此时直接将日历日+时间合成日历交易时间戳。
+        #   * 若属于夜盘，则调用 _get_cal_ts_for_night_session， 输入夜盘开始时间、时间t和交易日，翻译出日历交易时间戳。
+        session = self.meta_manager.get_sessions(self.symbol_root, trading_date=trading_date)
+        night_sessions = session.night_sessions
+
+        # 如果没有夜盘，则直接进入早午盘逻辑
+        # TODO: [Tech Debt]
+        # 这里我没有加入校验，即没有判断输入的时间t是否合法（即是否在早午盘的时间范围内）。
+        # 如果输入了一个不合法的时间（例如 15:30），虽然它不属于夜盘，但它也不属于早午盘，这时函数会直接返回一个日历交易时间戳，但这个时间戳实质上是错误的。
+        # 后续可以考虑加入校验逻辑，抛出异常。
+        if not night_sessions: # 如果没有夜盘，直接将交易日和时间合成日历交易时间戳返回（默认输入的t是合法的，即在早午盘时间范围内）
+            calendar_timestamp = pd.Timestamp(f'{trading_date.isoformat()} {str(t)}')
+            return calendar_timestamp
+        else:
+            # 如果有夜盘，进入判断逻辑，判断时间t是否属于夜盘
+            night_start_t = pd.Timestamp(night_sessions[0][0]).time()
+
+            for start_str, end_str in night_sessions:
+                start_t = pd.Timestamp(start_str).time()
+                end_t = pd.Timestamp(end_str).time()
+                # 若该sub_session的时间段（开始-结束）不跨零点 (如 21:00 - 23:00)
+                if start_t < end_t: 
+                    if start_t <= t <= end_t:  # 若在夜盘时段内：晚于夜盘开始时间，且早于夜盘结束时间
+                        return self._get_cal_ts_for_night_sesssion(
+                            night_start_t=night_start_t,
+                            t=t,
+                            trading_date=trading_date
+                        )
+                # 若跨越零点 (如 21:00 - 02:30)
+                else: 
+                    if t > start_t or t < end_t:  #若在夜盘时段内：晚于夜盘开始时间，或早于夜盘结束时间
+                        return self._get_cal_ts_for_night_sesssion(
+                            night_start_t=night_start_t,
+                            t=t,
+                            trading_date=trading_date
+                        )
+            # 如果循环结束都没有返回，说明输入的时间t不属于夜盘，那么直接将交易日和时间合成日历交易时间戳返回（默认输入的t是合法的，即在早午盘时间范围内）
+            calendar_timestamp = pd.Timestamp(f'{trading_date.isoformat()} {str(t)}')
+            return calendar_timestamp
+    
+    def get_calendar_timestamps_from_trading_date_and_time(self,
+                                                          trading_dates: Iterable[date],
+                                                          t_s: Iterable[time]) -> np.ndarray:
+        """
+        翻译器（向量化版本）：将交易日期和时间翻译为日历交易时间戳。
+        时间是指时间戳的时间部分（时分秒）。
+
+        内部调用单值版本。
+
+        Parameters
+        ------
+        trading_dates: Iterable[datetime.date]
+            交易日期列表。
+        t_s: Iterable[datetime.time]
+            时间列表（时分秒）。
+
+        Returns
+        ------
+        np.ndarray
+            日历交易时间戳列表。
+        
+        """
+        return np.array([
+            self.get_calendar_timestamp_from_trading_date_and_time(trading_date, t)
+            for trading_date, t in zip(trading_dates, t_s)
+        ])

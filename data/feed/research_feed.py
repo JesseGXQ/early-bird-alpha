@@ -3,7 +3,6 @@ import pandas as pd
 import warnings
 from typing import TYPE_CHECKING
 from datetime import date
-import os
 
 if TYPE_CHECKING:
     from data.stitching.stitching import ContinuousContractManager
@@ -14,8 +13,6 @@ if TYPE_CHECKING:
     from data.storage.file_locator import FileLocator
     from data.storage.bar_loader import BarLoader
     from data.config import AdjustmentConfig
-
-
 
 class ResearchFeed:
     """
