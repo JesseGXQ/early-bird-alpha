@@ -123,7 +123,7 @@ class OutlierFilter(FilterBase):
 
 class PriceLimitFilter(FilterBase):
     """
-    涨跌停状态打标机
+    涨跌停状态打标器
     识别当前 TICK 是否处于涨跌停状态， 并打上布尔标签， 供下游撮合引擎判断是否能成交。
     """
 

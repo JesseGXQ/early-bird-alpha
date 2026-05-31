@@ -35,7 +35,10 @@ class DailySnapshotManager:
         仅包含涨跌停板。
         """
         if symbol_root not in self._cache:
-            df = self.daily_snapshot_loader.load(symbol_root,['TradingDate','Contract','UpperLimitPrice','LowerLimitPrice'])
+            df = self.daily_snapshot_loader.load(
+                symbol_root,
+                ['TradingDate','Contract','UpperLimitPrice','LowerLimitPrice']
+                )
             
             # 设置索引，加速查询
             df['TradingDate'] = pd.to_datetime(df['TradingDate'])

@@ -3,15 +3,28 @@ data/factory.py
 
 工厂函数：负责构造和组装对象
 """
-from data.stitching.stitching import  ContinuousContractManager
+from numpy import roll
+from param import output
+
+from data.cleaning.cleaning import *
+
+from data.stitching.stitching import ContinuousContractManager
+
 from data.metadata.meta_manager import InstrumentMetaManager
+from data.metadata.daily_snapshot_manager import DailySnapshotManager
+
 from data.calendar.calendar import TradingCalendar
+
 from data.feed.aggregator import BarAggregator
 from data.feed.research_feed import ResearchFeed
+from data.feed.simulation_feed import SimulationFeed
+
+from data.storage.daily_snapshot_loader import DailySnapshotLoader
 from data.storage.file_locator import FileLocator
 from data.storage.bar_loader import BarLoader
 
 from data.config import RolloverConfig, AdjustmentConfig, SamplingConfig, EnvironmentConfig 
+
 
 def create_research_feed(
         symbol_root: str,
@@ -65,5 +78,67 @@ def create_research_feed(
         adj_config=adj_config #复权计算在 ResearchFeed 的内部
     )
 
+def create_simulation_feed(
+        symbol_root: str,
+        rollover_config: RolloverConfig = RolloverConfig(),
+        env_config: EnvironmentConfig = EnvironmentConfig()
+        ) -> SimulationFeed:
+    """
+    根据换月配置和环境配置，组装并返回一个 SimulationFeed 实例。
+    """
+    meta_manager = InstrumentMetaManager(
+        meta_dir=env_config.meta_dir
+    )
+    calendar = TradingCalendar(
+        symbol_root=symbol_root,
+        meta_manager=meta_manager,
+        calendar_dir=env_config.calendar_dir
+    )
+    file_locator = FileLocator(
+        data_dir=env_config.data_dir_tick,
+        calendar=calendar)
+    contract_manager = ContinuousContractManager(
+        symbol_root=symbol_root,
+        master_table_dir=env_config.master_table_dir,
+        rollover_config=rollover_config
+    )
+    
+    # 构造数据清洗管道(data cleaning pipeline)
+    clean_pipeline = CleaningPipeline()
+    # 1. 数据增广器，涨跌停价
+    daily_snapshot_loader = DailySnapshotLoader(
+        daily_snapshot_dir=env_config.daily_snapshot_dir
+    )
+    daily_snapshot_manager = DailySnapshotManager(
+        daily_snapshot_loader=daily_snapshot_loader
+    )
+    enricher_price_limit = DataEnricherPriceLimit(
+        symbol_root=symbol_root,
+        daily_snapshot_manager=daily_snapshot_manager
+    )
+    clean_pipeline.add_filter(enricher_price_limit)
+    # 2. 数据增广器，日历交易时间戳
+    enricher_gen_cal_ts = DataEnricherGenerateCalendarTimestamp(
+        calendar=calendar
+    )
+    clean_pipeline.add_filter(enricher_gen_cal_ts)
+    # 3. 异常值过滤器
+    outlier_filter = OutlierFilter()
+    clean_pipeline.add_filter(outlier_filter)
+    # 4. 涨跌停状态打标器
+    price_limit_filter = PriceLimitFilter()
+    clean_pipeline.add_filter(price_limit_filter)
+    # 5. 数据格式规范器
+    output_enforcer = OutputSchemaEnforcer()
+    clean_pipeline.add_filter(output_enforcer)
+
+    # 组装 SimulationFeed
+    return SimulationFeed(
+        symbol_root=symbol_root,
+        calendar=calendar,
+        file_locator=file_locator,
+        clean_pipeline=clean_pipeline,
+        contract_manager=contract_manager
+    )
 
 

@@ -54,7 +54,7 @@ class AdjustmentConfig:
 @dataclass(frozen=True)
 class SamplingConfig:
     """
-    抽样配置类，用于重采样和时间轴对齐。
+    抽样配置类。
 
     Parameters
     ----------
@@ -75,7 +75,7 @@ class SamplingConfig:
 @dataclass(frozen=True)
 class EnvironmentConfig:
     """
-    环境配置，包含路径与加载器限制。
+    环境配置类。
 
     Parameters
     ----------
@@ -83,6 +83,8 @@ class EnvironmentConfig:
         存放合约元数据的目录路径。
     data_dir_1min : str, optional
         存放 1 分钟 K 线数据的目录路径。
+    data_dir_tick: str, optinal
+        存放原始 TICK 数据的目录路径。
     daily_snapshot_dir : str, optional
         存放日频快照数据的目录路径。
     master_table_dir : str, optional
@@ -95,6 +97,7 @@ class EnvironmentConfig:
     """
     meta_dir: str = './data/metadata/instrument_meta'
     data_dir_1min: str = './data/storage/bar_1min'              # 1min 数据储存路径
+    data_dir_tick: str = './data/storage/tick'                  # TICK 数据储存路径
     daily_snapshot_dir: str = './data/storage/daily_snapshots' # 日频快照数据储存位置
     master_table_dir: str = './data/metadata/master_tables'     # 换月总表储存位置
     calendar_dir: str = './data/metadata/trading_calendars'     # 交易日历储存位置
