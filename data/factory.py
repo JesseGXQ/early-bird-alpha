@@ -1,16 +1,11 @@
 """
-data/factory.py
-
 工厂函数：负责构造和组装对象
 """
-from numpy import roll
-from param import output
-
 from data.cleaning.cleaning import *
 
 from data.stitching.stitching import ContinuousContractManager
 
-from data.metadata.meta_manager import InstrumentMetaManager
+from data.metadata.product_meta_manager import ProductMetaManager
 from data.metadata.daily_snapshot_manager import DailySnapshotManager
 
 from data.calendar.calendar import TradingCalendar
@@ -27,7 +22,8 @@ from data.config import RolloverConfig, AdjustmentConfig, SamplingConfig, Enviro
 
 
 def create_research_feed(
-        symbol_root: str,
+        product: str,
+        # TODO [tech debt] 按照BasedPyright的warnings修改—— mutable default parameters loophole
         rollover_config: RolloverConfig = RolloverConfig(),
         adj_config: AdjustmentConfig = AdjustmentConfig(),
         sample_config: SamplingConfig = SamplingConfig(),
@@ -40,17 +36,18 @@ def create_research_feed(
 
     """
     #1. 解析环境
-    meta_manager = InstrumentMetaManager(
-        meta_dir=env_config.meta_dir
+    meta_manager = ProductMetaManager(
+        product_meta_dir=env_config.meta_dir
         )
     calendar = TradingCalendar(
-        symbol_root=symbol_root, 
+        product=product, 
         meta_manager=meta_manager, 
         calendar_dir=env_config.calendar_dir
         )
     file_locator = FileLocator(
         data_dir=env_config.data_dir_1min, 
-        calendar=calendar
+        calendar=calendar,
+        meta_manager=meta_manager
         )
     bar_loader = BarLoader(
         max_cache_size=env_config.bar_loader_max_cache_size
@@ -58,7 +55,7 @@ def create_research_feed(
 
     # 2. 注入换月规则
     contract_manager = ContinuousContractManager(
-        symbol_root=symbol_root,
+        product=product,
         rollover_config=rollover_config,
         master_table_dir=env_config.master_table_dir
         )
@@ -68,7 +65,7 @@ def create_research_feed(
                                    sample_config=sample_config)
     # 4. 组装 ResearchFeed
     return ResearchFeed(
-        symbol_root=symbol_root,
+        product=product,
         contract_manager=contract_manager,
         meta_manager=meta_manager,
         calendar=calendar,
@@ -79,26 +76,27 @@ def create_research_feed(
     )
 
 def create_simulation_feed(
-        symbol_root: str,
+        product: str,
         rollover_config: RolloverConfig = RolloverConfig(),
         env_config: EnvironmentConfig = EnvironmentConfig()
         ) -> SimulationFeed:
     """
     根据换月配置和环境配置，组装并返回一个 SimulationFeed 实例。
     """
-    meta_manager = InstrumentMetaManager(
+    meta_manager = ProductMetaManager(
         meta_dir=env_config.meta_dir
     )
     calendar = TradingCalendar(
-        symbol_root=symbol_root,
+        product=product,
         meta_manager=meta_manager,
         calendar_dir=env_config.calendar_dir
     )
     file_locator = FileLocator(
         data_dir=env_config.data_dir_tick,
-        calendar=calendar)
+        calendar=calendar,
+        meta_manager=meta_manager)
     contract_manager = ContinuousContractManager(
-        symbol_root=symbol_root,
+        product=product,
         master_table_dir=env_config.master_table_dir,
         rollover_config=rollover_config
     )
@@ -113,7 +111,7 @@ def create_simulation_feed(
         daily_snapshot_loader=daily_snapshot_loader
     )
     enricher_price_limit = DataEnricherPriceLimit(
-        symbol_root=symbol_root,
+        product=product,
         daily_snapshot_manager=daily_snapshot_manager
     )
     clean_pipeline.add_filter(enricher_price_limit)
@@ -134,7 +132,7 @@ def create_simulation_feed(
 
     # 组装 SimulationFeed
     return SimulationFeed(
-        symbol_root=symbol_root,
+        product=product,
         calendar=calendar,
         file_locator=file_locator,
         clean_pipeline=clean_pipeline,

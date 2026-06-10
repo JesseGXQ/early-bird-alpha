@@ -3,13 +3,13 @@ import pandas as pd
 import warnings
 from typing import TYPE_CHECKING
 from datetime import date
+from utils.validation_utils import check_df_columns_exist
 
 if TYPE_CHECKING:
     from data.stitching.stitching import ContinuousContractManager
-    from data.metadata.meta_manager import InstrumentMetaManager
+    from data.metadata.product_meta_manager import ProductMetaManager
     from data.calendar.calendar import TradingCalendar
     from data.feed.aggregator import BarAggregator
-    from utils.validation_utils import check_df_columns_exist
     from data.storage.file_locator import FileLocator
     from data.storage.bar_loader import BarLoader
     from data.config import AdjustmentConfig
@@ -23,12 +23,12 @@ class ResearchFeed:
 
     Parameters
     ------
-    symbol_root: str
-        品种代码前缀，例如'RB'。
+    product: str
+        品种代码，例如'RB'。
     contract_manager: ContinuousContractManager
         连续合约大管家，包含 master_table 属性(换月总表)，有 Dominant_Contract, Price_Gap 列。
-    meta_manager: InstrumentMetaManager
-        合约元数据管理器，提供合约的交易时间、交易小节划分等元信息查询功能。
+    meta_manager: ProductMetaManager
+        品种元数据管家，提供品种的交易时间、交易小节划分等元信息查询功能。
     calendar: TradingCalendar
         交易日历实例，提供交易日、交易小节、分钟偏移等查询功能。
     file_locator: FileLocator
@@ -49,23 +49,23 @@ class ResearchFeed:
 
     def __init__(
             self, 
-            symbol_root: str,
+            product: str,
             contract_manager: ContinuousContractManager, 
-            meta_manager: InstrumentMetaManager, 
+            meta_manager: ProductMetaManager, 
             calendar: TradingCalendar, 
             file_locator: FileLocator, 
             bar_loader: BarLoader, 
             bar_aggregator: BarAggregator,
             adj_config: AdjustmentConfig):
-        self.symbol_root = symbol_root.upper()
+        self.product: str = product.upper()
 
-        self.contract_manager = contract_manager #包含 master_table 属性(换月总表)，有Dominant_Contract, Price_Gap 列
-        self.meta_manager = meta_manager
-        self.calendar = calendar
-        self.file_locator = file_locator
-        self.bar_loader = bar_loader
-        self.bar_aggregator = bar_aggregator
-        self.adj_config = adj_config
+        self.contract_manager: ContinuousContractManager = contract_manager #包含 master_table 属性(换月总表)，有Dominant_Contract, Price_Gap 列
+        self.meta_manager: ProductMetaManager = meta_manager
+        self.calendar: TradingCalendar = calendar
+        self.file_locator: FileLocator = file_locator
+        self.bar_loader: BarLoader = bar_loader
+        self.bar_aggregator: BarAggregator = bar_aggregator
+        self.adj_config: AdjustmentConfig = adj_config
 
     def get_historical_vector(self, 
                               start_date: date, 

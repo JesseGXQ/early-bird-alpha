@@ -7,44 +7,9 @@ from datetime import date, time, timedelta
 import warnings
 
 if TYPE_CHECKING:
-    from data.metadata.meta_manager import InstrumentMetaManager
-    from data.metadata.meta_manager import Session
+    from data.metadata.product_meta_manager import ProductMetaManager  
+    #from data.metadata.meta_manager import Session
 
-
-"""
-TradingCalendar, InstrumentMetaManager 相关数据储存方式的说明
-
-一、期货相关数据的储存
-
-储存位置
-data/
-└── metadata
-    └── instrument_meta/
-        ├── RB.yaml     # 螺纹钢
-        ├── CU.yaml     # 铜
-        ├── AL.yaml     # 铝
-        ├── IF.yaml     # 沪深300股指
-        └── ...
-
-说明：一个品种一个yaml文件。静态属性直接存，历史变化的字段用 effective_date 版本化管理。
-
-
-三、TradingCalendar 的设计
-
-* 历史交易日列表的储存
-    储存位置：
-    data/
-    └── metadata
-        └── trading_calendars
-            ├── SHFE.csv    # 上期所（RB、CU、AL等）
-            ├── DCE.csv     # 大商所（M、Y、I等）
-            ├── CZCE.csv    # 郑商所（MA、TA、CF等）
-            ├── CFFEX.csv   # 中金所（IF、IC、T等）
-            └── INE.csv     # 上海国际能源中心（SC等）
-
-    说明：CSV 文件只有一列 trading_date 。
-
-"""
 class TradingCalendar:
     #Note: 对象的职责边界与实例化粒度（Object Responsibility & Instantiation Granularity）问题。 
     #由于不同的品种对应交易所不同，所以交易日历不同，因此，该类在实例化时，更理想的方式是服务于某个特定品种，其应该是有状态的(Stateful)。
@@ -54,10 +19,10 @@ class TradingCalendar:
 
     Parameters
     ------
-    symbol_root:
-        品种代码前缀，例如'RB'。
-    meta_manager: InstrumentMetaManager
-        元数据管家。用于查询品种对应的交易所，从而加载相应的交易日历。
+    product: str
+        品种代码，例如'RB'。
+    meta_manager: ProductMetaManager
+        品种元数据管家。用于查询品种对应的交易所，从而加载相应的交易日历。
     calendar_dir: str
         (各交易所的)交易日历 CSV 文件储存路径。
 
@@ -90,21 +55,21 @@ class TradingCalendar:
 
     """
     def __init__(self, 
-                 symbol_root: str,
-                 meta_manager: InstrumentMetaManager,
-                 calendar_dir: str = './data/metadata/trading_calendars'):
-        self.symbol_root = symbol_root
-        self.meta_manager = meta_manager
+                 product: str,
+                 meta_manager: ProductMetaManager,
+                 calendar_dir: str):
+        self.product: str = product
+        self.meta_manager: ProductMetaManager = meta_manager
 
         #向 meta_manager 询问该品种所对应的交易所
-        exchange = self.meta_manager.get_static_meta(symbol_root).exchange
+        exchange = self.meta_manager.get_static_meta(product).exchange
         #读取该交易所的交易日期
         path = Path(calendar_dir) / f'{exchange}.csv'
         
         #设置为pd.DatetimeIndex，"in" operation is O(1), and use get_loc method to return index.
         df_cal = pd.read_csv(path)
         assert df_cal.shape[1] == 1 # 确保只有一列，就是 trading_date
-        self.exchange_trading_dates = pd.DatetimeIndex(df_cal.iloc[:, 0]).sort_values()
+        self.exchange_trading_dates: pd.DatetimeIndex = pd.DatetimeIndex(df_cal.iloc[:, 0]).sort_values()
 
     def is_trading_date(self, date: date) -> bool:
         """判断某个日期是否为交易日。
@@ -194,7 +159,7 @@ class TradingCalendar:
         """
         # 1. 判定夜盘（动态处理是否跨零点） 
         trading_date = self.get_trading_date(calendar_timestamp)
-        session = self.meta_manager.get_sessions(self.symbol_root, trading_date) #根据品种代码和交易日，获取相应的交易时段规则
+        session = self.meta_manager.get_sessions(self.product, trading_date) #根据品种代码和交易日，获取相应的交易时段规则
         t = calendar_timestamp.time()
 
         if session.night_sessions:
@@ -216,7 +181,7 @@ class TradingCalendar:
         try:
             assert len(day_sessions) > 1
         except AssertionError:
-            raise ValueError(f'请确保 {self.symbol_root} 的 品种 YAML 文件-交易时间段，早盘和午盘分开放置。')
+            raise ValueError(f'请确保 {self.product} 的 品种 YAML 文件-交易时间段，早盘和午盘分开放置。')
         # 默认最后一个 session 是午盘，前面都是早盘
         morning_sessions = day_sessions[:-1]
         afternoon_session = day_sessions[-1]
@@ -231,7 +196,7 @@ class TradingCalendar:
         if pd.Timestamp(start).time() <= t <= pd.Timestamp(end).time(): 
             return 2
         
-        warnings.warn(f'【TradingCalendar】警告：时间戳 {calendar_timestamp} 不属于 {self.symbol_root}的合法交易时段！')
+        warnings.warn(f'【TradingCalendar】警告：时间戳 {calendar_timestamp} 不属于 {self.product}的合法交易时段！')
         return -1 #返回异常状态
     
     def get_time_offset(self, calendar_timestamp: pd.Timestamp) -> pd.Timedelta: 
@@ -256,7 +221,7 @@ class TradingCalendar:
 
         # 2. 根据交易小节，获取距离交易小节起点的offset，注意区分早盘是否有休息
         trading_date = self.get_trading_date(calendar_timestamp) # 首先获取该时间戳所对应的“交易日”
-        session = self.meta_manager.get_sessions(self.symbol_root, trading_date) #根据品种代码和交易日，获取相应的交易时段规则
+        session = self.meta_manager.get_sessions(self.product, trading_date) #根据品种代码和交易日，获取相应的交易时段规则
 
         ts_date = calendar_timestamp.date().isoformat() #记录该时间戳的日期
         t = calendar_timestamp.time()
@@ -384,9 +349,9 @@ class TradingCalendar:
         try:
             _idx = self.exchange_trading_dates.get_loc(trading_date) # this raises a KeyError if not found
         except KeyError:
-            raise ValueError(f'【TradingCalendar】交易日期 {trading_date} 不在 {self.symbol_root} 的交易日列表中。')
+            raise ValueError(f'【TradingCalendar】交易日期 {trading_date} 不在 {self.product} 的交易日列表中。')
         if _idx == 0: # 此时 _idx -1 = -1,会返回最后一个交易日，逻辑错误。
-            raise ValueError(f'【TradingCalendar】品种 {self.symbol_root} 没有比 {trading_date} 更早的交易日了。')
+            raise ValueError(f'【TradingCalendar】品种 {self.product} 没有比 {trading_date} 更早的交易日了。')
         return self.exchange_trading_dates[_idx - 1].date()
     
     def _get_cal_ts_for_night_sesssion(self, night_start_t: time, t: time, trading_date: date, ) -> pd.Timestamp:
@@ -419,7 +384,7 @@ class TradingCalendar:
         pd.Timestamp
             交易时间戳。
         """
-        session = self.meta_manager.get_sessions(self.symbol_root, trading_date=trading_date)
+        session = self.meta_manager.get_sessions(self.product, trading_date=trading_date)
         # 若需要翻译的是夜盘(session_id==0)
         if session_id == 0:
             night_start = session.night_sessions[0][0]
@@ -446,7 +411,7 @@ class TradingCalendar:
                     return end_ts - pd.Timedelta(minutes=minutes_to_end)
             
             # 如果循环结束都没有返回，说明分钟偏移量超过了夜盘的总分钟数，抛出异常
-            raise ValueError(f'【TradingCalendar】分钟偏移量 {minute_offset} 超过了 {self.symbol_root} 在 {trading_date} 的夜盘总分钟数 {minutes_passed}。请检查输入的分钟偏移量是否合理。')
+            raise ValueError(f'【TradingCalendar】分钟偏移量 {minute_offset} 超过了 {self.product} 在 {trading_date} 的夜盘总分钟数 {minutes_passed}。请检查输入的分钟偏移量是否合理。')
 
         # 若需要翻译的是早盘(session_id==1)
         elif session_id == 1:
@@ -459,7 +424,7 @@ class TradingCalendar:
                     minutes_to_end = minutes_passed - minute_offset #所需要的时间戳距离末端的分钟距离
                     return end_ts - pd.Timedelta(minutes=minutes_to_end)
             # 如果循环结束都没有返回，说明分钟偏移量超过了早盘的总分钟数，抛出异常
-            raise ValueError(f'【TradingCalendar】分钟偏移量 {minute_offset} 超过了 {self.symbol_root} 在 {trading_date} 的早盘总分钟数 {minutes_passed}。请检查输入的分钟偏移量是否合理。')
+            raise ValueError(f'【TradingCalendar】分钟偏移量 {minute_offset} 超过了 {self.product} 在 {trading_date} 的早盘总分钟数 {minutes_passed}。请检查输入的分钟偏移量是否合理。')
         
         else: # 午盘(session_id==2)
             start_str, end_str = session.day_sessions[-1]
@@ -521,7 +486,7 @@ class TradingCalendar:
         standard_timestamps = []
 
         for trading_date in trading_dates:
-            session = self.meta_manager.get_sessions(symbol_root=self.symbol_root, trading_date=trading_date)
+            session = self.meta_manager.get_sessions(product=self.product, trading_date=trading_date)
             
             #日盘（无需处理是否跨零点问题）
             day_sessions = session.day_sessions
@@ -573,7 +538,7 @@ class TradingCalendar:
                                                           trading_date: date, 
                                                           t: time) -> pd.Timestamp:
         """
-        翻译器（单值版本）：将交易日期和时间翻译为日历交易时间戳。
+        翻译器（单值版本）：将交易日期+时间的组合翻译为日历交易时间戳。
         时间是指时间戳的时间部分（时分秒）。
 
         Parameters
@@ -589,12 +554,7 @@ class TradingCalendar:
             日历交易时间戳。
         
         """
-        # 实现逻辑：
-        # 1. 首先利用元数据管家，获取在 trading_date 的 交易时段规则(session)
-        # 2. 利用交易时段规则，判断出该时间(t) 是否属于夜盘：
-        #   * 若不属于夜盘，则日历日等于交易日。此时直接将日历日+时间合成日历交易时间戳。
-        #   * 若属于夜盘，则调用 _get_cal_ts_for_night_session， 输入夜盘开始时间、时间t和交易日，翻译出日历交易时间戳。
-        session = self.meta_manager.get_sessions(self.symbol_root, trading_date=trading_date)
+        session = self.meta_manager.get_sessions(self.product, trading_date=trading_date)
         night_sessions = session.night_sessions
 
         # 如果没有夜盘，则直接进入早午盘逻辑

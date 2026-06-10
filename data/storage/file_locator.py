@@ -8,10 +8,11 @@ import warnings
 
 if TYPE_CHECKING:
     from data.calendar.calendar import TradingCalendar
+    from data.metadata.product_meta_manager import ProductMetaManager
 
 class FileLocator:
     """
-    文件寻址器。寻找某合约的 CSV 或 Parquet 源数据文件路径
+    文件寻址器。寻找合约的 CSV 或 Parquet 源数据文件路径。
     
     1 min 或 TICK 级别数据文件搜寻通用。
 
@@ -32,33 +33,48 @@ class FileLocator:
     def __init__(self, 
                  data_dir: str, 
                  calendar: TradingCalendar,
+                 meta_manager: ProductMetaManager
                  ):
+        self.data_dir: Path = Path(data_dir)
+        self.calendar: TradingCalendar = calendar
+        self.meta_manager: ProductMetaManager = meta_manager
+        
+        self._1min_search_symbol_exchange_mapping: dict[str, str] = {} # 内部缓存，用于加速根据 product 查找交易所代码的过程，避免频繁调用 meta_manager.get_static_meta
 
-        self.data_dir = Path(data_dir)
-        self.calendar = calendar
-
-    def get_1min_file_path(self, contract: str) -> str:
+    def get_1min_file_path(self, 
+                           product: str,
+                           contract: str) -> str:
         """获取合约的 1min 数据储存路径。
         
         Parameters
         ------
+        product: str
+            品种代码，例如'RB'。
         contract: str
-            合约名称
+            合约名称。
         
         Returns
         ------
         str
             Parquet 或 CSV 数据文件路径。
         """
-        # 1min 文件名称：RB2607.parquet 或 RB2607.csv
-        pq_file_path = self.data_dir / f'{contract}.parquet'
+        # 本地 1min 数据存储路径：1min/{交易所代码}/{product}/{contract}.csv
+        if not product in self._1min_search_symbol_exchange_mapping: #若缓存中无法找到该品种的交易所，则向元数据管家询问
+            exchange = self.meta_manager.get_static_meta(product).exchange
+            self._1min_search_symbol_exchange_mapping[product] = exchange
+        exchange = self._1min_search_symbol_exchange_mapping[product]
+        
+        # 首先尝试寻找 parquet 文件
+        pq_file_path = self.data_dir / exchange/ product / f'{contract}.parquet'
         if pq_file_path.exists():
             return str(pq_file_path)
+        
         # 若未找到 parquet，fall back to csv
-        csv_file_path = self.data_dir / f'{contract}.csv'
+        csv_file_path = self.data_dir / exchange/ product / f'{contract}.csv'
         if csv_file_path.exists():
             warnings.warn(f'【FileLocator】未找到相关 Parquet数据: str(pq_file_path)，将使用低效率的 CSV 文件。')
             return str(csv_file_path)
+        
         #若都没找到，警告一下，返回空字符串
         warnings.warn(f'【FileLocator】未找到相关 Parquet 或 CSV 数据：{str(pq_file_path), str(csv_file_path)}')
         return ''
@@ -74,13 +90,15 @@ class FileLocator:
 
         日期可为交易日(trading_date)或日历日(calendar_date)，时间戳为日历交易时间戳(calendar_timestamp)。
         
+        必须且仅能传入以上三者之一。
+
         Parameters
         ------
         contract: str
             合约名称
-        trading_date: date or None
+        trading_date: datetime.date or None
             交易日
-        calendar_date: date or None
+        calendar_date: datetime.date or None
             日历日
         calendar_timestamp: pd.Timestamp or None
             日历交易时间戳
@@ -105,16 +123,16 @@ class FileLocator:
             _ts = pd.Timestamp(f'{calendar_date.isoformat()} 11:15:00')
             trading_date = self.calendar.get_trading_date(_ts)
         else:
-            ValueError(f'必须且仅能传入 trading_date, calendar_date, calendar_timestamp 三者之一。')
+            raise ValueError(f'必须且仅能传入 trading_date, calendar_date, calendar_timestamp 三者之一。')
         
-        # TICK文件名称: RB2607_20260106.parquet 或 RB2607_20260106.csv ，即一个交易日一个文件
-        # TODO [数据相关]
-        # 根据上述要求统一 TICK 数据文件名
-        pq_file_path = self.data_dir / f'{contract}_{trading_date.strftime('%Y%m%d')}.parquet'
+        # 本地 TICK 数据存储路径： TICK/{year}/{trading_date}/{contract}.csv
+        year = str(trading_date.year)
+        # 首先尝试寻找 parquet 文件
+        pq_file_path = self.data_dir / year / trading_date.strftime('%Y%m%d') / f'{contract}.parquet'
         if pq_file_path.exists():
             return str(pq_file_path)
         #若找不到 parquet, fall back to csv
-        csv_file_path = self.data_dir / f'{contract}_{trading_date.strftime('%Y%m%d')}.csv'
+        csv_file_path = self.data_dir / year/ trading_date.strftime('%Y%m%d') / f'{contract}.csv'
         if csv_file_path.exists():
             warnings.warn(f'【FileLocator】未找到相关 Parquet数据: str(pq_file_path)，使用低效率的 CSV 文件。')
             return str(csv_file_path)

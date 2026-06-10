@@ -55,7 +55,7 @@ OutlierFilter (异常值过滤器)
 * AdjustmentCalculator (复权计算器)
 功能： 根据 RolloverDetector 给出的日期，去 storage 读取换月当天的跳空价差（Price Gap），并生成一张 AdjustmentFactorMap（复权因子映射表）。
 * ContinuousContractManager (连续合约大管家)
-功能： 对外提供查询接口。例如 get_active_contracts(symbol_root, date)，在正常日子返回 [RB2405]，在换月窗口期返回 [RB2405, RB2409]（支持 “双合约并行”的需求，以实现大规模资金换月窗口期内平滑换月）。
+功能： 对外提供查询接口。例如 get_active_contracts(product, date)，在正常日子返回 [RB2405]，在换月窗口期返回 [RB2405, RB2409]（支持 “双合约并行”的需求，以实现大规模资金换月窗口期内平滑换月）。
 备注：如果两个合约的 Tick 不是同时来的（通常相差毫秒），需要做 “最新值对齐（Last-Value Cross-Section）。同时，Data Engine 需要支持同时计算两份合约的保证金占用。因为在换月过程中，你的总名义价值虽然没变，但在两个合约上都有持仓。
 
 移仓换月的执行对Data Engine的要求：

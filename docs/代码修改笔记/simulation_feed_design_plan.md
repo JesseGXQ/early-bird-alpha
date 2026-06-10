@@ -200,7 +200,7 @@ class SimulationFeed:
 
     Parameters
     ----------
-    symbol_root : str
+    product : str
         期货品种代码，例如 "RB"。
     calendar : TradingCalendar
         交易日历，用于 Trading Date 映射和交易时段过滤。
@@ -217,7 +217,7 @@ class SimulationFeed:
 
     def __init__(
         self,
-        symbol_root: str,
+        product: str,
         calendar: TradingCalendar,
         bar_loader: BarLoader,
         contract_manager: ContinuousContractManager,

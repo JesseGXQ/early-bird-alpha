@@ -1,9 +1,6 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 import pandas as pd
-import numpy as np
-import warnings
-from utils.validation_utils import check_df_columns_exist
 
 if TYPE_CHECKING:
     from data.config import SamplingConfig
@@ -79,11 +76,11 @@ class BarAggregator:
             降频采样后的数据集。索引为calendat_time，即日历交易时间，类型为 pd.DatetimeIndex 。   
             按日期顺序排列（最早在前）。
         """
-        if raw_df is None or raw_df.empty:
+        if raw_df.empty:
             return pd.DataFrame()
         
         # 防御性复制和索引规范化
-        df = raw_df.copy()
+        df: pd.DataFrame = raw_df.copy()
         df.index = pd.to_datetime(df.index) # explicitly set to DatetimeIndex
         df.sort_index(inplace=True)
 

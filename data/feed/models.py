@@ -4,7 +4,7 @@
 """
 from dataclasses import dataclass
 import pandas as pd
-from datetime import  date
+from datetime import date
 
 @dataclass(frozen=True)
 class ContractTick:

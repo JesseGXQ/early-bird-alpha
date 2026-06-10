@@ -1,0 +1,67 @@
+# instrument_meta/RB.yaml
+
+# ── 静态属性 ──────────────────────────────────
+product: RB
+exchange: SHFE
+position_type: 1
+position_date_type: 1
+max_margin_side_algorithm: 1
+combination_type: 1
+
+# ── 交易成本历史 ──────────────────────────────
+transaction_cost_history:
+  - effective_date: "2015-01-01"
+    commission_type: "flat"        # flat 表示按手收取定额费用
+    open: 3.0                     # 开仓 3 元/手
+    close_today: 3.0              # 平今 3 元/手
+    close_yesterday: 3.0          # 平昨 3 元/手
+  - effective_date: "2021-06-01"
+    commission_type: "flat"
+    open: 3.0
+    close_today: 9.0              # 交易所调高平今手续费至 9 元/手（抑制日内投机）
+    close_yesterday: 0.0          # 郑商所和大商所部分品种甚至实行过平昨免手续费（0元/手）
+
+# 最小变动价位历史
+price_tick_history:
+  - effective_date: "2015-01-05"
+    price_tick: 1.0
+    remain_old_rule_instruments: ["RB1505","RB1507"] #非空，说明当时使用了新老划断
+  - effective_date: "2021-12-03"
+    price_tick: 0.5
+    remain_old_rule_instruments: []
+
+#合约乘数规则历史
+multiplier_history:
+  - effective_date: "2015-01-08"
+    multiplier: 10
+
+#最大最小下单量限制历史
+order_volume_limits_history:
+  - effective_date: "2015-01-08"
+    max_market_order_volume: 50
+    min_market_order_volume: 1
+    max_limit_order_volume: 200
+    min_limit_order_volume: 1
+  - effective_date: "2017-06-27"
+    max_market_order_volume: 50
+    min_market_order_volume: 1
+    max_limit_order_volume: 500
+    min_limit_order_volume: 1
+
+
+# ── 交易时段历史 ──────────────────────────────
+sessions_history:
+  - effective_date: "2012-01-01"
+    day_sessions:
+      - ["09:00", "10:15"]
+      - ["10:30", "11:30"]
+      - ["13:30", "15:00"]
+    night_sessions: []
+
+  - effective_date: "2015-07-09"
+    day_sessions:
+      - ["09:00", "10:15"]
+      - ["10:30", "11:30"]
+      - ["13:30", "15:00"]
+    night_sessions:
+      - ["21:00", "23:00"]

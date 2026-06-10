@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 import pandas as pd
 from abc import ABC, abstractmethod
-import numpy as np
 
 from utils.validation_utils import check_df_columns_exist
 
@@ -27,10 +26,10 @@ class DataEnricherPriceLimit(FilterBase):
     数据增强滤芯：涨跌停价注入器
     负责为每笔 TICK 数据注入对应的涨跌停价。
     向 DailySnapshotManager 请求对应品种在特定交易日的涨跌停价信息，并将其合并到 TICK 数据中。
-    (DailySnapShotManager 提供 get_price_limits 方法，根据输入的symbol_root, contract, trading_date, 返回 (涨停价，跌停价) )
+    (DailySnapShotManager 提供 get_price_limits 方法，根据输入的product, contract, trading_date, 返回 (涨停价，跌停价) )
     """
-    def __init__(self, symbol_root, daily_snapshot_manager: DailySnapshotManager):
-        self.symbol_root = symbol_root
+    def __init__(self, product, daily_snapshot_manager: DailySnapshotManager):
+        self.product = product
         self.daily_snapshot_manager = daily_snapshot_manager
     
     def apply(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -38,6 +37,9 @@ class DataEnricherPriceLimit(FilterBase):
         clean_df = df.copy()
 
         if 'InstrumentID' in clean_df.columns: 
+            # TODO [数据相关]
+            # 这里的合约名称(contract)是否有必要将英文字母取大写？要做一个统一。
+            # 另外的一处upper()在 research_feed.py中。请确认后做统一。
             contracts = clean_df['InstumentID'].str.upper().unique()
         else:
             raise ValueError('【DataEnricherPriceLimit】未能在数据中找到合约名称列 "InstrumentID"。请检查原始数据。')
@@ -56,7 +58,7 @@ class DataEnricherPriceLimit(FilterBase):
         contract = contracts[0]
         trading_date = trading_dates[0]
         upper_limit_price, lower_limit_price = self.daily_snapshot_manager.get_price_limits(
-            symbol_root=self.symbol_root,
+            product=self.product,
             contract=contract, 
             trading_date=trading_date)
         clean_df['UpperLimitPrice'] = upper_limit_price

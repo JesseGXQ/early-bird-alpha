@@ -3,18 +3,15 @@ import heapq
 
 import pandas as pd
 from typing import TYPE_CHECKING, Generator
-import heapq
 from datetime import date
 import warnings
 
 from data.storage.tick_loader import TickLoaderFactory
-from utils.validation_utils import check_df_columns_exist
 from data.feed.models import ContractTick, MarketSnapshot
 
 if TYPE_CHECKING:
     from data.stitching.stitching import ContinuousContractManager
     from data.cleaning.cleaning import CleaningPipeline
-    #from data.metadata.meta_manager import InstrumentMetaManager
     from data.calendar.calendar import TradingCalendar
     from data.storage.file_locator import FileLocator
 
@@ -41,7 +38,7 @@ class TickStreamGenerator:
         ContractTick
             逐笔产出的 TICK 数据对象。
         """
-        if cleaned_tick_df_chunk is None or cleaned_tick_df_chunk.empty:
+        if cleaned_tick_df_chunk.empty:
             return
 
         #逐笔 yield 吐出
@@ -68,8 +65,8 @@ class SimulationFeed:
 
     Parameters
     ------
-    symbol_root: str
-        品种代码前缀，例如'RB'。
+    product: str
+        品种代码，例如'RB'。
     calendar: TradingCalendar
         交易日历实例，提供交易日、交易小节、分钟偏移等查询功能。
     contract_manager: ContinuousContractManager
@@ -86,12 +83,12 @@ class SimulationFeed:
 
     """
     def __init__(self, 
-            symbol_root: str,
+            product: str,
             calendar: TradingCalendar, 
             file_locator: FileLocator,
             clean_pipeline: CleaningPipeline, # 已经添加了滤芯的清洗管道
             contract_manager: ContinuousContractManager):
-        self.symbol_root = symbol_root
+        self.product = product
         self.calendar = calendar
         self.file_locator = file_locator
         self.clean_pipeline = clean_pipeline 

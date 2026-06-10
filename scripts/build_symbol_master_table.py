@@ -3,14 +3,18 @@
 
 
 """
-from data.storage.daily_snapshot_loader import DailySnapshotLoader
-from data.stitching.stitching import RolloverDetector, RollGapCalculator
-from data.config import RolloverConfig
+from __future__ import annotations
+from typing import TYPE_CHECKING
 from pathlib import Path
 
+from data.storage.daily_snapshot_loader import DailySnapshotLoader
+from data.stitching.stitching import RolloverDetector, RollGapCalculator
+
+if TYPE_CHECKING:
+    from data.config import RolloverConfig
 from utils.validation_utils import check_df_columns_exist
 
-def build_symbol_master_table(symbol_root: str, 
+def build_symbol_master_table(product: str, 
                               rollover_config: RolloverConfig, 
                               master_table_dir: str, 
                               daily_snapshot_dir: str):
@@ -19,8 +23,8 @@ def build_symbol_master_table(symbol_root: str,
 
     Parameters
     ------
-    symbol_root: str
-        品种代码前缀，例如'RB'。
+    product: str
+        品种代码，例如'RB'。
     rollover_config: RolloverConfig
         换月规则配置类实例，包含 buffer_days, ratio_threshold, transition_days。用于指导换月检测和换月价差计算的逻辑。
     master_table_dir: str
@@ -31,7 +35,7 @@ def build_symbol_master_table(symbol_root: str,
     
     # 1. 读取日频快照数据
     loader = DailySnapshotLoader(daily_snapshot_dir=daily_snapshot_dir)
-    daily_raw_df = loader.load(symbol_root, columns=['TradingDate', 'Contract', 'OpenInterest','Close'])
+    daily_raw_df = loader.load(product, columns=['TradingDate', 'Contract', 'OpenInterest','Close'])
     
     
     # 2. 构建 OI 矩阵和收盘价矩阵
@@ -52,10 +56,10 @@ def build_symbol_master_table(symbol_root: str,
     
     # 5. 持久化落盘带指纹的 master_table 文件
     base_path = Path(master_table_dir)
-    save_path =  base_path / f'{symbol_root}_{rollover_config.signature}.parquet'
+    save_path =  base_path / f'{product}_{rollover_config.signature}.parquet'
     if save_path.exists():
-        print(f"⚠️ {symbol_root} 换月总表已存在，正在覆盖旧文件: {save_path}")
+        print(f"{product} 换月总表已存在，正在覆盖旧文件: {save_path}")
     else:
-        print(f"✅ {symbol_root} 换月总表不存在，正在保存到: {save_path}")
+        print(f"{product} 换月总表不存在，正在保存到: {save_path}")
     master_table.to_parquet(save_path)
-    print(f"🎉 {symbol_root} 换月总表已成功保存到: {save_path}")
+    print(f"{product} 换月总表已成功保存到: {save_path}")

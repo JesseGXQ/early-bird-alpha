@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal
 
 @dataclass(frozen=True)
@@ -79,29 +79,47 @@ class EnvironmentConfig:
 
     Parameters
     ----------
-    meta_dir : str, optional
-        存放合约元数据的目录路径。
+    product_meta_dir : str, optional
+        规则数据库tier1——品种元数据的目录路径。
+    instrument_registry_dir: str, optional
+        规则数据库tier2——合约注册层数据的目录路径。
+    daily_status_dir: str, optional
+        规则数据库tier3——日频动态状态层数据的目录路径。
+    
     data_dir_1min : str, optional
         存放 1 分钟 K 线数据的目录路径。
     data_dir_tick: str, optinal
         存放原始 TICK 数据的目录路径。
     daily_snapshot_dir : str, optional
         存放日频快照数据的目录路径。
+    
     master_table_dir : str, optional
         存放换月 master table 的目录路径。
     calendar_dir : str, optional
         存放交易日历文件的目录路径。
+    
     bar_loader_max_cache_size : int, optional
         `BarLoader` 的最大 LRU 缓存大小（条目数）。
 
     """
-    meta_dir: str = './data/metadata/instrument_meta'
-    data_dir_1min: str = './data/storage/bar_1min'              # 1min 数据储存路径
-    data_dir_tick: str = './data/storage/tick'                  # TICK 数据储存路径
-    daily_snapshot_dir: str = './data/storage/daily_snapshots' # 日频快照数据储存位置
-    master_table_dir: str = './data/metadata/master_tables'     # 换月总表储存位置
-    calendar_dir: str = './data/metadata/trading_calendars'     # 交易日历储存位置
+    # ── 三层期货交易规则数据库路径 ──────────────────────────────
+    # tier1
+    product_meta_dir: str = './db/reference/product_meta'
+    # tier2
+    instrument_registry_dir: str = './db/reference/instrument_registry'
+    # tier3 
+    daily_status_dir: str = './db/reference/instrument_daily_status'
+
+    # ── 行情数据路径 ──────────────────────────────────────────
+    data_dir_1min: str = './db/market/bar_1min'              # 1min 数据储存路径
+    data_dir_tick: str = './db/market/tick'                  # TICK 数据储存路径
+    daily_snapshot_dir: str = './db/market/daily_snapshots' # 日频快照数据储存位置
     
+    # ── 其他数据路径 ──────────────────────────────────────────
+    master_table_dir: str = './db/derived/master_tables'     # 换月总表储存位置
+    calendar_dir: str = './db/calendar/trading_calendars'     # 交易日历储存位置
+    
+    # ── tool attribute ───────────────────────────────────────
     bar_loader_max_cache_size: int = 200                        # BarLoader 最大 LRU 缓存数
 
 

@@ -25,33 +25,33 @@ class DailySnapshotLoader:
 
     Methods
     ------
-    load(symbol_root, columns=None)
+    load(product, columns=None)
         加载特定品种的日频快照数据，返回 DataFrame。
     """
 
     def __init__(self, daily_snapshot_dir: str):
-        self.daily_snapshot_dir = daily_snapshot_dir
+        self.daily_snapshot_dir:str = daily_snapshot_dir
 
-    def load(self, symbol_root: str, columns: list | None = None) -> pd.DataFrame:
+    def load(self, product: str, columns: list[str] | None = None) -> pd.DataFrame:
         """
         加载日频快照数据。
 
         Parameters
         ------
-        symbol_root: str
-            品种代码前缀，例如'RB'。
+        product: str
+            品种代码，例如'RB'。
         
-        columns: list, optional
-            要加载的列名列表，如果为 None，则加载所有列。
+        columns: list[str] | None, optional
+            要加载的列名列表，如果为 None ，则加载所有列。
 
         Returns
         ------
         pd.DataFrame
             日频快照数据 DataFrame。
         """
-        file_path = f'{self.daily_snapshot_dir}/{symbol_root}_daily.parquet'
+        file_path = f'{self.daily_snapshot_dir}/{product}_daily.parquet'
         try:
             df = pd.read_parquet(file_path, columns=columns)
             return df
         except FileNotFoundError:
-            raise FileNotFoundError(f'未找到 {symbol_root} 的日频快照数据文件，请检查路径：{file_path}')
+            raise FileNotFoundError(f'未找到 {product} 的日频快照数据文件，请检查路径：{file_path}')

@@ -5,7 +5,8 @@ import pandas as pd
 from datetime import date
 from pathlib import Path
 
-from data.config import RolloverConfig
+if TYPE_CHECKING:
+    from data.config import RolloverConfig
 
 class RolloverDetector:
     """
@@ -177,8 +178,8 @@ class ContinuousContractManager:
 
     Parameters
     ------
-    symbol_root: str
-        品种代码前缀，例如'RB'。
+    product: str
+        品种代码，例如'RB'。
     rollover_config: RolloverConfig, optional
         换月规则配置类实例，包含 buffer_days, ratio_threshold, transition_days。默认值为 RolloverConfig()，即 buffer_days=3, ratio_threshold=1.1, transition_days=1。
     master_table_dir: str
@@ -195,12 +196,12 @@ class ContinuousContractManager:
     """
 
     def __init__(self,
-                 symbol_root: str,
+                 product: str,
                  master_table_dir: str,
                  rollover_config: RolloverConfig = RolloverConfig()
                  ):
         # 读取本地持久化的 master_table （换月日历）。文件名如 RB_b3_r110_t1.parquet
-        file_name = f'{symbol_root}_{rollover_config.signature}.parquet'
+        file_name = f'{product}_{rollover_config.signature}.parquet'
         file_path = Path(master_table_dir) / file_name
 
         if file_path.exists():
@@ -212,7 +213,7 @@ class ContinuousContractManager:
         else: # 直接抛出错误，提示调用./scripts/run_stitching_etl.py 生成相应指纹的 master_table
                 error_msg = (
                 f"\n【Data Engine】无法初始化 ContinuousContractManager！\n"
-                f"原因: 未能在元数据仓库中找到品种 {symbol_root} 对应当前参数指纹的换月总表文件。\n"
+                f"原因: 未能在元数据仓库中找到品种 {product} 对应当前参数指纹的换月总表文件。\n"
                 f"预期路径: {file_path}\n"
                 f"参数:\n"
                 f"  - 平滑天数 (buffer_days): {rollover_config.buffer_days}\n"

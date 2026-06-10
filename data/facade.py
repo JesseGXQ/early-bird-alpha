@@ -6,7 +6,6 @@ from data.config import (
     RolloverConfig, SamplingConfig
 )
 from data.factory import create_research_feed, create_simulation_feed
-from data.feed.models import MarketSnapshot
 
 if TYPE_CHECKING:
     from data.feed.research_feed import ResearchFeed 
@@ -33,13 +32,13 @@ class DataFacade:
     
     Methods
     ------
-    get_research_feed(symbol_root)
+    get_research_feed(product)
         获取 ResearchFeed 实例。
-    get_simulation_feed(symbol_root)
+    get_simulation_feed(product)
         获取 SimulationFeed 实例。
-    get_historical_vector(symbol_root, start_date, end_date, freq)
+    get_historical_vector(product, start_date, end_date, freq)
         获取历史复权价格向量。
-    get_snapshot_stream(symbol_root, start_date, end_date)
+    get_snapshot_stream(product, start_date, end_date)
         获取逐笔市场快照数据流。
     
     """
@@ -59,35 +58,35 @@ class DataFacade:
         self._research_feeds: dict[str, ResearchFeed] = {} # 内部懒加载的 ResearchFeed 实例缓存
         self._simulation_feeds: dict[str, SimulationFeed] = {} # 内部懒加载的 SimulationFeed 实例缓存
 
-    def get_research_feed(self, symbol_root: str) -> ResearchFeed: 
+    def get_research_feed(self, product: str) -> ResearchFeed: 
         """
         返回一个 ResearchFeed 实例，供获取历史复权价格向量。
         """
-        if symbol_root not in self._research_feeds:
-            self._research_feeds[symbol_root] = create_research_feed(
-                symbol_root=symbol_root,
+        if product not in self._research_feeds:
+            self._research_feeds[product] = create_research_feed(
+                product=product,
                 rollover_config=self._rollover_config,
                 adj_config=self._adj_config,
                 sample_config=self._sample_config,
                 env_config=self._env_config
             )
-        return self._research_feeds[symbol_root]
+        return self._research_feeds[product]
 
-    def get_simulation_feed(self, symbol_root: str) -> SimulationFeed:
+    def get_simulation_feed(self, product: str) -> SimulationFeed:
         """
         返回一个 SimulationFeed 实例，供获取逐笔快照数据流。
         """
-        if symbol_root not in self._simulation_feeds:
-            self._simulation_feeds[symbol_root] = create_simulation_feed(
-                symbol_root=symbol_root,
+        if product not in self._simulation_feeds:
+            self._simulation_feeds[product] = create_simulation_feed(
+                product=product,
                 rollover_config=self._rollover_config,
                 env_config=self._env_config
             )
-        return self._simulation_feeds[symbol_root]
+        return self._simulation_feeds[product]
     
     def get_historical_vector(
             self,
-            symbol_root: str,
+            product: str,
             start_date: date,
             end_date: date,
             freq: str = '1d') -> pd.DataFrame:
@@ -96,8 +95,8 @@ class DataFacade:
 
         Parameters
         ------
-        symbol_root: str
-            品种代码前缀，例如'RB'。
+        product: str
+            品种代码，例如'RB'。
         start_date: datetime.date
             起始日期（交易日）
         end_date: datetime.date
@@ -112,7 +111,7 @@ class DataFacade:
         pd.DataFrame
             复权后主力合约(连续)价格，每一行对应一个 Bar 。
         """
-        r_feed = self.get_research_feed(symbol_root)
+        r_feed = self.get_research_feed(product)
         return r_feed.get_historical_vector(
             start_date=start_date,
             end_date=end_date,
@@ -121,7 +120,7 @@ class DataFacade:
     
     def get_snapshot_stream(
             self,
-            symbol_root: str,
+            product: str,
             start_date: date,
             end_date: date
     )-> Generator[MarketSnapshot, None, None]: 
@@ -130,8 +129,8 @@ class DataFacade:
 
         Parameters
         ------
-        symbol_root: str
-            品种代码前缀，例如'RB'。
+        product: str
+            品种代码，例如'RB'。
         start_date: datetime.date
             起始日期（交易日）
         end_date: datetime.date
@@ -141,7 +140,7 @@ class DataFacade:
         MarketSnapshot
             包含主力合约的市场快照对象（若换月期，为新旧主力合约），严格遵循时间顺序下发。
         """
-        s_feed = self.get_simulation_feed(symbol_root)
+        s_feed = self.get_simulation_feed(product)
         return s_feed.get_snapshot_stream(
             start_date=start_date,
             end_date=end_date
