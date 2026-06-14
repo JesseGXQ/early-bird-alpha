@@ -19,10 +19,8 @@ class StaticMeta:
         品种代码。例如'RB'。
     exchange: str
         交易所代码。
-    position_type: bool
-        持仓类型。False 为单向， True 为双向持仓。
-    position_date_type: bool
-        持仓日期类型。False 为不区分今仓和昨仓， True 为区分。
+    position_date_type: Literal['distinguish_today_yesterday', 'undistinguished']
+        持仓日期类型——是否区分今仓和昨仓。
     max_margin_side_algorithm: bool
         是否使用大额单边保证金算法。
     combination_type: int。
@@ -31,8 +29,9 @@ class StaticMeta:
     """
     product: str
     exchange: str
-    position_type: bool
-    position_date_type: bool
+    position_date_type: Literal['distinguish_today_yesterday', 'undistinguished']
+    # TODO [业务逻辑完善]
+    # 以下两个字段目前过粗，真实的业务逻辑更复杂，日后有需要要完善。
     max_margin_side_algorithm: bool
     combination_type: int
 
@@ -53,17 +52,20 @@ class TransactionCostRule:
         平昨手续费。
     close_today: float
         平今手续费。
+    scope: list of str
+        合约代码列表，用于表达规则仅对某些特定合约生效。
+    condition: Any
+        用于cover其他更复杂情况的条件表达, 目前为空。
 
     """
-    # TODO [业务规则完善] 
-    # 国内有些期货品种曾经实行过“仅对主力合约拉高平今手续费”，因此这里需要加一个类似 special_rules 字段来管理这种特殊情况
-    # 例如：{'main_contracts': {'close_today': 30.0}} 表示如果是主力合约，平今手续费覆盖为 30
-    # special_rules: dict | None = None
     effective_date: date 
     commission_type: Literal['flat', 'ratio']
     open: float
     close_yesterday: float
     close_today: float
+    scope: list[str]  # 合约代码列表，用于表达规则仅对某些特定合约生效。
+    # TODO [业务逻辑完善] 目前过粗，日后有需要再完善。
+    condition: Any #用于cover其他更复杂情况，目前暂缺
 
 @dataclass(frozen=True)
 class PriceTickRule:
@@ -76,7 +78,7 @@ class PriceTickRule:
         规则生效日期。
     price_tick: float
         最小变动价位。
-    remain_old_rule_instruments: list[str]
+    remain_old_rule_instruments: list of str
         规则变动有两种方式：新老划断和一刀切。若一刀切，该字段应为空列表。
         若新老划断，则该字段记录保持旧规则的合约名称列表。
     """
@@ -141,11 +143,12 @@ class Session:
     effective_date: date
     day_sessions: list[list[str]] # like [['09:00', '10:15'],['10:30', '11:30'],['13:30', '15:00']] or [['09:00', '11:15'],['13:00'- '15:15']]
     night_sessions: list[list[str]] # like [['21:00', '23:00']] or []
-   
+    # TODO [业务逻辑完善 level-1] 加入`session_override_rules`，用于处理最后交易日提前收盘，交割月无夜盘、节假日前夜盘关闭等。
+
 class ProductMetaManager:
     #Note: 对象的职责边界与实例化粒度（Object Responsibility & Instantiation Granularity）问题。 
     #该类在概念上是一个“集中管理型仓库”——一个仓库服务于所有期货品种。所以这个类实例化时应该是无状态的(stateless)，
-    #在调用其方法时（例如获取某品种的交易成本规则），输入品种代码。
+    #在调用其方法时（例如获取某品种的交易成本规则），输入交易所和品种代码。
     """
     管理期货品种的静态属性、交易成本规则、最小变动价位规则、合约乘数规则、下单量限制规则和交易时段规则。
 
@@ -162,25 +165,29 @@ class ProductMetaManager:
         返回特定交易日的交易成本规则。
     get_price_tick_rule(product, trading_date)
         返回特定交易日的最小变动价位规则。
-    get_multiplier_rule(product, trading_date)
-        返回特定交易日的合约乘数规则。
     get_order_volume_limits_rule(product, trading_date)
         返回特定交易日的下单量限制规则。
-    get_session_rule(product, trading_date)
+    get_sessions(product, trading_date)
         返回特定交易日的交易时段规则。
     
     """
     def __init__(self, product_meta_dir: str):
         self._meta_dir: Path = Path(product_meta_dir)
-        self._cache: dict[str, dict[str, Any]] = {} # key is product, value is the loaded result of yaml file 
+        self._cache: dict[str, dict[str, Any]] = {}
     
     def _load(self, product: str) -> dict[str, Any]:
-        """懒加载并缓存品种的 YAML 数据。"""
-        if product not in self._cache:
-            path = self._meta_dir / f'{product}.yaml'
+        """
+        懒加载并缓存品种的 YAML 数据。
+        文件名称：{PRODUCT}.yaml
+        """
+        product_upper = product.upper()
+        if product_upper not in self._cache:
+            path = self._meta_dir / f'{product_upper}.yaml'
+            if not path.exists():
+                raise FileNotFoundError(f'未找到 {product} 的品种规则配置文件: {path}')
             with open(path, encoding='utf-8') as fh:
-                self._cache[product] = yaml.safe_load(fh)
-        return self._cache[product]
+                self._cache[product_upper] = yaml.safe_load(fh)
+        return self._cache[product_upper]
     
     def _get_effective_rule(self, history: list[dict[str, Any]], trading_date: date) -> dict[str, Any]:
         """从历史记录里获取在特定日期 (trading_date) 的交易规则
@@ -228,12 +235,11 @@ class ProductMetaManager:
         """
         raw = self._load(product)
         return StaticMeta(
-            product=raw['product'],
-            exchange=raw['exchange'],
-            position_type=bool(raw['position_type']),
-            position_date_type=bool(raw['position_date_type']),
+            product=str(raw['product']).upper(),
+            exchange=str(raw['exchange']).upper(),
+            position_date_type=raw['position_date_type'],
             max_margin_side_algorithm=bool(raw['max_margin_side_algorithm']),
-            combination_type=raw['combination_type'],
+            combination_type=int(raw['combination_type']),
         )
 
     def get_transaction_cost(self, product: str, trading_date: date) -> TransactionCostRule:
@@ -254,8 +260,7 @@ class ProductMetaManager:
         """
         raw = self._load(product)
         if 'transaction_cost_history' not in raw:
-            path = self._meta_dir / f'{product}.yaml'
-            raise ValueError(f'{product} 的 YAML 文件未包含交易成本规则，请检查： {path} ')
+            raise ValueError(f'{product} 的 YAML 文件未包含交易成本规则。 ')
         rule = self._get_effective_rule(history=raw['transaction_cost_history'],
                                         trading_date=trading_date)
         return TransactionCostRule(
@@ -264,6 +269,8 @@ class ProductMetaManager:
             open=float(rule['open']),
             close_today=float(rule['close_today']),
             close_yesterday=float(rule['close_yesterday']),
+            scope=rule['scope'],
+            condition=rule['condition']
         )
 
     def get_price_tick(self, product: str, trading_date: date) -> PriceTickRule:
@@ -284,8 +291,7 @@ class ProductMetaManager:
         """
         raw = self._load(product)
         if 'price_tick_history' not in raw:
-            path = self._meta_dir / f'{product}.yaml'
-            raise ValueError(f'{product} 的 YAML 文件未包含最小变动价位规则，请检查： {path} ')
+            raise ValueError(f'{product} 的 YAML 文件未包含最小变动价位规则。')
         rule = self._get_effective_rule(history=raw['price_tick_history'],
                                         trading_date=trading_date)
         return PriceTickRule(
@@ -294,7 +300,7 @@ class ProductMetaManager:
             remain_old_rule_instruments=rule.get('remain_old_rule_instruments', [])
         )
     
-    def get_multiplier(self, product: str, trading_date: date) -> MultiplierRule:
+    def _get_multiplier(self, product: str, trading_date: date) -> MultiplierRule:
         """
         返回特定交易日的合约乘数规则。
 
@@ -312,8 +318,7 @@ class ProductMetaManager:
         """
         raw = self._load(product)
         if 'multiplier_history' not in raw:
-            path = self._meta_dir / f'{product}.yaml'
-            raise ValueError(f'{product} 的 YAML 文件未包含合约乘数规则，请检查： {path} ')
+            raise ValueError(f'{product} 的 YAML 文件未包含合约乘数规则。')
         rule = self._get_effective_rule(history=raw['multiplier_history'],
                                         trading_date=trading_date)
         return MultiplierRule(
@@ -339,8 +344,7 @@ class ProductMetaManager:
         """
         raw = self._load(product)
         if 'order_volume_limits_history' not in raw:
-            path = self._meta_dir / f'{product}.yaml'
-            raise ValueError(f'{product} 的 YAML 文件未包含下单量限制规则，请检查： {path} ')
+            raise ValueError(f'{product} 的 YAML 文件未包含下单量限制规则。')
         rule = self._get_effective_rule(history=raw['order_volume_limits_history'],
                                         trading_date=trading_date)
         return OrderVolumeLimitsRule(
@@ -353,7 +357,9 @@ class ProductMetaManager:
     
     def get_sessions(self, product: str, trading_date: date) -> Session:
         """
-        返回特定交易日的交易时段规则。
+        返回特定交易日的**原始**交易时段规则。
+
+        注意：所返回的交易时段规则未考虑任何特殊安排（例如交割月无夜盘，最后交易日提前收盘等等）。
 
         Parameters
         ------
@@ -369,8 +375,7 @@ class ProductMetaManager:
         """
         raw = self._load(product)
         if 'sessions_history' not in raw:
-            path = self._meta_dir / f'{product}.yaml'
-            raise ValueError(f'{product} 的 YAML 文件未包含交易时段规则，请检查： {path} ')
+            raise ValueError(f'{product} 的 YAML 文件未包含交易时段规则。')
         rule = self._get_effective_rule(history=raw['sessions_history'],
                                         trading_date=trading_date)
         return Session(

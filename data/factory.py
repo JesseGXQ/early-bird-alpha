@@ -5,8 +5,8 @@ from data.cleaning.cleaning import *
 
 from data.stitching.stitching import ContinuousContractManager
 
-from data.metadata.product_meta_manager import ProductMetaManager
-from data.metadata.daily_snapshot_manager import DailySnapshotManager
+from data.rules.product_meta_manager import ProductMetaManager
+from data.storage.daily_snapshot_manager import DailySnapshotManager
 
 from data.calendar.calendar import TradingCalendar
 
@@ -23,7 +23,7 @@ from data.config import RolloverConfig, AdjustmentConfig, SamplingConfig, Enviro
 
 def create_research_feed(
         product: str,
-        # TODO [tech debt] 按照BasedPyright的warnings修改—— mutable default parameters loophole
+        # TODO [type checker warning] 按照BasedPyright的warnings修改—— mutable default parameters loophole
         rollover_config: RolloverConfig = RolloverConfig(),
         adj_config: AdjustmentConfig = AdjustmentConfig(),
         sample_config: SamplingConfig = SamplingConfig(),
@@ -37,7 +37,7 @@ def create_research_feed(
     """
     #1. 解析环境
     meta_manager = ProductMetaManager(
-        product_meta_dir=env_config.meta_dir
+        product_meta_dir=env_config.product_meta_dir
         )
     calendar = TradingCalendar(
         product=product, 
@@ -84,7 +84,7 @@ def create_simulation_feed(
     根据换月配置和环境配置，组装并返回一个 SimulationFeed 实例。
     """
     meta_manager = ProductMetaManager(
-        meta_dir=env_config.meta_dir
+        product_meta_dir=env_config.product_meta_dir
     )
     calendar = TradingCalendar(
         product=product,

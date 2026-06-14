@@ -8,7 +8,7 @@ import warnings
 
 if TYPE_CHECKING:
     from data.calendar.calendar import TradingCalendar
-    from data.metadata.product_meta_manager import ProductMetaManager
+    from data.rules.product_meta_manager import ProductMetaManager
 
 class FileLocator:
     """

@@ -7,8 +7,7 @@ from datetime import date, time, timedelta
 import warnings
 
 if TYPE_CHECKING:
-    from data.metadata.product_meta_manager import ProductMetaManager  
-    #from data.metadata.meta_manager import Session
+    from data.rules.product_meta_manager import ProductMetaManager  
 
 class TradingCalendar:
     #Note: 对象的职责边界与实例化粒度（Object Responsibility & Instantiation Granularity）问题。 
@@ -109,11 +108,12 @@ class TradingCalendar:
         if self.exchange_trading_dates[-1].date() <= date:
             raise ValueError(f'【TradingCalendar】找不到所查询的日期 {date} 的下一个交易日。目前已储存的历史交易日列表的最新值为 {self.exchange_trading_dates[-1].date()}。')
         
-        _idx = self.exchange_trading_dates.get_indexer(pd.to_datetime([date]))[0]
+        _ts = pd.Timestamp(date)
+        _idx = self.exchange_trading_dates.get_indexer([_ts])[0]
         if _idx != -1: #exact match
             return self.exchange_trading_dates[_idx + 1].date()
         # else: no exact match - 输入的 date 参数不是交易日，此时返回在该日期后最临近的一个交易日
-        _idx_nearest_after = self.exchange_trading_dates.get_indexer(pd.to_datetime([date]), method='backfill')[0]
+        _idx_nearest_after = self.exchange_trading_dates.get_indexer([_ts], method='backfill')[0]
         return self.exchange_trading_dates[_idx_nearest_after].date()
     
     def get_trading_date(self, calendar_timestamp: pd.Timestamp) -> date:

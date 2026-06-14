@@ -7,7 +7,7 @@ from utils.validation_utils import check_df_columns_exist
 
 if TYPE_CHECKING:
     from data.stitching.stitching import ContinuousContractManager
-    from data.metadata.product_meta_manager import ProductMetaManager
+    from data.rules.product_meta_manager import ProductMetaManager
     from data.calendar.calendar import TradingCalendar
     from data.feed.aggregator import BarAggregator
     from data.storage.file_locator import FileLocator
@@ -57,8 +57,8 @@ class ResearchFeed:
             bar_loader: BarLoader, 
             bar_aggregator: BarAggregator,
             adj_config: AdjustmentConfig):
-        self.product: str = product.upper()
 
+        self.product: str = product.upper()
         self.contract_manager: ContinuousContractManager = contract_manager #包含 master_table 属性(换月总表)，有Dominant_Contract, Price_Gap 列
         self.meta_manager: ProductMetaManager = meta_manager
         self.calendar: TradingCalendar = calendar
@@ -134,6 +134,7 @@ class ResearchFeed:
             contract = row['Dominant_Contract']
 
             # 查找本地 1min 数据文件地址，并加载
+            # TODO [call issue] argument missing
             file_path = self.file_locator.get_1min_file_path(contract)
             df = self.bar_loader.load_1min_bar(file_path)
 

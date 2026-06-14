@@ -4,21 +4,33 @@
 
 """
 
-from data.metadata.product_meta_manager import ProductMetaManager
+from data.rules.product_meta_manager import ProductMetaManager
 import pandas as pd
 from dataclasses  import dataclass
 from datetime import date
 from pathlib import Path
+from typing import Literal, TYPE_CHECKING
+if TYPE_CHECKING:
+    from data.rules.product_meta_manager import ProductMetaManager
+    from data.rules.instrument_registry_manager import InstrumentRegistryManager
 
 @dataclass(frozen=True)
 class InstrumentDailyStatus:
     """合约的日频动态状态属性"""
-    trading_date: date
-    instrument: str
-    inst_life_phase: int
-    is_trading: bool
-    long_margin_ratio: float
-    short_margin_ratio: float
+    trading_date: date # 交易日
+    instrument: str # 合约代码
+    is_tradable: bool # 是否可交易
+    inst_life_phase: Literal['not_started', 'started', 'paused', 'expired'] # 合约生命周期阶段
+    """
+    Note: 
+    `is_tradable`和`inst_life_phase`的组合关系：
+    - 未上市： `inst_life_phase=not_started`, `is_tradable=False`
+    - 正常交易：`started`, `True`
+    - 暂停交易: `paused`, `False`
+    - 已退市：`expired`, `False`
+    """
+    long_margin_ratio: float # 交易所多头保证金率
+    short_margin_ratio: float # 交易所空头保证金率
 
 class InstrumentDailyStatusManager:
     """
@@ -41,12 +53,14 @@ class InstrumentDailyStatusManager:
     """
     def __init__(self, 
     instrument_daily_status_dir: str, 
-    meta_manager: ProductMetaManager):
+    meta_manager: ProductMetaManager,
+    registry_manager: InstrumentRegistryManager):
         self.instrument_daily_status_dir: Path = Path(instrument_daily_status_dir)
         self.meta_manager: ProductMetaManager = meta_manager
+        self.registry_manager: InstrumentRegistryManager = registry_manager
 
         # 内存缓存
-        self._product_df_cache: dict[str, pd.DataFrame] = {} # 品种粒度的全量数据缓存 (product -> df)
+        self._product_df_cache: dict[str, pd.DataFrame] = {} # 品种(下所有合约，所有交易日)的内部缓存
         self._product_date_df_cache: dict[tuple[str, date], pd.DataFrame] = {} # 品种（下所有合约）-交易日级别的内部缓存
         self._inst_date_cache: dict[tuple[str, date], InstrumentDailyStatus] = {} # 合约-交易日层面的内部缓存
 
@@ -55,11 +69,11 @@ class InstrumentDailyStatusManager:
         读取（并缓存）整个品种的日频动态数据，缓存（品种-交易日）级别的日频动态状态数据。
         """
         product_upper = product.upper()
-        
+
         # 1. 若该品种的全量数据尚未读入内存，则加载并标准化
         if product_upper not in self._product_df_cache:
-            exchange = self.meta_manager.get_static_meta(product_upper).exchange
-            path = self.instrument_daily_status_dir / f'{exchange}_{product_upper}.parquet'
+            exchange_upper = self.meta_manager.get_static_meta(product_upper).exchange
+            path = self.instrument_daily_status_dir / f'{exchange_upper}_{product_upper}.parquet'
 
             if not path.exists():
                 raise FileNotFoundError(f"未能在 {self.instrument_daily_status_dir} 下找到品种 {product_upper} 的数据文件 {path.name}")
@@ -75,11 +89,7 @@ class InstrumentDailyStatusManager:
         df_filtered = df_all[df_all['trading_date'] == trading_date]
         self._product_date_df_cache[(product_upper, trading_date)] = df_filtered
 
-    def get_status_all_inst_of_product_on_date(
-        self, 
-        product: str, 
-        trading_date: date
-    ) -> dict[str, InstrumentDailyStatus]:
+    def get_status_all_inst_of_product_on_date(self, product: str, trading_date: date) -> dict[str, InstrumentDailyStatus]:
         """
         获取特定交易日，某品种下所有合约的日频动态状态属性。
         
@@ -93,7 +103,7 @@ class InstrumentDailyStatusManager:
         Returns
         ------
         dict[str, InstrumentDailyStatus]
-            特定交易日，某品种下所有合约的日频动态状态属性。
+            该品种的所有合约在指定交易日的日频动态状态属性。
         """
         product_upper = product.upper()
         cache_key = (product_upper, trading_date)
@@ -101,21 +111,21 @@ class InstrumentDailyStatusManager:
         if cache_key not in self._product_date_df_cache:
             self._load_product_date(product_upper, trading_date)
 
-        df_date = self._product_date_df_cache[cache_key]
+        df = self._product_date_df_cache[cache_key]
 
         res: dict[str, InstrumentDailyStatus] = {}
-        for _, row in df_date.iterrows():
-            contract = str(row['instrument'])
+        for _, row in df.iterrows():
+            instrument = str(row['instrument'])
             status = InstrumentDailyStatus(
                 trading_date=trading_date,
-                instrument=contract,
-                inst_life_phase=int(row['inst_life_phase']),
-                is_trading=bool(row['is_trading']),
+                instrument=instrument,
+                is_tradable=bool(row['is_trading']),
+                inst_life_phase=row['inst_life_phase'],
                 long_margin_ratio=float(row['long_margin_ratio']),
                 short_margin_ratio=float(row['short_margin_ratio'])
             )
-            self._inst_date_cache[(contract, trading_date)] = status
-            res[contract] = status
+            self._inst_date_cache[(instrument, trading_date)] = status
+            res[instrument] = status
 
         return res
 
@@ -136,20 +146,19 @@ class InstrumentDailyStatusManager:
             某合约的日频动态状态属性。
         """
         contract_upper = contract.upper()
-        cache_key = (contract_upper, trading_date)
+        instrument= contract_upper
+        cache_key = (instrument, trading_date)
 
+        # 若在合约-交易日级别的内部缓存可以找到所需，直接返回
         if cache_key in self._inst_date_cache:
             return self._inst_date_cache[cache_key]
 
-        # 解析合约代码中的品种代码 (例如 'rb2610' -> 'RB')
-        import re
-        match = re.match(r'^[a-zA-Z]+', contract_upper)
-        if not match:
-            raise ValueError(f"不合法的合约代码: {contract}")
-        product = match.group()
+        # 否则说明品种-交易日级别的内部缓存待加载
+        # 通过registry_manager获得品种代码
+        product = self.registry_manager.get_instrument_registry(contract).product
 
         # 触发批量查询，将该品种当天的所有合约载入缓存
-        self.get_status_all_inst_of_product_on_date(product, trading_date)
+        _ = self.get_status_all_inst_of_product_on_date(product, trading_date)
 
         if cache_key not in self._inst_date_cache:
             raise KeyError(f"未能在日频状态表中查到合约 {contract_upper} 在 {trading_date} 的状态")
