@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from data.config import RolloverConfig
 from utils.validation_utils import check_df_columns_exist
 
-def build_symbol_master_table(product: str, 
+def build_product_master_table(product: str, 
                               rollover_config: RolloverConfig, 
                               master_table_dir: str, 
                               daily_snapshot_dir: str):

@@ -4,30 +4,8 @@
 
 """
 import pandas as pd
-from dataclasses import dataclass
-from datetime import date
 from pathlib import Path
-
-@dataclass(frozen=True)
-class InstrumentRegistry:
-    """
-    合约级注册属性
-    """
-    instrument: str # 合约代码
-    name: str # 合约名称
-    product: str # 品种代码
-    product_class: int # 品种类型，是期权、期货还是组合、套利合约
-    exchange: str # 交易所
-    list_date: date # 上市日期
-    last_trade_date: date # 最后交易日
-    expire_date: date # 合约到期日
-    delivery_year: int # 交割年份
-    delivery_month: int # 交割月份
-    start_deliv_date: date # 开始交割日
-    end_deliv_date: date # 最后交割日
-    exchange_inst: str # 交易所报单代码
-    multiplier: int # 合约乘数
-
+from data.rules.models import InstrumentRegistry
 
 class InstrumentRegistryManager:
 
@@ -112,7 +90,7 @@ class InstrumentRegistryManager:
         inst_registry = InstrumentRegistry(
             instrument=contract_upper, #收紧类型，下同
             name=str(row['name']), 
-            product=str(row['product']),
+            product=str(row['product']).upper(),
             product_class=int(row['product_class']),
             exchange=str(row['exchange']).upper(),
             list_date=pd.to_datetime(row['list_date']).date(),

@@ -6,6 +6,10 @@ from data.cleaning.cleaning import *
 from data.stitching.stitching import ContinuousContractManager
 
 from data.rules.product_meta_manager import ProductMetaManager
+from data.rules.instrument_registry_manager import InstrumentRegistryManager
+from data.rules.exchange_holiday_manager import ExchangeHolidayManager
+from data.rules.instrument_daily_status_manager import InstrumentDailyStatusManager
+from data.rules.trading_rule_service import TradingRuleService
 from data.storage.daily_snapshot_manager import DailySnapshotManager
 
 from data.calendar.calendar import TradingCalendar
@@ -21,9 +25,45 @@ from data.storage.bar_loader import BarLoader
 from data.config import RolloverConfig, AdjustmentConfig, SamplingConfig, EnvironmentConfig 
 
 
+def _create_trading_rule_components(env_config: EnvironmentConfig) -> tuple[
+    ProductMetaManager,
+    InstrumentRegistryManager,
+    ExchangeHolidayManager,
+    InstrumentDailyStatusManager,
+    TradingRuleService,
+]:
+    """统一组装交易规则相关组件。"""
+    meta_manager = ProductMetaManager(
+        product_meta_dir=env_config.product_meta_dir
+    )
+    registry_manager = InstrumentRegistryManager(
+        instrument_registry_dir=env_config.instrument_registry_dir
+    )
+    holiday_manager = ExchangeHolidayManager(
+        exchange_holiday_dir=env_config.exchange_holiday_dir
+    )
+    daily_status_manager = InstrumentDailyStatusManager(
+        instrument_daily_status_dir=env_config.daily_status_dir,
+        meta_manager=meta_manager,
+        registry_manager=registry_manager,
+    )
+    trading_rule_service = TradingRuleService(
+        meta_manager=meta_manager,
+        registry_manager=registry_manager,
+        holiday_manager=holiday_manager,
+        daily_status_manager=daily_status_manager,
+    )
+    return (
+        meta_manager,
+        registry_manager,
+        holiday_manager,
+        daily_status_manager,
+        trading_rule_service,
+    )
+
+
 def create_research_feed(
         product: str,
-        # TODO [type checker warning] 按照BasedPyright的warnings修改—— mutable default parameters loophole
         rollover_config: RolloverConfig = RolloverConfig(),
         adj_config: AdjustmentConfig = AdjustmentConfig(),
         sample_config: SamplingConfig = SamplingConfig(),
@@ -36,18 +76,18 @@ def create_research_feed(
 
     """
     #1. 解析环境
-    meta_manager = ProductMetaManager(
-        product_meta_dir=env_config.product_meta_dir
-        )
+    meta_manager, registry_manager, _, _, trading_rule_service = _create_trading_rule_components(env_config)
     calendar = TradingCalendar(
         product=product, 
         meta_manager=meta_manager, 
-        calendar_dir=env_config.calendar_dir
+        calendar_dir=env_config.calendar_dir,
+        trading_rule_service=trading_rule_service
         )
     file_locator = FileLocator(
         data_dir=env_config.data_dir_1min, 
         calendar=calendar,
-        meta_manager=meta_manager
+        meta_manager=meta_manager,
+        registry_manager=registry_manager
         )
     bar_loader = BarLoader(
         max_cache_size=env_config.bar_loader_max_cache_size
@@ -83,18 +123,18 @@ def create_simulation_feed(
     """
     根据换月配置和环境配置，组装并返回一个 SimulationFeed 实例。
     """
-    meta_manager = ProductMetaManager(
-        product_meta_dir=env_config.product_meta_dir
-    )
+    meta_manager, registry_manager, _, _, trading_rule_service = _create_trading_rule_components(env_config)
     calendar = TradingCalendar(
         product=product,
         meta_manager=meta_manager,
-        calendar_dir=env_config.calendar_dir
+        calendar_dir=env_config.calendar_dir,
+        trading_rule_service=trading_rule_service
     )
     file_locator = FileLocator(
         data_dir=env_config.data_dir_tick,
         calendar=calendar,
-        meta_manager=meta_manager)
+        meta_manager=meta_manager,
+        registry_manager=registry_manager)
     contract_manager = ContinuousContractManager(
         product=product,
         master_table_dir=env_config.master_table_dir,

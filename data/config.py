@@ -109,6 +109,8 @@ class EnvironmentConfig:
     instrument_registry_dir: str = './db/reference/instrument_registry'
     # tier3 
     daily_status_dir: str = './db/reference/instrument_daily_status'
+    # exchange-level holiday/no-night arrangements
+    exchange_holiday_dir: str = './db/reference/exchange_holiday'
 
     # ── 行情数据路径 ──────────────────────────────────────────
     data_dir_1min: str = './db/market/bar_1min'              # 1min 数据储存路径

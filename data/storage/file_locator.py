@@ -6,9 +6,12 @@ from pathlib import Path
 from datetime import date
 import warnings
 
+
+
 if TYPE_CHECKING:
     from data.calendar.calendar import TradingCalendar
     from data.rules.product_meta_manager import ProductMetaManager
+    from data.rules.instrument_registry_manager import InstrumentRegistryManager
 
 class FileLocator:
     """
@@ -33,23 +36,19 @@ class FileLocator:
     def __init__(self, 
                  data_dir: str, 
                  calendar: TradingCalendar,
-                 meta_manager: ProductMetaManager
+                 meta_manager: ProductMetaManager,
+                 registry_manager: InstrumentRegistryManager
                  ):
         self.data_dir: Path = Path(data_dir)
         self.calendar: TradingCalendar = calendar
         self.meta_manager: ProductMetaManager = meta_manager
+        self.registry_manager: InstrumentRegistryManager = registry_manager
         
-        self._1min_search_symbol_exchange_mapping: dict[str, str] = {} # 内部缓存，用于加速根据 product 查找交易所代码的过程，避免频繁调用 meta_manager.get_static_meta
-
-    def get_1min_file_path(self, 
-                           product: str,
-                           contract: str) -> str:
+    def get_1min_file_path(self, contract: str) -> str:
         """获取合约的 1min 数据储存路径。
         
         Parameters
         ------
-        product: str
-            品种代码，例如'RB'。
         contract: str
             合约名称。
         
@@ -59,13 +58,13 @@ class FileLocator:
             Parquet 或 CSV 数据文件路径。
         """
         # 本地 1min 数据存储路径：1min/{交易所代码}/{product}/{contract}.csv
-        if not product in self._1min_search_symbol_exchange_mapping: #若缓存中无法找到该品种的交易所，则向元数据管家询问
-            exchange = self.meta_manager.get_static_meta(product).exchange
-            self._1min_search_symbol_exchange_mapping[product] = exchange
-        exchange = self._1min_search_symbol_exchange_mapping[product]
-        
+        # 首先查询合约对应的product和exchange 
+        registry = self.registry_manager.get_instrument_registry(contract)
+        product = registry.product
+        exchange = registry.exchange
+
         # 首先尝试寻找 parquet 文件
-        pq_file_path = self.data_dir / exchange/ product / f'{contract}.parquet'
+        pq_file_path = self.data_dir / exchange / product / f'{contract}.parquet'
         if pq_file_path.exists():
             return str(pq_file_path)
         

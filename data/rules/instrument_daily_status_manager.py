@@ -3,34 +3,18 @@
 日频动态状态属性管家
 
 """
+from __future__ import annotations
 
-from data.rules.product_meta_manager import ProductMetaManager
 import pandas as pd
 from dataclasses  import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Literal, TYPE_CHECKING
+from data.rules.models import InstrumentDailyStatus
 if TYPE_CHECKING:
     from data.rules.product_meta_manager import ProductMetaManager
     from data.rules.instrument_registry_manager import InstrumentRegistryManager
 
-@dataclass(frozen=True)
-class InstrumentDailyStatus:
-    """合约的日频动态状态属性"""
-    trading_date: date # 交易日
-    instrument: str # 合约代码
-    is_tradable: bool # 是否可交易
-    inst_life_phase: Literal['not_started', 'started', 'paused', 'expired'] # 合约生命周期阶段
-    """
-    Note: 
-    `is_tradable`和`inst_life_phase`的组合关系：
-    - 未上市： `inst_life_phase=not_started`, `is_tradable=False`
-    - 正常交易：`started`, `True`
-    - 暂停交易: `paused`, `False`
-    - 已退市：`expired`, `False`
-    """
-    long_margin_ratio: float # 交易所多头保证金率
-    short_margin_ratio: float # 交易所空头保证金率
 
 class InstrumentDailyStatusManager:
     """

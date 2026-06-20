@@ -39,9 +39,9 @@ class BarAggregator:
 
     def __init__(self, 
                  calendar: TradingCalendar,
-                 sample_config: SamplingConfig = SamplingConfig()):
-        self.calendar = calendar #这个实例是“针对某个特定品种的，是 stateful 的。因此 BarAggregator 类的实例，也是 stateful 的。
-        self.sample_config = sample_config
+                 sample_config: SamplingConfig):
+        self.calendar: TradingCalendar = calendar #这个实例是“针对某个特定品种的，是 stateful 的。因此 BarAggregator 类的实例，也是 stateful 的。
+        self.sample_config: SamplingConfig = sample_config
     
     def _parse_freq_to_minutes(self, freq: str) -> int:
         """将符合 Pandas Offset Aliases 格式的 freq 字符串翻译为分钟数"""
@@ -99,9 +99,15 @@ class BarAggregator:
             df['session_id'] = -1 # 日频没有交易小节的概念，统一标记为 -1
         else: #为分钟级或小时级
             # 向 TradingCalendar 索要该品种的每个 calendar_timestamp 所对应的交易小节
-            df['session_id'] = self.calendar.get_session_ids(calendar_timestamps=df_index)
+            df['session_id'] = self.calendar.get_session_ids(
+                instruments=df['Dominant_Contract'],
+                calendar_timestamps=df_index,
+            )
             # 向 TradingCalendar 索要相对交易小节(session)开始时点的偏移分钟数(三个 session 分别为夜盘、早盘、午盘)
-            df['minute_offset'] = self.calendar.get_minute_offsets(calendar_timestamps=df_index)
+            df['minute_offset'] = self.calendar.get_minute_offsets(
+                instruments=df['Dominant_Contract'],
+                calendar_timestamps=df_index,
+            )
             df['group_id'] = df['minute_offset'] // minutes
       
         # 定义聚合字典并做聚合运算
@@ -124,6 +130,7 @@ class BarAggregator:
         # 只要用 group_id * minutes 计算出小节内的分钟偏移量，就可以联同交易日期(trading_date)，交易小节(session_id) 一起传给 TradingCalendar 的一个反向翻译器，得到标准化后的 calendar_time。
         resampled_df.reset_index(inplace=True) 
         normalized_calendar_times = self.calendar.get_calendar_timestamps_from_date_session_offset(
+            instruments=resampled_df['Dominant_Contract'],
             trading_dates=resampled_df['trading_date'],
             session_ids=resampled_df['session_id'],
             minute_offsets=resampled_df['group_id'] * minutes
@@ -168,7 +175,23 @@ class BarAggregator:
         start_date = df['trading_date'].min()
         end_date = df['trading_date'].max()
         # 2. 向日历索要完美的理论时间轴
-        standard_timestamps = self.calendar.get_standard_timestamps(start_date, end_date, freq)
+        standard_timestamps = []
+        date_contracts = (
+            df[['trading_date', 'Dominant_Contract']]
+            .dropna()
+            .drop_duplicates(subset=['trading_date'], keep='first')
+        )
+        for trading_date, contract in date_contracts.itertuples(index=False):
+            if not (start_date <= trading_date <= end_date):
+                continue
+            standard_timestamps.extend(
+                self.calendar.get_standard_timestamps(
+                    instrument=contract,
+                    start_date=trading_date,
+                    end_date=trading_date,
+                    freq=freq,
+                )
+            )
         # 3. 强制对齐：将原本缺失的时间点补齐并填上 NaN
         aligned_df = df.reindex(standard_timestamps)
         return aligned_df

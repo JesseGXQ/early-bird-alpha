@@ -40,7 +40,7 @@ class DataEnricherPriceLimit(FilterBase):
             # TODO [数据相关]
             # 这里的合约名称(contract)是否有必要将英文字母取大写？要做一个统一。
             # 另外的一处upper()在 research_feed.py中。请确认后做统一。
-            contracts = clean_df['InstumentID'].str.upper().unique()
+            contracts = clean_df['InstrumentID'].str.upper().unique()
         else:
             raise ValueError('【DataEnricherPriceLimit】未能在数据中找到合约名称列 "InstrumentID"。请检查原始数据。')
         
@@ -77,18 +77,18 @@ class DataEnricherGenerateCalendarTimestamp(FilterBase):
     def apply(self, df: pd.DataFrame) -> pd.DataFrame:
 
         clean_df = df.copy()
-
-        if 'TradingDay' in clean_df.columns and 'UpdateTime' in clean_df.columns and 'UpdateMillisec' in clean_df.columns:
-            # 假设原始数据中有 'TradingDay'（交易日，日期部分），'UpdateTime'（更新时间，时分秒部分）和 'UpdateMillisec'（更新时间的毫秒部分）这三列，合成一个完整的交易时间戳。
-            clean_df['trading_date'] = pd.to_datetime(clean_df['TradingDay']).dt.date 
-            clean_df['update_time'] = pd.to_datetime(pd.to_timedelta(clean_df['UpdateTime']) + pd.to_timedelta(clean_df['UpdateMillisec'], unit='ms')).dt.time
-            clean_df['calendar_timestamp'] = self.calendar.get_calendar_timestamps_from_trading_date_and_time(
-                trading_dates=clean_df['trading_date'],
-                t_s=clean_df['update_time']
-            )
-        else:
-            raise ValueError('【DataEnricherGenerateCalendarTimestamp】未能在数据中找到生成日历时间戳所需的列 "TradingDay", "UpdateTime", "UpdateMillisec"。请检查原始数据。')
         
+        # 确保所需列存在
+        check_df_columns_exist(clean_df, ['InstrumentID', 'TradingDay', 'UpdateTime','UpdateMillisec'])
+        # 合成一个完整的交易时间戳。
+        clean_df['trading_date'] = pd.to_datetime(clean_df['TradingDay']).date 
+        timedelta_series = pd.to_timedelta(clean_df['UpdateTime']) + pd.to_timedelta(clean_df['UpdateMillisec'], unit='ms') 
+        clean_df['update_time'] = pd.to_datetime(timedelta_series).time
+        clean_df['calendar_timestamp'] = self.calendar.get_calendar_timestamps_from_trading_date_and_time(
+            instruments=clean_df['InstrumentID'].astype(str).str.upper(),
+            trading_dates=clean_df['trading_date'],
+            t_s=clean_df['update_time']
+        )
         return clean_df.drop(columns=['trading_date', 'update_time'])
 
 #异常值过滤器

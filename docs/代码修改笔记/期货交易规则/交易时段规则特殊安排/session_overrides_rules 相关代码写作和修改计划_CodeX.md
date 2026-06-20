@@ -29,15 +29,14 @@ TradingCalendar
 
 | 类/类型 | 确定接口 | 主要功能 |
 |---|---|---|
-| `SessionInterval` | `tuple[str, str]` | 表示一个采用左闭右开语义的交易时间区间。 |
+| `SessionInterval` | `list[str]` | 表示一个采用左闭右开语义的交易时间区间，运行时校验必须恰好包含 `[start, end]` 两个字符串。 |
 | `SessionGroup` | `Literal["morning", "afternoon", "night"]` | 约束 action 和异常区间只能作用于三个显式时段分组。 |
 | `SessionView` | `Literal["scheduled", "realized"]` | 约束交易时段查询只支持计划视图和实际视图。 |
-| `BaseSessions` | `BaseSessions(effective_date: date, morning_sessions: tuple[SessionInterval, ...], afternoon_sessions: tuple[SessionInterval, ...], night_sessions: tuple[SessionInterval, ...])` | 保存某个历史版本的品种基础交易时段，不包含任何 override。 |
-| `SessionOverrideRules` | `SessionOverrideRules(schema_version: int, recurring_instrument_lifecycle_rules: tuple[dict[str, Any], ...], scheduled_dated_overrides: tuple[dict[str, Any], ...], realized_session_events: tuple[dict[str, Any], ...])` | 聚合一个品种 YAML 中的全部 session override 数据，内部规则仍保持字典结构。 |
-| `TradingSessions` | `TradingSessions(trading_date: date, instrument: str, morning_sessions: tuple[SessionInterval, ...], afternoon_sessions: tuple[SessionInterval, ...], night_sessions: tuple[SessionInterval, ...], view: SessionView, applied_override_ids: tuple[str, ...])` | 向下游返回合约级最终时段及已应用规则 ID。 |
-| `HolidayArrangement` | `HolidayArrangement(no_night_calendar_date: date, holiday_str: str, inferred_no_night_trading_date: date)` | 表示交易所节假日 CSV 中一条公告日历日及其离线推导交易日。 |
+| `BaseSessions` | `BaseSessions(effective_date: date, morning_sessions: list[SessionInterval], afternoon_sessions: list[SessionInterval], night_sessions: list[SessionInterval])` | 保存某个历史版本的品种基础交易时段，不包含任何 override。 |
+| `SessionOverrideRules` | `SessionOverrideRules(schema_version: int, recurring_instrument_lifecycle_rules: list[dict[str, Any]], scheduled_dated_overrides: list[dict[str, Any]], realized_session_events: list[dict[str, Any]])` | 聚合一个品种 YAML 中的全部 session override 数据，内部规则仍保持字典结构。 |
+| `TradingSessions` | `TradingSessions(trading_date: date, instrument: str, morning_sessions: list[SessionInterval], afternoon_sessions: list[SessionInterval], night_sessions: list[SessionInterval], view: SessionView, applied_override_ids: list[str])` | 向下游返回合约级最终时段及已应用规则 ID。 |
 
-所有集合字段在对象中使用不可变 `tuple`。resolver 执行动作时先复制为可变工作结构，返回前再转换为不可变结果，避免缓存对象被调用方修改。
+各类时段和规则集合使用与 YAML 更接近的 `list` 结构，不额外转换为不可变 `tuple`。业务正确性依赖加载和 resolver 阶段的运行时校验，而不是依赖不可变容器防止误改。
 
 类型提示只作为代码可读性、IDE 补全和静态检查辅助；业务正确性仍必须依赖运行时校验，例如 `view` 枚举、action 枚举、时间格式、区间顺序和规则冲突检查。
 
@@ -48,10 +47,12 @@ TradingCalendar
 | 类/方法 | 确定接口 | 主要功能 |
 |---|---|---|
 | `ExchangeHolidayManager` | `ExchangeHolidayManager(exchange_holiday_dir: str)` | 管理各交易所节假日 CSV 的校验、加载和内存缓存。 |
-| `_load_exchange` | `_load_exchange(exchange: str) -> tuple[HolidayArrangement, ...]` | 懒加载 `{EXCHANGE}.csv`，校验文件名、三列结构、日期格式和重复记录。 |
-| `get_holiday_arrangements` | `get_holiday_arrangements(exchange: str) -> tuple[HolidayArrangement, ...]` | 返回指定交易所的全部节假日无夜盘安排。 |
-| `is_no_night_trading_date` | `is_no_night_trading_date(exchange: str, trading_date: date) -> bool` | 直接按 `inferred_no_night_trading_date` 判断目标交易日是否无夜盘。 |
+| `_load_exchange` | `_load_exchange(exchange: str) -> pd.DataFrame` | 懒加载 `{EXCHANGE}.csv`，校验文件名、三列结构、日期格式和重复记录，并将日期列规范化为 `date`。 |
+| `get_holiday_arrangements` | `get_holiday_arrangements(exchange: str) -> pd.DataFrame` | 返回指定交易所的节假日无夜盘安排 DataFrame 副本，主要供人工核查和测试使用。 |
+| `is_no_night_trading_date` | `is_no_night_trading_date(exchange: str, trading_date: date) -> bool` | 判断 `trading_date` 是否存在于 `inferred_no_night_trading_date` 列的值中。 |
 | `clear_cache` | `clear_cache(exchange: str | None = None) -> None` | 清理指定交易所或全部 CSV 缓存，供测试和离线维护后刷新。 |
+
+不新增 `HolidayArrangement` 数据类。运行时核心需求只是判断目标交易日是否属于 `inferred_no_night_trading_date`，因此保留 CSV 对应的 `pd.DataFrame` 即可。实现 `is_no_night_trading_date()` 时注意不要直接写 `trading_date in df["inferred_no_night_trading_date"]`，因为 pandas 可能按索引判断；应使用 `trading_date in df["inferred_no_night_trading_date"].array`，或在加载后缓存为 `set[date]` 再判断。
 
 ### 2.3 `data/rules/session_rule_resolver.py`
 
@@ -61,9 +62,9 @@ TradingCalendar
 |---|---|---|
 | `SessionRuleResolver` | `SessionRuleResolver(registry_manager: InstrumentRegistryManager, meta_manager: ProductMetaManager, holiday_manager: ExchangeHolidayManager | None = None)` | 持有 session 规则解释所需的底层 Manager。 |
 | `resolve_rules` | `resolve_rules(self, instrument: str, trading_date: date, base_sessions: BaseSessions, session_override_rules: SessionOverrideRules, view: SessionView = "scheduled") -> TradingSessions` | 按固定顺序收集 actions 和 exception intervals，返回最终交易时段。 |
-| `_collect_recurring_lifecycle_rules_actions` | `_collect_recurring_lifecycle_rules_actions(self, instrument: str, trading_date: date, recurring_instrument_lifecycle_rules: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]` | 收集匹配合约生命周期规则的 actions。 |
-| `_collect_scheduled_dated_overrides_actions` | `_collect_scheduled_dated_overrides_actions(self, instrument: str, trading_date: date, scheduled_dated_overrides: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]` | 收集匹配明确日期、日期区间或节假日选择器的 actions。 |
-| `_collect_realized_session_events_exception_intervals` | `_collect_realized_session_events_exception_intervals(self, instrument: str, trading_date: date, realized_session_events: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]` | 收集 realized 视图才会应用的异常区间。 |
+| `_collect_recurring_lifecycle_rules_actions` | `_collect_recurring_lifecycle_rules_actions(self, instrument: str, trading_date: date, recurring_instrument_lifecycle_rules: list[dict[str, Any]]) -> list[dict[str, Any]]` | 收集匹配合约生命周期规则的 actions。 |
+| `_collect_scheduled_dated_overrides_actions` | `_collect_scheduled_dated_overrides_actions(self, instrument: str, trading_date: date, scheduled_dated_overrides: list[dict[str, Any]]) -> list[dict[str, Any]]` | 收集匹配明确日期、日期区间或节假日选择器的 actions。 |
+| `_collect_realized_session_events_exception_intervals` | `_collect_realized_session_events_exception_intervals(self, instrument: str, trading_date: date, realized_session_events: list[dict[str, Any]]) -> list[dict[str, Any]]` | 收集 realized 视图才会应用的异常区间。 |
 | `_scope_matches` | `_scope_matches(self, scope: dict[str, Any], instrument: str, product: str) -> bool` | 判断规则是否覆盖当前合约，并校验显式合约列表属于当前品种。 |
 | `_apply_actions` | `_apply_actions(self, base_sessions: BaseSessions, actions: list[dict[str, Any]]) -> TradingSessions` | 执行动作并生成 scheduled 基准结果，遵循固定动作优先级。 |
 | `_apply_exception_intervals` | `_apply_exception_intervals(self, trading_sessions: TradingSessions, exception_intervals: list[dict[str, Any]]) -> TradingSessions` | 在 realized 视图中从计划时段扣除暂停或非连续竞价异常区间。 |
@@ -127,9 +128,9 @@ session override 的匹配、动作收集和动作应用不写在 `TradingRuleSe
 
 | 模块 | 主要覆盖内容 |
 |---|---|
-| `tests/rules/test_models.py` | `BaseSessions`、`SessionOverrideRules`、`TradingSessions`、`HolidayArrangement` 的不可变结构和基础类型行为。 |
+| `tests/rules/test_models.py` | `BaseSessions`、`SessionOverrideRules`、`TradingSessions` 的基础类型行为，以及 `SessionInterval` 必须为两个字符串的校验。 |
 | `tests/rules/test_product_meta_session_rules.py` | 新旧 `sessions_history` 兼容解析、schema version、ID 唯一性、日期/时间、scope、action 和错误路径校验。 |
-| `tests/rules/test_exchange_holiday_manager.py` | CSV 三列校验、缓存、交易所规范化、重复日期和无夜盘交易日判断。 |
+| `tests/rules/test_exchange_holiday_manager.py` | CSV 三列校验、DataFrame 日期列规范化、缓存、交易所规范化、重复日期和无夜盘交易日判断。 |
 | `tests/rules/test_session_rule_resolver.py` | lifecycle、dates、range、holiday、scope、动作优先级、冲突和 `applied_override_ids`。 |
 | `tests/rules/test_trading_rule_service.py` | 门面编排、registry/meta 一致性、缓存、view 校验和 resolver 调用。 |
 | `tests/rules/test_realized_session_events.py` | scheduled/realized 隔离、暂停区间扣除、跨多个基础 interval 的切分和非法异常区间。 |
@@ -149,13 +150,13 @@ session override 的匹配、动作收集和动作应用不写在 `TradingRuleSe
 6. 新增私有解析器，分别解析 base sessions、scope、source、action、lifecycle rule、scheduled override 和 realized event；解析结果中的复杂 rule/event/action 保持 `dict` / `list` 结构，不再转换为细粒度数据类。
 7. 加载阶段校验 schema version、规则 ID 唯一性、枚举、ISO 日期/时间、闭区间顺序和字段组合；跨 Tier 的“显式合约是否属于品种”校验交给 `SessionRuleResolver`。
 8. 兼容旧 `day_sessions` 输入时仅按“最后一个 interval 为 afternoon”转换，并发出迁移警告；新数据必须使用显式字段。
-9. 所有 interval 输出规范为不可变 tuple，并统一采用 `[start, end)` 语义。
+9. 所有 interval 输出规范为两个字符串组成的 list，并统一采用 `[start, end)` 语义。
 
 ### 3.2 `data/rules/instrument_registry_manager.py`
 
 1. 公共接口 `get_instrument_registry(instrument)` 保持不变。
 2. 将返回对象中的 `product` 统一转为大写，确保与 `ProductMetaManager` 查询键一致。
-3. 补充注册表必要字段和空值校验，使 `list_date`、`last_trade_date`、`product`、`exchange` 可安全用于 lifecycle 匹配。
+3. 补充注册表必要字段和空值校验，使 `list_date`、`last_trade_date`、`product`、`exchange` 可安全用于 lifecycle 匹配。  
 4. 保留合约全局唯一约束，并让错误信息包含数据文件目录和冲突合约。
 5. 若已有注册表相关数据类仍定义在该模块中，迁移到 `data/rules/models.py`，该模块只保留加载和查询逻辑。
 

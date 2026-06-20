@@ -134,7 +134,6 @@ class ResearchFeed:
             contract = row['Dominant_Contract']
 
             # 查找本地 1min 数据文件地址，并加载
-            # TODO [call issue] argument missing
             file_path = self.file_locator.get_1min_file_path(contract)
             df = self.bar_loader.load_1min_bar(file_path)
 
