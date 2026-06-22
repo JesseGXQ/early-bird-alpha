@@ -18,6 +18,8 @@ class StaticMeta:
         品种代码。例如'RB'。
     exchange: str
         交易所代码。
+    name: str
+        品种中文简称。
     position_date_type: Literal['distinguish_today_yesterday', 'undistinguished']
         持仓日期类型——是否区分今仓和昨仓。
     max_margin_side_algorithm: bool
@@ -28,6 +30,7 @@ class StaticMeta:
     """
     product: str
     exchange: str
+    name: str
     position_date_type: Literal['distinguish_today_yesterday', 'undistinguished']
     # TODO [业务逻辑完善]
     # 以下两个字段目前过粗，真实的业务逻辑更复杂，日后有需要要完善。
@@ -204,12 +207,12 @@ class InstrumentRegistry:
     product_class: int # 品种类型，是期权、期货还是组合、套利合约
     exchange: str # 交易所
     list_date: date # 上市日期
-    last_trade_date: date # 最后交易日
-    expire_date: date # 合约到期日
+    last_trade_date: date # 最后交易日。 注意不同数据来源的命名。在 CTP 接口中对应的是 expire_date。BigQuant的 cn_future_static_data 中称 expire_data 为 “合约到期日”, cn_future_basic_info 中称 delist_date 为 退市日期； Tushare 的 fut_basic 表中 将 delist_date 称为 “最后交易日期”
+    #expire_date: date # 合约到期日
     delivery_year: int # 交割年份
     delivery_month: int # 交割月份
-    start_deliv_date: date # 开始交割日
-    end_deliv_date: date # 最后交割日
+    start_deliv_date: date | None # 开始交割日 ，金融期货可能会缺失
+    end_deliv_date: date | None # 最后交割日
     exchange_inst: str # 交易所报单代码
     multiplier: int # 合约乘数
 

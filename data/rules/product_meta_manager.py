@@ -105,6 +105,7 @@ class ProductMetaManager:
         return StaticMeta(
             product=str(raw['product']).upper(),
             exchange=str(raw['exchange']).upper(),
+            name=str(raw['name']),
             position_date_type=raw['position_date_type'],
             max_margin_side_algorithm=bool(raw['max_margin_side_algorithm']),
             combination_type=int(raw['combination_type']),

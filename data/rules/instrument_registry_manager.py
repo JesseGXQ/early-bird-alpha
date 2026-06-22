@@ -4,8 +4,14 @@
 
 """
 import pandas as pd
+from datetime import date
 from pathlib import Path
 from data.rules.models import InstrumentRegistry
+
+def _to_date(val) -> date | None:
+    if pd.isna(val):
+        return None
+    return pd.to_datetime(val).date()
 
 class InstrumentRegistryManager:
 
@@ -95,11 +101,11 @@ class InstrumentRegistryManager:
             exchange=str(row['exchange']).upper(),
             list_date=pd.to_datetime(row['list_date']).date(),
             last_trade_date=pd.to_datetime(row['last_trade_date']).date(),
-            expire_date=pd.to_datetime(row['expire_date']).date(),
+            #expire_date=pd.to_datetime(row['expire_date']).date(),
             delivery_year=int(row['delivery_year']),
             delivery_month=int(row['delivery_month']),
-            start_deliv_date=pd.to_datetime(row['start_deliv_date']).date(),
-            end_deliv_date=pd.to_datetime(row['end_deliv_date']).date(),
+            start_deliv_date=_to_date(row['start_deliv_date']),
+            end_deliv_date=_to_date(row['end_deliv_date']),
             exchange_inst=str(row['exchange_inst']),
             multiplier=int(row['multiplier'])
             )

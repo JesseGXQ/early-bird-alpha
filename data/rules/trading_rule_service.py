@@ -23,9 +23,9 @@ class TradingRuleService:
     Parameters
     ----------
     meta_manager : ProductMetaManager
-        品种规则配置管家（Tier 1 品种元数据）。
+        品种规则配置管家 (Tier 1 品种元数据）。
     registry_manager : InstrumentRegistryManager
-        合约注册数据管家（Tier 2 合约注册）。
+        合约注册数据管家 (Tier 2 合约注册）。
     holiday_manager : ExchangeHolidayManager
         交易所节假日管家。
     daily_status_manager: InstrumentDailyStatusManger or None, default None
