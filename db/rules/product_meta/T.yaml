@@ -1,0 +1,32 @@
+# -------------------- static Meta --------------------
+product: T
+exchange: CFFEX
+name: 10年国债
+position_date_type: undistinguished
+max_margin_side_algorithm: true
+combination_type: 0
+
+# -------------------- price tick rule --------------------
+price_tick_history:
+- effective_date: '2015-03-20'
+  price_tick: 0.005
+
+# -------------------- sessions history -------------------
+sessions_history:
+- effective_date: '2015-03-20'
+  morning_sessions:
+  - - 09:15
+    - '11:30'
+  afternoon_sessions:
+  - - '13:00'
+    - '15:15'
+  night_sessions: []
+- effective_date: '2020-07-20'
+  morning_sessions:
+  - - 09:30
+    - '11:30'
+  afternoon_sessions:
+  - - '13:00'
+    - '15:15'
+  night_sessions: []
+

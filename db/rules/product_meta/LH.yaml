@@ -1,0 +1,26 @@
+# -------------------- static Meta --------------------
+product: LH
+exchange: DCE
+name: 生猪
+position_date_type: undistinguished
+max_margin_side_algorithm: false
+combination_type: 0
+
+# -------------------- price tick rule --------------------
+price_tick_history:
+- effective_date: '2021-01-08'
+  price_tick: 5.0
+
+# -------------------- sessions history -------------------
+sessions_history:
+- effective_date: '2021-01-08'
+  morning_sessions:
+  - - 09:00
+    - '10:15'
+  - - '10:30'
+    - '11:30'
+  afternoon_sessions:
+  - - '13:30'
+    - '15:00'
+  night_sessions: []
+

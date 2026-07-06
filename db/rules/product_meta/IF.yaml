@@ -1,0 +1,32 @@
+# -------------------- static Meta --------------------
+product: IF
+exchange: CFFEX
+name: 沪深300指数
+position_date_type: undistinguished
+max_margin_side_algorithm: true
+combination_type: 0
+
+# -------------------- price tick rule --------------------
+price_tick_history:
+- effective_date: '2010-04-16'
+  price_tick: 0.2
+
+# -------------------- sessions history -------------------
+sessions_history:
+- effective_date: '2010-04-16'
+  morning_sessions:
+  - - 09:15
+    - '11:30'
+  afternoon_sessions:
+  - - '13:00'
+    - '15:15'
+  night_sessions: []
+- effective_date: '2016-01-01'
+  morning_sessions:
+  - - 09:30
+    - '11:30'
+  afternoon_sessions:
+  - - '13:00'
+    - '15:00'
+  night_sessions: []
+

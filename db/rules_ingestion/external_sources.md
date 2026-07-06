@@ -9,12 +9,11 @@
 | BigQuant `cn_future_product_info` | 可访问 | 期货品种信息，官方页面可读取字段结构。 |
 | BigQuant `cn_future_basic_info` | 可访问 | 期货合约基本信息，官方页面可读取字段结构。 |
 | BigQuant `cn_future_static_data` | 可访问 | 合约-交易日静态 / 状态数据，官方页面可读取字段结构。 |
-| BigQuant `cn_future_level1_snapshot` | 可访问 | 期货快照行情，官方页面可读取字段结构。 |
-| Tushare `fut_basic` / `fut_trade_cal` / `fut_settle` / `ft_limit` | 已由本地补充文档提供 | 字段级画像来自 `db/rules_ingestion/supplements/Tushare期货数据介绍/Tushare 期货数据库介绍.md`。 |
+| Tushare `fut_basic` / `fut_trade_cal` / `fut_settle` | 已由本地补充文档提供 | 字段级画像来自 `db/rules_ingestion/supplements/Tushare期货数据介绍/Tushare 期货数据库介绍.md`。 |
 
 ## BigQuant
 
-BigQuant 的期货数据按表可分为品种级、合约级、合约-交易日级和盘中快照级。对本地交易规则数据库最有价值的是 `cn_future_product_info`、`cn_future_basic_info` 和 `cn_future_static_data`；`cn_future_level1_snapshot` 更偏行情和盘中状态验证。
+BigQuant 的期货数据按表可分为品种级、合约级和合约-交易日级。对本地交易规则数据库最有价值的是 `cn_future_product_info`、`cn_future_basic_info` 和 `cn_future_static_data`。
 
 BigQuant 合约代码有平台后缀，例如 `rb2408.SHF`、`SR409.CZC`。交易所后缀为 3 位大写：`CZC`、`DCE`、`SHF`、`CFE`、`INE`、`GFE`。需要注意品种代码大小写：郑商所多为大写，大商所、上期所、能源中心、广期所多为小写。
 
@@ -128,41 +127,6 @@ BigQuant 合约代码有平台后缀，例如 `rb2408.SHF`、`SR409.CZC`。交�
 - 对本地 TIER 1 品种级版本化规则，需要先做粒度压缩。例如下单量限制应校验“同一品种、同一交易日、所有合约值是否一致”；若不一致，说明本地模型可能需要 `scope` 或例外表达。
 - `price_tick` 可用于识别 `effective_date`，并区分一刀切与新老划断：新老划断时需要记录仍保持旧规则的合约列表。
 - 日频状态字段适合直接生成 `InstrumentDailyStatus`，但 `is_trading`、`inst_life_phase` 的编码和值域需要用样本数据确认。
-
-### `cn_future_level1_snapshot`
-
-- 官方页面：<https://bigquant.com/data/datasources/cn_future_level1_snapshot>
-- 数据粒度：合约-盘中时间级快照。
-- 更新频率：每个交易日。
-- 官方说明的表主键：`date`、`instrument`。
-- 主要用途：行情、涨跌停、成交和持仓快照；对交易规则库是辅助来源，不是主要规则来源。
-
-字段画像：
-
-| Field | Type | Meaning | Local relevance |
-| --- | --- | --- | --- |
-| `date` | timestamp | 快照时间 / 日期 | 盘中时间索引 |
-| `trading_day` | int32 | 交易日 | 交易日校验 |
-| `time` | int32 | 盘中时间 | 交易时段验证线索 |
-| `instrument` | string | 合约代码 | 合约主键 |
-| `product_code` | string | 品种代码 | 品种归属 |
-| `trading_code` | string | 交易代码 | 报单代码校验 |
-| `open` / `high` / `low` / `price` | float | OHLC / 最新价或收盘价字段 | 行情快照 |
-| `bid_price1` / `ask_price1` | float | 买一 / 卖一价 | 行情快照 |
-| `bid_volume1` / `ask_volume1` | int64 | 买一 / 卖一量 | 行情快照 |
-| `volume` | int64 | 成交量 | 行情快照 |
-| `amount` | double | 成交金额 | 行情快照 |
-| `open_interest` | int32 | 持仓量 | 行情快照 |
-| `pre_open_interest` | int32 | 昨持仓量 | 行情快照 |
-| `settle` / `pre_settle` | float | 结算价 / 前结算价 | 日频行情校验 |
-| `upper_limit` / `lower_limit` | float | 涨停价 / 跌停价 | 涨跌停规则 / 日频快照校验 |
-| `pre_close` | float | 前收盘价 | 日频行情校验 |
-
-入库判断：
-
-- 可辅助验证交易时段：实际有快照的时间段可以与 `BaseSessions` / `TradingSessions` 做交叉检查。
-- 可辅助生成或校验日频快照数据库中的涨跌停、结算价、持仓量等字段。
-- 不适合作为期货交易规则字段的主来源，因为它是行情事实，不是规则定义。
 
 ## Tushare
 
@@ -291,45 +255,6 @@ Tushare 的期货数据由本地补充文档完成字段级画像。交易所代
 - `offset_today_fee` 明确对应平今仓手续费线索，但字段描述写作“手续率”，需确认它在不同品种上是金额还是比例，或是否跟随 `trading_fee_rate` / `trading_fee` 的计价方式。
 - 由于单次 1600 行，批量下载应按交易日和交易所循环，并保留原始快照。
 
-### `ft_limit`
-
-- 官方文档：<https://tushare.pro/document/2?doc_id=368>
-- 本地补充：`db/rules_ingestion/supplements/Tushare期货数据介绍/Tushare 期货数据库介绍.md`
-- 接口描述：获取所有期货合约每天的涨跌停价格及最低保证金率，数据开始于 2005 年。
-- 数据粒度：合约-交易日级。
-- 限制：单次最大 4000 行，可按日期、合约代码等循环；需要 5000 积分。
-- 主要用途：日频快照数据库中的盘前涨跌停价格和最低保证金率，也可与 BigQuant 快照表交叉校验。
-
-输入参数：
-
-| Field | Type | Required | Meaning |
-| --- | --- | --- | --- |
-| `ts_code` | str | N | 合约代码 |
-| `trade_date` | str | N | 交易日期，格式 `YYYYMMDD` |
-| `start_date` | str | N | 开始日期 |
-| `end_date` | str | N | 结束日期 |
-| `cont` | str | N | 品种 / 合约产品代码，例如 `CU` |
-| `exchange` | str | N | 交易所代码，例如 `DCE` |
-
-输出字段画像：
-
-| Field | Type | Meaning | Local relevance |
-| --- | --- | --- | --- |
-| `trade_date` | str | 交易日期 | 日频索引 |
-| `ts_code` | str | TS 合约代码 | 合约主键 |
-| `name` | str | 合约名称 | 注册属性校验 |
-| `up_limit` | float | 涨停价 | 日频快照字段 |
-| `down_limit` | float | 跌停价 | 日频快照字段 |
-| `m_ratio` | float | 最低交易保证金率（%） | 保证金校验 / 扩展候选 |
-| `cont` | str | 合约产品代码 | 品种归属 |
-| `exchange` | str | 交易所代码 | 分区与校验字段 |
-
-入库判断：
-
-- 适合构建或校验日频快照数据库中的盘前涨跌停价格。
-- 可与 BigQuant `cn_future_level1_snapshot.upper_limit` / `lower_limit` 对照，但需注意一个是盘前参数，一个是盘中快照字段。
-- `m_ratio` 是最低交易保证金率，和 BigQuant / Tushare 结算参数中的多空、投机、套保保证金率不是完全同一语义，不能直接混用。
-
 ## Cross-Source Notes
 
 - BigQuant `cn_future_product_info` 更适合提供品种级当前规则线索；BigQuant `cn_future_static_data` 更适合从合约-交易日历史中反推版本化规则。
@@ -342,8 +267,6 @@ Tushare 的期货数据由本地补充文档完成字段级画像。交易所代
 - BigQuant 期货品种信息：<https://bigquant.com/data/datasources/cn_future_product_info>
 - BigQuant 期货基本信息：<https://bigquant.com/data/datasources/cn_future_basic_info>
 - BigQuant 期货静态信息：<https://bigquant.com/data/datasources/cn_future_static_data>
-- BigQuant 期货快照数据：<https://bigquant.com/data/datasources/cn_future_level1_snapshot>
 - Tushare 期货合约信息表：<https://tushare.pro/document/2?doc_id=135>
 - Tushare 期货交易日历：<https://tushare.pro/document/2?doc_id=467>
 - Tushare 结算参数：<https://tushare.pro/document/2?doc_id=141>
-- Tushare 期货合约涨跌停价格（盘前）：<https://tushare.pro/document/2?doc_id=368>

@@ -180,8 +180,8 @@ class ContinuousContractManager:
     ------
     product: str
         品种代码，例如'RB'。
-    rollover_config: RolloverConfig, optional
-        换月规则配置类实例，包含 buffer_days, ratio_threshold, transition_days。默认值为 RolloverConfig()，即 buffer_days=3, ratio_threshold=1.1, transition_days=1。
+    rollover_config: RolloverConfig
+        换月规则配置类实例，包含 buffer_days, ratio_threshold, transition_days。
     master_table_dir: str
         本地持久化的 master_table 文件目录路径。
         ContinuousContractManager 会根据 rollover_config 中的参数 signature 来寻找对应的 master_table 文件，例如 RB_b3_r110_t1.parquet。
@@ -198,7 +198,7 @@ class ContinuousContractManager:
     def __init__(self,
                  product: str,
                  master_table_dir: str,
-                 rollover_config: RolloverConfig = RolloverConfig()
+                 rollover_config: RolloverConfig
                  ):
         # 读取本地持久化的 master_table （换月日历）。文件名如 RB_b3_r110_t1.parquet
         file_name = f'{product}_{rollover_config.signature}.parquet'
@@ -224,7 +224,7 @@ class ContinuousContractManager:
             )
                 raise FileNotFoundError(error_msg)
 
-        #记录配置中的换月过渡期参数
+        # 记录配置中的换月过渡期参数
         self.transition_days = rollover_config.transition_days
 
         # 提取所有交易日序列

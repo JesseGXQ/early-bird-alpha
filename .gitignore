@@ -1,20 +1,24 @@
 # ==========================================
-# 期货交易规则入库与数据仓库忽略规则
+# 忽略规则
 # ==========================================
 
-# 1. 忽略原始下载的临时数据、快照以及本地缓存原始数据
-db/rules_ingestion/data/raw/
-db/rules_ingestion/data/temp/
-db/rules_ingestion/data/cache/
+# 1. 期货交易规则入库相关原始下载的临时数据、快照以及本地缓存原始数据
+db/rules_ingestion/data/
+
+
+# API 凭证
+db/rules_ingestion/supplements/API凭证.txt
 
 # 2. 忽略数据库生成的大型数据文件（Parquet, CSV 等）
-# 这样可以保留 db/ 目录下的 Python 代码、YAML 配置文件和 Markdown 设计文档（如 rules_ingestion/*.md）
+# 这样可以保留 db/ 目录下的 Python 代码 和 Markdown 设计文档（如 rules_ingestion/*.md）
 db/**/*.parquet
 db/**/*.parquet.tmp
 db/**/*.csv
 db/**/*.xlsx
 db/**/*.db
 db/**/*.sqlite
+
+
 
 # 3. 忽略根目录下可能存在的其他临时数据文件
 *.parquet
@@ -33,3 +37,11 @@ __pycache__/
 .vscode/
 .idea/
 .DS_Store
+
+# ==========================================
+# 开发文档
+# ==========================================
+docs/others/
+docs/talk with API/
+
+

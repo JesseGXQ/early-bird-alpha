@@ -56,14 +56,6 @@ class ExchangeHolidayManager:
         Returns
         -------
         None
-
-        Raises
-        ------
-        FileNotFoundError
-            如果在 `exchange_holiday_dir` 目录下找不到对应的 `{exchange}.csv` 文件。
-        ValueError
-            如果 CSV 文件的列数不等于 3，或者缺少必要的列：
-            `no_night_calendar_date`、`holiday_str`、`inferred_no_night_trading_date`。
         """
         if exchange not in self._exchange_holiday_df_cache:
             path = self.exchange_holiday_dir / f'{exchange}.csv'
@@ -71,18 +63,8 @@ class ExchangeHolidayManager:
                 raise FileNotFoundError(f'未能在 {self.exchange_holiday_dir} 下找到交易所 {exchange} 的节假日 CSV 文件。')
             df = pd.read_csv(path)
 
-            # 校验所需要的三列存在，且仅有三列（`no_night_calendar_date`、`holiday_str` 和 `inferred_no_night_trading_date`）
-            if len(df.columns) != 3:
-                raise ValueError(
-                    f'交易所 {exchange} 的节假日文件只能存在三列(`no_night_calendar_date`、`holiday_str` 和 `inferred_no_night_trading_date`)，现找到 {len(df.columns)} 列。'
-                )
-            required_cols = ['no_night_calendar_date', 'holiday_str', 'inferred_no_night_trading_date']
-            for col in required_cols:
-                if col not in df.columns:
-                    raise ValueError(f'交易所 {exchange} 的节假日文件中，缺少必要列：{col}')
-            # 将 no_night_calendar_date 和 inferred_no_night_trading_date 列解析为 date
-            df['no_night_calendar_date'] = pd.to_datetime(df['no_night_calendar_date']).date
-            df['inferred_no_night_trading_date'] = pd.to_datetime(df['inferred_no_night_trading_date']).date
+            # 将 inferred_no_night_trading_date 列解析为 date
+            df['inferred_no_night_trading_date'] = pd.to_datetime(df['inferred_no_night_trading_date']).dt.date
             
             # 加入缓存
             self._exchange_holiday_df_cache[exchange] = df
@@ -90,7 +72,7 @@ class ExchangeHolidayManager:
     
     def get_holiday_arrangements(self, exchange: str) -> pd.DataFrame:
         """
-        获取指定交易所的完整节假日安排数据。
+        获取指定交易所的完整节假日安排的 DataFrame。
 
         Parameters
         ----------
@@ -100,10 +82,7 @@ class ExchangeHolidayManager:
         Returns
         -------
         pd.DataFrame
-            包含节假日安排的数据表，包含以下三列：
-            - `no_night_calendar_date` : date, 交易所公告无夜盘的日历日。
-            - `holiday_str` : str, 节假日名称（如 "春节"）。
-            - `inferred_no_night_trading_date` : date, 推导出的无夜盘交易日。
+            交易所节假日安排的 DataFrame。
         """
         exchange = exchange.upper()
         self._load_exchange(exchange)

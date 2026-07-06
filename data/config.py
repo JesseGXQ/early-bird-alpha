@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 from typing import Literal
 
+ALL_EXCHANGES = ['CFFEX', 'CZCE', 'DCE', 'GFEX', 'INE', 'SHFE']
+
+
 @dataclass(frozen=True)
 class RolloverConfig:
     """

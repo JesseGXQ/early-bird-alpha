@@ -38,38 +38,6 @@ class StaticMeta:
     combination_type: int
 
 @dataclass(frozen=True)
-class TransactionCostRule:
-    """
-    (某一时期开始生效的)交易成本规则。
-
-    Parameters
-    ------
-    effective_date: datetime.date 
-        规则生效日期。
-    commission_type: str, 'flat' or 'ratio'
-        手续费类型：按手数收取，还是按金额收取。
-    open: float
-        开仓手续费。
-    close_yesterday: float
-        平昨手续费。
-    close_today: float
-        平今手续费。
-    scope: list of str
-        合约代码列表，用于表达规则仅对某些特定合约生效。
-    condition: Any
-        用于cover其他更复杂情况的条件表达, 目前为空。
-
-    """
-    effective_date: date 
-    commission_type: Literal['flat', 'ratio']
-    open: float
-    close_yesterday: float
-    close_today: float
-    scope: list[str]  # 合约代码列表，用于表达规则仅对某些特定合约生效。
-    # TODO [业务逻辑完善] 目前过粗，日后有需要再完善。
-    condition: Any #用于cover其他更复杂情况，目前暂缺
-
-@dataclass(frozen=True)
 class PriceTickRule:
     """
     （某一时期开始生效的）最小变动价位规则。
@@ -80,13 +48,9 @@ class PriceTickRule:
         规则生效日期。
     price_tick: float
         最小变动价位。
-    remain_old_rule_instruments: list of str
-        规则变动有两种方式：新老划断和一刀切。若一刀切，该字段应为空列表。
-        若新老划断，则该字段记录保持旧规则的合约名称列表。
     """
     effective_date: date
     price_tick: float
-    remain_old_rule_instruments: list[str]
 
 @dataclass(frozen=True)
 class MultiplierRule:
@@ -156,6 +120,7 @@ class SessionOverrideRules:
     交易时段规则特殊安排， 包含合约生命周期类rules、特定日期overrides、实际发生的例外事件。
     
     """
+    schema_version: int
     recurring_instrument_lifecycle_rules: list[dict[str, Any]]
     scheduled_dated_overrides: list[dict[str, Any]]
     realized_session_events: list[dict[str, Any]]
@@ -202,16 +167,12 @@ class InstrumentRegistry:
     合约级注册属性
     """
     instrument: str # 合约代码
-    name: str # 合约名称
     product: str # 品种代码
-    product_class: int # 品种类型，是期权、期货还是组合、套利合约
     exchange: str # 交易所
     list_date: date # 上市日期
     last_trade_date: date # 最后交易日。 注意不同数据来源的命名。在 CTP 接口中对应的是 expire_date。BigQuant的 cn_future_static_data 中称 expire_data 为 “合约到期日”, cn_future_basic_info 中称 delist_date 为 退市日期； Tushare 的 fut_basic 表中 将 delist_date 称为 “最后交易日期”
-    #expire_date: date # 合约到期日
     delivery_year: int # 交割年份
     delivery_month: int # 交割月份
-    start_deliv_date: date | None # 开始交割日 ，金融期货可能会缺失
     end_deliv_date: date | None # 最后交割日
     exchange_inst: str # 交易所报单代码
     multiplier: int # 合约乘数
@@ -220,9 +181,9 @@ class InstrumentRegistry:
 class InstrumentDailyStatus:
     """合约的日频动态状态属性"""
     trading_date: date # 交易日
-    instrument: str # 合约代码
-    is_tradable: bool # 是否可交易
-    inst_life_phase: Literal['not_started', 'started', 'paused', 'expired'] # 合约生命周期阶段
+    instrument: str  # 合约代码
+    is_tradable: bool | None # 是否可交易
+    inst_life_phase: Literal['not_started', 'started', 'paused', 'expired'] | None # 合约生命周期阶段
     """
     Note: 
     `is_tradable`和`inst_life_phase`的组合关系：
@@ -233,3 +194,9 @@ class InstrumentDailyStatus:
     """
     long_margin_ratio: float # 交易所多头保证金率
     short_margin_ratio: float # 交易所空头保证金率
+    # 手续费——已从 product_meta 转移过来
+    commission_type: Literal['flat','ratio'] # 手续费类型，按手数收取还是比例收取
+    commission_open: float # 开仓手续费
+    commission_open_today: float | None # 非留仓过夜的（日内就平掉的仓位）开仓手续费。历史上，大商所为了鼓励 day traders 给市场增加流动性，曾对日内平仓的开仓手续费也给予优惠（先收一笔较大的，若日终结算时发现日内平仓了，那么再退还一部分）
+    commission_close: float # 平仓手续费
+    commission_close_today: float | None # 平今仓手续费

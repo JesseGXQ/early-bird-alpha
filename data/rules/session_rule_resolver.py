@@ -31,6 +31,9 @@ class SessionRuleResolver:
         self.meta_manager: ProductMetaManager = meta_manager
         self.holiday_manager: ExchangeHolidayManager = holiday_manager
 
+        # 设定解析器版本
+        self.version: int = 1
+
     def resolve_rules(
         self, 
         contract: str,
@@ -46,6 +49,10 @@ class SessionRuleResolver:
 
         -> TradingSessions
         """
+        # 验证解析器版本
+        if self.version != session_override_rules.schema_version:
+            raise ValueError(f'交易时段特殊规则存储的schema 版本和 SessionRuleResolver 的版本不一致，无法继续。')
+
         # Initialize action list
         applied_override_ids: list[str] = []
         actions: list[dict[str, str | list[list[str]]]] = []
@@ -141,7 +148,7 @@ class SessionRuleResolver:
                 try:
                     assert pd.notna(last_trade_date)
                 except AssertionError:
-                    raise ValueError(f'合约 {contract} 的注册信息中， last_trade_date 为空值，无法进行交易时段特殊规则-合约生命周期规则匹配。')
+                    raise ValueError(f'合约 {contract} 的注册信息中， last_trade_date 为空，无法进行交易时段特殊规则-合约生命周期规则匹配。')
                 if trading_date == last_trade_date:
                     matched_lifecyle_rules.append(rule) #将该条rule收集起来
             else:
@@ -204,13 +211,14 @@ class SessionRuleResolver:
     def _apply_actions(
         self, 
         base_sessions: BaseSessions, 
-        actions: list[dict[str, str | list[list[str]]]]  
+        actions: list[dict[str, Any]]
         ) -> BaseSessions: 
-        f"""
+        """
         执行一系列对交易时段进行调整的actions。
 
         返回一个 BaseSessions 实例，包含已根据各 actions 调整过的交易小节。
-
+        """
+        """
         example of actions:
 
         [
@@ -239,25 +247,43 @@ class SessionRuleResolver:
                 "session_group": "night",
                 "time": "23:25"
             }
+
+            {
+                "operation": "apply_exception_intervals",
+                "exception_intervals":[
+                    {
+                        "session_group": "morning",
+                        "start": "10:00",
+                        "end": "10:01",
+                        "market_state": "halted"
+                    },
+                    {
+                        "session_group": "morning",
+                        "start": "10:02",
+                        "end": "10:02",
+                        "market_state": "call_auction"
+                    }
+                
+                ]
+            }
         ]
 
         session_group: morning/afternoon/night,
-        operation: remove_session_group/replace_session_group/set_first_interavl_start/set_last_interval_end
+        operation: remove_session_group/replace_session_group/set_first_interavl_start/set_last_interval_end/apply_exception_intervals
 
-        执行顺序： remove > replace > set interval start or end
+        执行顺序： remove > replace > set interval start or end > apply_exception_intervals
 
         执行规则：
 
-        1. 存在 `remove_session_group` 时，删除该 session group，跳过 replace 和边界收缩。
-        2. 不存在 remove、但存在 `replace_session_group` 时，执行 replace，跳过边界收缩。
-        3. 仅存在边界收缩动作时：
-        - 所有 `set_first_interval_start` 取最晚的开盘时间；
-        - 所有 `set_last_interval_end` 取最早的收盘时间。
+        1. 存在 remove 时，执行并跳过后续所有；
+        2. 不存在 remove，但存在 replace 时，执行 replace，跳过边界收缩，执行 apply_exception_interval；
+        3. 不存在 remove 和 replace，但存在边界收缩动作时，执行边界收缩，执行 apply_exception_interval；
         """
         # 进行简单校验： 
         # operation 必须属于以下四个枚举：remove_session_group, replace_session_group, set_first_interval_start, set_last_interval_end
         # session_group 必须属于以下三者： morning, afternoon, night.
-        allowed_operations = ['remove_session_group', 'replace_session_group', 'set_first_interval_start', 'set_last_interval_end']
+        allowed_operations = ['remove_session_group', 'replace_session_group', 
+        'set_first_interval_start', 'set_last_interval_end', 'apply_exception_interval']
         session_groups = ['morning', 'afternoon', 'night']
         for action in actions:
             if action['operation'] not in allowed_operations:
@@ -290,12 +316,16 @@ class SessionRuleResolver:
 
         for session_group in ('morning', 'afternoon', 'night'):
             actions_in_session = [action for action in actions if action['session_group']==session_group]
+
             # if there's remove operation, implement it and skip all else
             remove_actions_in_session = [action for action in actions_in_session if action['operation']=='remove_session_group']
             if remove_actions_in_session:
                 modified_sessions[session_group] = []
                 continue
-            # then no remove -> if there's replace, implement replace, skip all else
+
+            # then no remove, if there's replace, implement replace, skip 边界收缩
+            replace_implemented = False
+
             replace_actions_in_session = [action for action in actions_in_session if action['operation']=='replace_session_group']
             if replace_actions_in_session:  
                 try: # 只允许一个 replace session group。否则肯定是 yaml 文件储存的信息出错。
@@ -305,50 +335,60 @@ class SessionRuleResolver:
                 intervals = replace_actions_in_session[0]['intervals']
                 assert isinstance(intervals, list) # narrow its type to list
                 modified_sessions[session_group] = intervals
-                continue
-            # no remove, no replace, any set_interval_start or set_interval_end?
-            set_start_actions = [action for action in actions_in_session if action['operation']=='set_first_interval_start']
-            set_end_actions = [action for action in actions_in_session if action['operation']=='set_last_interval_end']
+                replace_implemented = True
+
+            # 若没有执行过 remove， 也没有执行过 replace，则执行（可能存在的）边界收缩
+            if not replace_implemented:
+                set_start_actions = [action for action in actions_in_session if action['operation']=='set_first_interval_start']
+                set_end_actions = [action for action in actions_in_session if action['operation']=='set_last_interval_end']
+                
+                start_end_time_for_replace: dict[str, None | time] = {'start_time': None, 'end_time': None}
+                morning_session_start_time = pd.Timestamp(base_sessions.morning_sessions[0][0]).time()
+
+                # 若有action要设定开始时间，则取最晚的一个
+                if set_start_actions: 
+                    start_times = pd.to_datetime([action['time'] for action in set_start_actions]).time
+                    start_times_sorted = sort_trading_times(start_times, morning_session_start_time)
+                    latest: time = start_times_sorted[-1]
+                    start_end_time_for_replace['start_time'] = latest
+                # 若有action要设定结束时间，取最早的一个。
+                if set_end_actions:
+                    end_times = pd.to_datetime([action['time'] for action in set_end_actions]).time
+                    end_times_sorted = sort_trading_times(end_times, morning_session_start_time)
+                    earliest: time = end_times_sorted[0]
+                    start_end_time_for_replace['end_time'] = earliest
+
+                # If there are both first interval start and last interval end for replace
+                # 确保 start time for replace is before end time for replace
+                # 只要用 sort_trading_times 函数做一次排序，若排序出来 start_time 不是前面的那个，就抛出错误
+                if all([value for _, value in start_end_time_for_replace]): 
+                    start_time = start_end_time_for_replace['start_time']
+                    end_time = start_end_time_for_replace['end_time']
+                    _sorted = sort_trading_times(np.array([start_time, end_time]), morning_session_start_time)
+                    if not start_time == _sorted[0]:
+                        raise ValueError(f'交易时间段特殊安排中，在小节 {session_group}，出现了欲修改的开始时间 {start_time} 晚于结束时间 {end_time} 的情况。')
+
+                # 若需要替换小节的开始时间
+                if start_end_time_for_replace['start_time'] is not None: 
+                    # 首先检查一下该小节确实存在
+                    if not modified_sessions[session_group]:
+                        raise ValueError(f'需要替换交易小节 {session_group} 开始时间为 {start_end_time_for_replace['start_time']}，但该小节实际上不存在。')
+                    modified_sessions[session_group][0][0] = start_end_time_for_replace['start_time'].strftime("%H:%M")
+                
+                # 若需要替换小节的结束时间
+                if start_end_time_for_replace['end_time'] is not None:
+                    # 首先检查一下该小节确实存在
+                    if not modified_sessions[session_group]:
+                        raise ValueError(f'需要替换交易小节 {session_group} 结束时间为 {start_end_time_for_replace['end_time']}，但该小节实际上不存在。')
+                    modified_sessions[session_group][-1][-1] = start_end_time_for_replace['end_time'].strftime("%H:%M")
             
-            start_end_time_for_replace: dict[str, None | time] = {'start_time': None, 'end_time': None}
-            morning_session_start_time = pd.Timestamp(base_sessions.morning_sessions[0][0]).time()
-
-            # 若有action要设定开始时间，则取最晚的一个
-            if set_start_actions: 
-                start_times = pd.to_datetime([action['time'] for action in set_start_actions]).time
-                start_times_sorted = sort_trading_times(start_times, morning_session_start_time)
-                latest: time = start_times_sorted[-1]
-                start_end_time_for_replace['start_time'] = latest
-            # 若有action要设定结束时间，取最早的一个。
-            if set_end_actions:
-                end_times = pd.to_datetime([action['time'] for action in set_end_actions]).time
-                end_times_sorted = sort_trading_times(end_times, morning_session_start_time)
-                earliest: time = end_times_sorted[0]
-                start_end_time_for_replace['end_time'] = earliest
-
-            # If there are both first interval start and last interval end for replace
-            # 确保 start time for replace is before end time for replace
-            # 只要用 sort_trading_times 函数做一次排序，若排序出来 start_time 不是前面的那个，就抛出错误
-            if all([value for _, value in start_end_time_for_replace]): 
-                start_time = start_end_time_for_replace['start_time']
-                end_time = start_end_time_for_replace['end_time']
-                _sorted = sort_trading_times(np.array([start_time, end_time]), morning_session_start_time)
-                if not start_time == _sorted[0]:
-                    raise ValueError(f'交易时间段特殊安排中，在小节 {session_group}，出现了欲修改的开始时间 {start_time} 晚于结束时间 {end_time} 的情况。')
-
-            # 若需要替换小节的开始时间
-            if start_end_time_for_replace['start_time'] is not None: 
-                # 首先检查一下该小节确实存在
-                if not modified_sessions[session_group]:
-                    raise ValueError(f'需要替换交易小节 {session_group} 开始时间为 {start_end_time_for_replace['start_time']}，但该小节实际上不存在。')
-                modified_sessions[session_group][0][0] = start_end_time_for_replace['start_time'].strftime("%H:%M")
-            
-            # 若需要替换小节的结束时间
-            if start_end_time_for_replace['end_time'] is not None:
-                # 首先检查一下该小节确实存在
-                if not modified_sessions[session_group]:
-                    raise ValueError(f'需要替换交易小节 {session_group} 结束时间为 {start_end_time_for_replace['end_time']}，但该小节实际上不存在。')
-                modified_sessions[session_group][-1][-1] = start_end_time_for_replace['end_time'].strftime("%H:%M")
+            # implement apply_exception_intervals
+            exception_intervals: list[dict[str, str]] = [action['exception_intervals'] for action in actions if action['operation']=='apply_exception_intervals']
+            group_exceptions = [
+                exception for exception in exception_intervals
+                if exception['session_group'] == session_group
+            ]
+            modified_sessions[session_group] = self._subtract_exceptions(modified_sessions[session_group], group_exceptions)
             
         # 组装返回（一个BaseSession实例）
         return BaseSessions(
@@ -358,38 +398,14 @@ class SessionRuleResolver:
             night_sessions=modified_sessions['night']
         )
 
-    def _scope_matches(
-        self, 
-        scope: dict[str, str | list[str]], 
-        contract: str, 
-        ) -> bool:
-        """判断规则是否覆盖当前合约""" #关于 scope 的 定义，见 "session_override_rules 数据存储设计_CodeX.md"
-        if scope['mode'] == 'all_instruments':
-            return True
-        elif scope['mode'] == 'include_instruments':
-            all_instruments_upper = [inst.upper() for inst in scope['instruments']]
-            return contract in all_instruments_upper # 这里传入的 contract 已经由 TradingRuleService.get_trading_sessions 统一大写
-        else:
-            raise ValueError(f"scope mode 仅接受 'all_instruments' 或 'include_instruments', 合约{contract} 传入的值为: {scope['mode']}。")
-    
-    def _apply_exception_intervals(
-        self, 
-        scheduled_sessions: BaseSessions, 
-        exception_intervals: list[dict[str, Any]],
-        ) -> BaseSessions:
+    def _subtract_exceptions(
+        self,
+        session_intervals: list[list[str]],
+        group_exceptions: list[dict[str, Any]],) -> list[list[str]]:
         """
-        执行从schedule sessions 中减去所有的exception_intervals。
-
-        例如对于早盘 ['9:30','11:30'], exception_intervals = [
-            ['9:45','9:55'],
-            ['10:20','10:50']
-        ]
-        对于夜盘 ['21:30','2:30'], exception_intervals = [
-            ['22:00':'22:45'],
-            ['23:55','00:45'],
-            ['00:55','01:25']    
-        ]
-
+        从 session_intervals (早盘/午盘/夜盘的 intervals) 中减去 a group of exceptions。得到 remaining session intervals。
+        """
+        """
         这个函数是CodeX写的，下面我描述核心算法逻辑。
 
         首先将 interval([start_str, end_str]) 转化为一个可比较大小的分钟数。这里考虑了跨零点的情况，即如果发现跨零点（用的具体逻辑是时间小于交易小节开始时间），则加上24*60分钟。
@@ -414,11 +430,11 @@ class SessionRuleResolver:
 
         然后做一个循环：对每一个exception_intervals中的interval，让 base_interval中的每个区间剪切一次前者，得到剩余的。
 
-        最后再将所有的intervals中的分钟数转化回时间字符串，得到最终结果，组装返回。
+        最后再将所有的intervals中的分钟数转化回时间字符串。
         
         """
-        allowed_market_states = {'halted', 'call_auction'}
-        session_groups = ('morning', 'afternoon', 'night')
+
+        # ---------------- 一系列内部辅助函数 ----------------------
 
         def parse_time(value: str) -> time:
             """将以 string 形式表示的时间转换为 datetime.time"""
@@ -478,12 +494,6 @@ class SessionRuleResolver:
                 if key not in exception:
                     raise ValueError(f"exception interval 缺少必要字段 {key}: {exception}")
 
-            market_state = exception['market_state']
-            if market_state not in allowed_market_states:
-                raise ValueError(
-                    f"exception interval market_state 目前仅接受 {sorted(allowed_market_states)}，实际为: {market_state}"
-                )
-
             start = time_to_minutes(exception['start'], anchor)
             end = time_to_minutes(exception['end'], anchor)
             if end <= start:
@@ -494,7 +504,7 @@ class SessionRuleResolver:
             base_interval: tuple[int, int],
             exception_interval: tuple[int, int],
         ) -> list[tuple[int, int]]:
-            """从base_interval中减去exception_interval, 得到 remaing。 base_interval, exception_interval 和 remaing 中的所有数字都为分钟数。"""
+            """从base_interval中减去exception_interval, 得到 remaing。 base_interval, exception_interval 和 remaining 中的所有数字都为分钟数。"""
             base_start, base_end = base_interval
             exception_start, exception_end = exception_interval
 
@@ -510,53 +520,105 @@ class SessionRuleResolver:
                 remaining.append((overlap_end, base_end))
             return remaining
 
-        def subtract_exceptions(
-            session_intervals: list[list[str]],
-            group_exceptions: list[dict[str, Any]],
-        ) -> list[list[str]]:
-            if not session_intervals:
-                return []
-            if not group_exceptions:
-                return [interval.copy() for interval in session_intervals]
+        # ---------------- end of 内部辅助函数 ----------------------
 
-            anchor = parse_time(session_intervals[0][0]) # 交易小节的开始时间
-            remaining_intervals = [
-                normalize_interval(interval, anchor)
-                for interval in session_intervals
-            ]
+        if not session_intervals:
+            return []
+        if not group_exceptions:
+            return [interval.copy() for interval in session_intervals]
 
-            normalized_exceptions = [
-                normalize_exception_interval(exception, anchor)
-                for exception in group_exceptions
-            ]
-            normalized_exceptions.sort(key=lambda interval: interval[0])
+        anchor = parse_time(session_intervals[0][0]) # 交易小节的开始时间
+        remaining_intervals = [
+            normalize_interval(interval, anchor)
+            for interval in session_intervals
+        ]
 
-            for exception_interval in normalized_exceptions:
-                next_remaining: list[tuple[int, int]] = []
-                for interval in remaining_intervals:
-                    next_remaining.extend(subtract_one_interval(interval, exception_interval))
-                remaining_intervals = next_remaining
-                if not remaining_intervals:
-                    break
+        normalized_exceptions = [
+            normalize_exception_interval(exception, anchor)
+            for exception in group_exceptions
+        ]
+        normalized_exceptions.sort(key=lambda interval: interval[0])
 
-            return [
-                [minutes_to_time_str(start), minutes_to_time_str(end)]
-                for start, end in remaining_intervals
-                if start < end
-            ]
+        for exception_interval in normalized_exceptions:
+            next_remaining: list[tuple[int, int]] = []
+            for interval in remaining_intervals:
+                next_remaining.extend(subtract_one_interval(interval, exception_interval))
+            remaining_intervals = next_remaining
+            if not remaining_intervals:
+                break
+
+        return [
+            [minutes_to_time_str(start), minutes_to_time_str(end)]
+            for start, end in remaining_intervals
+            if start < end
+        ]
+
+    def _scope_matches(self, scope: dict[str, Any], 
+        contract: str, trading_date: date | None = None) -> bool:
+        """判断规则是否覆盖当前合约""" 
+        inst_registry = self.registry_manager.get_instrument_registry(contract)
+        exchange = inst_registry.exchange
+        product = inst_registry.product
+
+        # 1. 检查交易所是否匹配
+        if exchange not in scope['exchanges']:
+                return False
+        # 2. 检查品种是否匹配
+        if 'products' in scope:
+            if product not in scope['products']:
+                return False
+        elif 'product_filter' in scope:
+            product_filter: list[str] = scope['product_filter']
+            if 'all' in product_filter: # 无过滤
+                pass
+            if 'has_night_session_on_trading_date' in product_filter: # 若要求当日有夜盘
+                #检查该品种当日是否有夜盘
+                assert trading_date is not None # 输入了 trading_date 参数
+                night_sessions = self.meta_manager.get_base_sessions(product, trading_date).night_sessions
+                if not night_sessions: # 当日无夜盘
+                    return False
+        # 3. 检查合约代码是否匹配
+        if 'instruments' in scope:
+            if scope['instruments'] == 'all': 
+                pass # 匹配全部合约，不做过滤
+            elif isinstance(scope['instruments'], list): #若 instruments 字段不是 'all'，而是一个列表
+                if contract not in scope['instruments']:
+                    return False
+        return True
+
+    def _apply_exception_intervals(
+        self, 
+        scheduled_sessions: BaseSessions, 
+        exception_intervals: list[dict[str, Any]],
+        ) -> BaseSessions:
+        """
+        执行从schedule sessions 中减去所有的exception_intervals。
+
+        例如对于早盘 ['9:30','11:30'], exception_intervals = [
+            ['9:45','9:55'],
+            ['10:20','10:50']
+        ]
+        对于夜盘 ['21:30','2:30'], exception_intervals = [
+            ['22:00':'22:45'],
+            ['23:55','00:45'],
+            ['00:55','01:25']    
+        ]
+        """
+        session_groups = ('morning', 'afternoon', 'night')
 
         modified_sessions: dict[str, list[list[str]]] = {
             'morning': [interval.copy() for interval in scheduled_sessions.morning_sessions],
             'afternoon': [interval.copy() for interval in scheduled_sessions.afternoon_sessions],
             'night': [interval.copy() for interval in scheduled_sessions.night_sessions],
         }
-
+        # 检查 session_group 字段是否为 morning, afternnon, night 三者之一
         for exception in exception_intervals:
             session_group = exception.get('session_group')
             if session_group not in session_groups:
                 raise ValueError(
-                    "exception interval session_group 仅接受 "
+                    ("exception interval session_group 仅接受 "
                     f"{session_groups}，实际为: {session_group}"
+                    )
                 )
 
         for session_group in session_groups:
@@ -564,7 +626,7 @@ class SessionRuleResolver:
                 exception for exception in exception_intervals
                 if exception['session_group'] == session_group
             ]
-            modified_sessions[session_group] = subtract_exceptions(
+            modified_sessions[session_group] = self._subtract_exceptions(
                 modified_sessions[session_group],
                 group_exceptions,
             )

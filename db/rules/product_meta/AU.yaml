@@ -1,0 +1,42 @@
+# -------------------- static Meta --------------------
+product: AU
+exchange: SHFE
+name: 黄金
+position_date_type: distinguish_today_yesterday
+max_margin_side_algorithm: true
+combination_type: 0
+
+# -------------------- price tick rule --------------------
+price_tick_history:
+- effective_date: '2008-01-09'
+  price_tick: 0.01
+- effective_date: '2013-06-25'
+  price_tick: 0.05
+- effective_date: '2019-12-10'
+  price_tick: 0.02
+
+# -------------------- sessions history -------------------
+sessions_history:
+- effective_date: '2008-01-09'
+  morning_sessions:
+  - - 09:00
+    - '10:15'
+  - - '10:30'
+    - '11:30'
+  afternoon_sessions:
+  - - '13:30'
+    - '15:00'
+  night_sessions: []
+- effective_date: '2013-07-08'
+  morning_sessions:
+  - - 09:00
+    - '10:15'
+  - - '10:30'
+    - '11:30'
+  afternoon_sessions:
+  - - '13:30'
+    - '15:00'
+  night_sessions:
+  - - '21:00'
+    - 02:30
+

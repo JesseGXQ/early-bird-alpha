@@ -1,0 +1,50 @@
+# -------------------- static Meta --------------------
+product: HC
+exchange: SHFE
+name: 热卷
+position_date_type: distinguish_today_yesterday
+max_margin_side_algorithm: true
+combination_type: 0
+
+# -------------------- price tick rule --------------------
+price_tick_history:
+- effective_date: '2014-03-21'
+  price_tick: 1.0
+
+# -------------------- sessions history -------------------
+sessions_history:
+- effective_date: '2014-03-21'
+  morning_sessions:
+  - - 09:00
+    - '10:15'
+  - - '10:30'
+    - '11:30'
+  afternoon_sessions:
+  - - '13:30'
+    - '15:00'
+  night_sessions: []
+- effective_date: '2014-12-29'
+  morning_sessions:
+  - - 09:00
+    - '10:15'
+  - - '10:30'
+    - '11:30'
+  afternoon_sessions:
+  - - '13:30'
+    - '15:00'
+  night_sessions:
+  - - '21:00'
+    - 01:00
+- effective_date: '2016-05-04'
+  morning_sessions:
+  - - 09:00
+    - '10:15'
+  - - '10:30'
+    - '11:30'
+  afternoon_sessions:
+  - - '13:30'
+    - '15:00'
+  night_sessions:
+  - - '21:00'
+    - '23:00'
+

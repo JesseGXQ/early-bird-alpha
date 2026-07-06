@@ -1,0 +1,64 @@
+# -------------------- static Meta --------------------
+product: J
+exchange: DCE
+name: 焦炭
+position_date_type: undistinguished
+max_margin_side_algorithm: false
+combination_type: 0
+
+# -------------------- price tick rule --------------------
+price_tick_history:
+- effective_date: '2011-04-15'
+  price_tick: 1.0
+- effective_date: '2015-04-17'
+  price_tick: 0.5
+
+# -------------------- sessions history -------------------
+sessions_history:
+- effective_date: '2011-04-15'
+  morning_sessions:
+  - - 09:00
+    - '10:15'
+  - - '10:30'
+    - '11:30'
+  afternoon_sessions:
+  - - '13:30'
+    - '15:00'
+  night_sessions: []
+- effective_date: '2014-07-07'
+  morning_sessions:
+  - - 09:00
+    - '10:15'
+  - - '10:30'
+    - '11:30'
+  afternoon_sessions:
+  - - '13:30'
+    - '15:00'
+  night_sessions:
+  - - '21:00'
+    - 02:30
+- effective_date: '2015-05-11'
+  morning_sessions:
+  - - 09:00
+    - '10:15'
+  - - '10:30'
+    - '11:30'
+  afternoon_sessions:
+  - - '13:30'
+    - '15:00'
+  night_sessions:
+  - - '21:00'
+    - '23:30'
+- effective_date: '2019-04-01'
+  morning_sessions:
+  - - 09:00
+    - '10:15'
+  - - '10:30'
+    - '11:30'
+  afternoon_sessions:
+  - - '13:30'
+    - '15:00'
+  night_sessions:
+  - - '21:00'
+    - '23:00'
+

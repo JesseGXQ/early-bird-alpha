@@ -60,7 +60,7 @@ class DailySnapshotManager:
         product: str
             品种代码，例如'RB'。
         contract: str
-            合约名称。
+            合约代码。
         trading_date: datetime.date
             交易日期。
         
@@ -74,7 +74,7 @@ class DailySnapshotManager:
         try:
             
             upper_limit_price, lower_limit_price =  df.loc[(ts, contract), ['UpperLimitPrice', 'LowerLimitPrice']]
-            return float(upper_limit_price), float(lower_limit_price) #type: ignore
+            return float(upper_limit_price), float(lower_limit_price) # pyright: ignore[reportArgumentType]
         except KeyError:
             raise ValueError(f"无法在日频快照中找到 {product} 的 {contract} 合约在 {trading_date} 的涨跌停板价格！")
 

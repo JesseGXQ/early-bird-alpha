@@ -1,0 +1,34 @@
+# -------------------- static Meta --------------------
+product: TF
+exchange: CFFEX
+name: 5年期国债
+position_date_type: undistinguished
+max_margin_side_algorithm: true
+combination_type: 0
+
+# -------------------- price tick rule --------------------
+price_tick_history:
+- effective_date: '2013-09-06'
+  price_tick: 0.002
+- effective_date: '2015-03-16'
+  price_tick: 0.005
+
+# -------------------- sessions history -------------------
+sessions_history:
+- effective_date: '2013-09-06'
+  morning_sessions:
+  - - 09:15
+    - '11:30'
+  afternoon_sessions:
+  - - '13:00'
+    - '15:15'
+  night_sessions: []
+- effective_date: '2020-07-20'
+  morning_sessions:
+  - - 09:30
+    - '11:30'
+  afternoon_sessions:
+  - - '13:00'
+    - '15:15'
+  night_sessions: []
+

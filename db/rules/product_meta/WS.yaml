@@ -1,0 +1,28 @@
+# -------------------- static Meta --------------------
+product: WS
+exchange: CZCE
+name: 郑麦(旧)
+position_date_type: undistinguished
+max_margin_side_algorithm: false
+combination_type: 0
+last_contract_deliv_YYYYMM: '201305'
+successor: WH
+
+# -------------------- price tick rule --------------------
+price_tick_history:
+- effective_date: '2003-03-28'
+  price_tick: 1.0
+
+# -------------------- sessions history -------------------
+sessions_history:
+- effective_date: '2003-03-28'
+  morning_sessions:
+  - - 09:00
+    - '10:15'
+  - - '10:30'
+    - '11:30'
+  afternoon_sessions:
+  - - '13:30'
+    - '15:00'
+  night_sessions: []
+

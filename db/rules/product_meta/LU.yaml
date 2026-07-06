@@ -1,0 +1,38 @@
+# -------------------- static Meta --------------------
+product: LU
+exchange: INE
+name: 低硫燃料油
+position_date_type: distinguish_today_yesterday
+max_margin_side_algorithm: true
+combination_type: 0
+
+# -------------------- price tick rule --------------------
+price_tick_history:
+- effective_date: '2020-06-22'
+  price_tick: 1.0
+
+# -------------------- sessions history -------------------
+sessions_history:
+- effective_date: '2020-06-22'
+  morning_sessions:
+  - - 09:00
+    - '10:15'
+  - - '10:30'
+    - '11:30'
+  afternoon_sessions:
+  - - '13:30'
+    - '15:00'
+  night_sessions: []
+- effective_date: '2020-06-23'
+  morning_sessions:
+  - - 09:00
+    - '10:15'
+  - - '10:30'
+    - '11:30'
+  afternoon_sessions:
+  - - '13:30'
+    - '15:00'
+  night_sessions:
+  - - '21:00'
+    - '23:00'
+

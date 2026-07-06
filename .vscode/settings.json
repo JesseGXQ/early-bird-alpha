@@ -4,5 +4,12 @@
     "python.analysis.autoImportCompletions": true,
     "python.defaultInterpreterPath": "C:\\Users\\Jesse\\AppData\\Local\\anaconda3\\python.exe",
     "cursorpyright.analysis.autoImportCompletions": true,
-    "python.languageServer": "None"
+    "python.languageServer": "None",
+    "python-envs.pythonProjects": [
+        {
+            "path": "db/rules_ingestion/data/raw/20260622/tushare/fut_trade_cal",
+            "envManager": "ms-python.python:conda",
+            "packageManager": "ms-python.python:conda"
+        }
+    ]
 }

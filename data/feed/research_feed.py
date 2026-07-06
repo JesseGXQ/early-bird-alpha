@@ -32,7 +32,7 @@ class ResearchFeed:
     calendar: TradingCalendar
         交易日历实例，提供交易日、交易小节、分钟偏移等查询功能。
     file_locator: FileLocator
-        文件寻址器，提供根据合约名称和日期查询 1min 数据文件路径的功能。
+        文件寻址器，提供根据合约代码和日期查询 1min 数据文件路径的功能。
     bar_loader: BarLoader
         K 线数据加载器，提供读取 1min 原始数据并返回 DataFrame 的功能。
     bar_aggregator: BarAggregator
@@ -122,7 +122,7 @@ class ResearchFeed:
             master_table_dates = self.contract_manager.master_table.index.sort_values()
             master_table_start_date = master_table_dates[0]
             master_table_end_date = master_table_dates[-1]
-            warnings.warn(f'请求日期区间 {start_date} - {end_date} 超出了换月总表范围。目前支持 {master_table_start_date} - {master_table_end_date}。')
+            raise ValueError(f'请求日期区间 {start_date} - {end_date} 超出了换月总表范围。目前支持 {master_table_start_date} - {master_table_end_date}。')
 
         if master_df_query.empty:
             return pd.DataFrame()

@@ -28,7 +28,7 @@ class ExchangeTradingCalendar:
         # 设置为 pd.DatetimeIndex；"in" operation is O(1), and use get_loc method to return index.
         df_cal = pd.read_csv(path)
         assert df_cal.shape[1] == 1 # 确保只有一列，就是 trading_date
-        self.exchange_trading_dates: pd.DatetimeIndex = pd.DatetimeIndex(df_cal.iloc[:, 0]).sort_values()
+        self.exchange_trading_dates: pd.DatetimeIndex = pd.DatetimeIndex(pd.to_datetime(df_cal.iloc[:, 0], format='%Y%m%d')).sort_values()
 
     def is_trading_date(self, date: date) -> bool:
         """判断某个日期是否为交易日。"""

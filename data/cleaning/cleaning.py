@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from logging import Filter
 from typing import TYPE_CHECKING
 import pandas as pd
 from abc import ABC, abstractmethod
@@ -7,7 +8,8 @@ from abc import ABC, abstractmethod
 from utils.validation_utils import check_df_columns_exist
 
 if TYPE_CHECKING:
-    from data.metadata.daily_snapshot_manager import DailySnapshotManager
+    from data.storage.daily_snapshot_manager import DailySnapshotManager
+    from data.rules.instrument_registry_manager import InstrumentRegistryManager
     from data.calendar.calendar import TradingCalendar
 
 #滤芯标准接口
@@ -20,6 +22,36 @@ class FilterBase(ABC):
     @abstractmethod
     def apply(self, df: pd.DataFrame) -> pd.DataFrame:
         pass
+
+class InstrumentCodeTranslator(FilterBase):
+    """
+    将 (TICK数据中的) 'InstrumentID' 列从 exchange format 转换为 internal format。即郑商所合约后3位数字增补为4位。
+    
+    应该作为数据从外部到内部的清洗流程第一步。
+    """
+    def __init__(self, registry_manager: InstrumentRegistryManager):
+        self.registry_manager: InstrumentRegistryManager = registry_manager
+
+    def apply(self, df: pd.DataFrame) -> pd.DataFrame:
+        
+        cleaned_df = df.copy()
+
+        if 'InstrumentID' not in cleaned_df:
+            raise ValueError(f'未能在数据中找到合约代码列 "InstrumentID"。请检查原始数据。')
+        if 'TradingDay' not in cleaned_df:
+            raise ValueError(f'未能在数据中找到交易日期列 "TradingDay"。请检查原始数据。')
+        
+        trading_dates = pd.to_datetime(cleaned_df['TradingDay']).dt.date.tolist()
+        codes= cleaned_df['InstrumentID'].tolist()
+
+        instruments = [
+            self.registry_manager.translate_code('exchange_to_internal', code, trading_date) 
+            for code, trading_date in zip(codes, trading_dates)
+        ]
+        cleaned_df['InstrumentID'] = instruments
+        
+        return cleaned_df
+
 
 class DataEnricherPriceLimit(FilterBase):
     """
@@ -37,12 +69,9 @@ class DataEnricherPriceLimit(FilterBase):
         clean_df = df.copy()
 
         if 'InstrumentID' in clean_df.columns: 
-            # TODO [数据相关]
-            # 这里的合约名称(contract)是否有必要将英文字母取大写？要做一个统一。
-            # 另外的一处upper()在 research_feed.py中。请确认后做统一。
             contracts = clean_df['InstrumentID'].str.upper().unique()
         else:
-            raise ValueError('【DataEnricherPriceLimit】未能在数据中找到合约名称列 "InstrumentID"。请检查原始数据。')
+            raise ValueError('【DataEnricherPriceLimit】未能在数据中找到合约代码列 "InstrumentID"。请检查原始数据。')
         
         if 'TradingDay' in clean_df.columns:
             trading_dates = pd.unique(pd.DatetimeIndex(clean_df['TradingDay']).date)
@@ -81,7 +110,7 @@ class DataEnricherGenerateCalendarTimestamp(FilterBase):
         # 确保所需列存在
         check_df_columns_exist(clean_df, ['InstrumentID', 'TradingDay', 'UpdateTime','UpdateMillisec'])
         # 合成一个完整的交易时间戳。
-        clean_df['trading_date'] = pd.to_datetime(clean_df['TradingDay']).date 
+        clean_df['trading_date'] = pd.to_datetime(clean_df['TradingDay']).dt.date 
         timedelta_series = pd.to_timedelta(clean_df['UpdateTime']) + pd.to_timedelta(clean_df['UpdateMillisec'], unit='ms') 
         clean_df['update_time'] = pd.to_datetime(timedelta_series).time
         clean_df['calendar_timestamp'] = self.calendar.get_calendar_timestamps_from_trading_date_and_time(

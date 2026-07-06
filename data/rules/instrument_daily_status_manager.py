@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import pandas as pd
-from dataclasses  import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Literal, TYPE_CHECKING
@@ -100,13 +99,20 @@ class InstrumentDailyStatusManager:
         res: dict[str, InstrumentDailyStatus] = {}
         for _, row in df.iterrows():
             instrument = str(row['instrument'])
+            if row['commission_type'] not in ('flat', 'ratio'):
+                raise ValueError(f"{instrument} 在 {trading_date} 的 commission_type 必须为 'flat' 或 'ratio'，现在为 {row['commission_type']}")
             status = InstrumentDailyStatus(
                 trading_date=trading_date,
                 instrument=instrument,
-                is_tradable=bool(row['is_trading']),
-                inst_life_phase=row['inst_life_phase'],
+                is_tradable=bool(row['is_tradable']) if pd.notna(row['is_tradable']) else None,
+                inst_life_phase=row['inst_life_phase'] if pd.notna(row['inst_life_phase']) else None,
                 long_margin_ratio=float(row['long_margin_ratio']),
-                short_margin_ratio=float(row['short_margin_ratio'])
+                short_margin_ratio=float(row['short_margin_ratio']),
+                commission_type=str(row['commission_type']),
+                commission_open=float(row['commission_open']),
+                commission_open_today=float(row['commission_open_today']) if pd.notna(row['commission_open_today']) else None,
+                commission_close=float(row['commission_close']),
+                commission_close_today=float(row['commission_close_today']) if pd.notna(row['commission_close_today']) else None,
             )
             self._inst_date_cache[(instrument, trading_date)] = status
             res[instrument] = status

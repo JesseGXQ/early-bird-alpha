@@ -1,0 +1,40 @@
+# -------------------- static Meta --------------------
+product: ME
+exchange: CZCE
+name: 甲醇(旧)
+position_date_type: undistinguished
+max_margin_side_algorithm: false
+combination_type: 0
+last_contract_deliv_YYYYMM: '201505'
+successor: MA
+
+# -------------------- price tick rule --------------------
+price_tick_history:
+- effective_date: '2011-10-28'
+  price_tick: 1.0
+
+# -------------------- sessions history -------------------
+sessions_history:
+- effective_date: '2011-10-28'
+  morning_sessions:
+  - - 09:00
+    - '10:15'
+  - - '10:30'
+    - '11:30'
+  afternoon_sessions:
+  - - '13:30'
+    - '15:00'
+  night_sessions: []
+- effective_date: '2014-12-15'
+  morning_sessions:
+  - - 09:00
+    - '10:15'
+  - - '10:30'
+    - '11:30'
+  afternoon_sessions:
+  - - '13:30'
+    - '15:00'
+  night_sessions:
+  - - '21:00'
+    - '23:30'
+

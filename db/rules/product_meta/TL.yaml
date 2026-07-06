@@ -1,0 +1,24 @@
+# -------------------- static Meta --------------------
+product: TL
+exchange: CFFEX
+name: 30年国债
+position_date_type: undistinguished
+max_margin_side_algorithm: true
+combination_type: 0
+
+# -------------------- price tick rule --------------------
+price_tick_history:
+- effective_date: '2023-04-21'
+  price_tick: 0.01
+
+# -------------------- sessions history -------------------
+sessions_history:
+- effective_date: '2023-04-21'
+  morning_sessions:
+  - - 09:30
+    - '11:30'
+  afternoon_sessions:
+  - - '13:00'
+    - '15:15'
+  night_sessions: []
+

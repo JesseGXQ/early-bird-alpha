@@ -1,0 +1,228 @@
+schema_version: 1
+scope_level: market
+description: >
+  Reference market-level session override rules migrated from the first
+  product-level YAML implementation. Product-level YAML should keep
+  sessions_history. System extension: Product-level session override rules 
+  YAML file will only be considered necessary if there are true product-level 
+  trading session exceptions in the future.
+
+recurring_instrument_lifecycle_rules:
+  - rule_id: CFFEX_TREASURY_LAST_TRADE_DATE_REMOVE_AFTERNOON
+    name: 国债期货最后交易日仅上午交易
+    effective_from: '2013-09-06'
+    effective_to: null
+    scope:
+      exchanges:
+        - CFFEX
+      products:
+        - TF
+        - T
+        - TS
+        - TL
+      instruments: all
+    trigger:
+      type: instrument_last_trade_date
+    actions:
+      - operation: remove_session_group
+        session_group: afternoon
+    sources:
+      - url: http://www.cffex.com.cn/
+        note: 中金所国债期货合约表规定最后交易日仅进行上午交易；具体合约表链接见历史事实文档。
+
+  - rule_id: CFFEX_STOCK_INDEX_LAST_TRADE_DATE_EARLY_CLOSE_2010_2015
+    name: 股指期货历史上最后交易日提前至15:00收盘
+    effective_from: '2010-04-16'
+    effective_to: '2015-12-31'
+    scope:
+      exchanges:
+        - CFFEX
+      products:
+        - IF
+        - IH
+        - IC
+      instruments: all
+    trigger:
+      type: instrument_last_trade_date
+    actions:
+      - operation: set_last_interval_end
+        session_group: afternoon
+        time: '15:00'
+    sources:
+      - url: http://www.cffex.com.cn/cn/jystz/20151204/19371.html
+        note: 2016-01-01后股指期货基础下午盘已统一收至15:00，本 override 终止。
+
+scheduled_dated_overrides:
+  - event_id: COMMODITY_EXCHANGES_HOLIDAY_NO_NIGHT_SESSION
+    name: 法定节假日后首个交易日无夜盘
+    event_type: holiday
+    date_selector:
+      type: exchange_holiday_arrangements
+      source:
+        holiday_csv: db/rules_ingestion/data/raw/official_chinese_holidays/holiday.csv
+        trade_cal_dir: db/rules_ingestion/data/raw/20260622/tushare/fut_trade_cal
+      materialized_in_this_run: false
+    scope:
+      exchanges:
+        - SHFE
+        - INE
+        - DCE
+        - CZCE
+      product_filter:
+        - has_night_session_on_trading_date
+      instruments: all
+    actions:
+      - operation: remove_session_group
+        session_group: night
+    sources:
+      - url: db/rules_ingestion/data/raw/official_chinese_holidays/holiday.csv
+        note: 具体目标 trading_date 后续由官方节假日和交易所交易日历推导；本轮未生成交易所级派生节假日表。
+
+  - event_id: COMMODITY_EXCHANGES_2020_COVID_NIGHT_SUSPENSION
+    name: 疫情期间暂停商品期货夜盘
+    event_type: temporary_policy
+    date_selector:
+      type: range
+      start: '2020-02-04'
+      end: '2020-05-06'
+      date_semantics: trading_date
+    scope:
+      exchanges:
+        - SHFE
+        - INE
+        - DCE
+        - CZCE
+      product_filter:
+        - has_night_session_on_trading_date
+      instruments: all
+    actions:
+      - operation: remove_session_group
+        session_group: night
+    sources:
+      - url: https://finance.sina.com.cn/money/future/roll/2020-04-27/doc-iircuyvi0000794.shtml
+        note: 物理日晚间2020-02-03起暂停、2020-05-06晚恢复，已转换为 trading_date 区间 2020-02-04 至 2020-05-06。
+
+  - event_id: SHFE_INE_DCE_CZCE_20191226_DELAYED_NIGHT_OPEN
+    name: 结算系统故障导致夜盘延迟开市
+    event_type: system_failure
+    date_selector:
+      type: dates
+      dates:
+        - '2019-12-26'
+      date_semantics: trading_date
+    scope:
+      exchanges:
+        - SHFE
+        - INE
+        - DCE
+        - CZCE
+      product_filter:
+        - has_night_session_on_trading_date
+      instruments: all
+    actions:
+      - operation: set_first_interval_start
+        session_group: night
+        time: '22:30'
+    sources:
+      - url: https://www.guancha.cn/politics/2019_12_25_529522.shtml
+        note: 日历日2019-12-25晚转换为交易日2019-12-26；上期所、上期能源、大商所、郑商所均覆盖。
+
+  - event_id: ALL_EXCHANGES_20221206_NATIONAL_MOURNING_FOR_HA
+    name: 2022年12月6日上午江泽民同志追悼大会全国默哀3分钟暂停交易
+    event_type: NATIONAL_EVENT
+    date_selector:
+      type: dates
+      dates:
+        - '2022-12-06'
+      date_semantics: trading_date
+    scope:
+      exchanges:
+        - SHFE
+        - INE
+        - DCE
+        - CZCE
+        - GFEX
+        - CFFEX
+      product_filter:
+        - all
+      instruments: all
+    actions:
+      - operation: apply_exception_intervals
+        exception_intervals:
+          - session_group: morning
+            start: '10:00'
+            end: '10:01'
+            market_state: halted
+          - session_group: morning
+            start: '10:02'
+            end: '10:02'
+            market_state: call_auction
+    sources:
+      - url: https://www.mfa.gov.cn/web//wjb_673085/zzjg_673183/gjjjs_674249/gjzzyhygk_674253/dmgh_674605/xgxw_674611/202212/t20221206_10985889.shtml
+        note: 根据 bar 1min 原始数据分析，表现为10:00, 10:01两根K线缺失，10:02重新出现。根据交易所复牌规则，在 10:03:00 恢复连续竞价交易前，需要进行复牌集合竞价。该分钟线记录了 10:03:00 撮合成功的第一笔集合竞价成交（或包含部分复牌前准备状态数据），因此数据商将该数据计入 10:02 的 K线内，表现为有成交量但量偏低。
+
+realized_session_events:
+  - event_id: CFFEX_STOCK_INDEX_20160104_CIRCUIT_BREAKER
+    name: 股指期货熔断实际触发
+    event_type: circuit_breaker
+    trading_date: '2016-01-04'
+    scope:
+      exchanges:
+        - CFFEX
+      products:
+        - IF
+        - IH
+        - IC
+      instruments: all
+    exception_intervals:
+      - session_group: afternoon
+        start: '13:13'
+        end: '13:25'
+        market_state: halted
+      - session_group: afternoon
+        start: '13:25'
+        end: '13:28'
+        market_state: call_auction
+      - session_group: afternoon
+        start: '13:33'
+        end: '15:00'
+        market_state: halted
+    sources:
+      - url: http://www.cffex.com.cn/cn/mtxw/20160105/19578.html
+        note: 具体触发时间和暂停区间依据历史事实文档的熔断暂停交易时间段表。
+
+  - event_id: CFFEX_STOCK_INDEX_20160107_CIRCUIT_BREAKER
+    name: 股指期货熔断实际触发
+    event_type: circuit_breaker
+    trading_date: '2016-01-07'
+    scope:
+      exchanges:
+        - CFFEX
+      products:
+        - IF
+        - IH
+        - IC
+      instruments: all
+    exception_intervals:
+      - session_group: morning
+        start: '09:42'
+        end: '09:54'
+        market_state: halted
+      - session_group: morning
+        start: '09:54'
+        end: '09:57'
+        market_state: call_auction
+      - session_group: morning
+        start: '09:59'
+        end: '11:30'
+        market_state: halted
+      - session_group: afternoon
+        start: '13:00'
+        end: '15:00'
+        market_state: halted
+    sources:
+      - url: http://www.cffex.com.cn/cn/mtxw/20160105/19578.html
+        note: 具体触发时间和暂停区间依据历史事实文档的熔断暂停交易时间段表；部分资料将第二次触发记为09:58，本文件采用历史事实文档中的09:59。
+
+
+

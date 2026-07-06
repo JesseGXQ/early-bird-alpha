@@ -1,1 +1,0 @@
-Parquet文件写入时，按(trading_date, instrument)建立 row group 排序，加速点查询。

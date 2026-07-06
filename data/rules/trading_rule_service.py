@@ -94,7 +94,6 @@ class TradingRuleService:
             raise ValueError(f"参数 view 目前只能取 'scheduled'/'realized'，传入的为 {view}。")
 
         # 内部做一个大写转换
-        contract = copy.copy(contract)
         contract = contract.upper()
 
         # 若已缓存，直接返回

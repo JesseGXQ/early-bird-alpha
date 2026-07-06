@@ -72,7 +72,7 @@ class SimulationFeed:
     contract_manager: ContinuousContractManager
         连续合约大管家，包含 master_table 属性(换月总表)，提供 `get_active_physical_contracts` 方法，根据交易日期返回主力合约列表。
     file_locator: FileLocator
-        文件寻址器，提供根据合约名称和日期查询 1min 数据文件路径的功能。
+        文件寻址器，提供根据合约代码和日期查询数据文件路径的功能。
     clean_pipeline: CleaningPipeline
         含滤芯的清洗管道，提供 process 方法，输入原始 TICK 数据块，输出干净的 TICK 数据块。
 

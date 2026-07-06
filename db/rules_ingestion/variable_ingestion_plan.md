@@ -21,7 +21,7 @@
 
 ## TIER 1 - Product-Level Rules
 
-TIER1 的目标是生成每个品种一份产品级 YAML，由 `ProductMetaManager` 读取。外部来源里，BigQuant `cn_future_product_info` 提供产品级当前规则线索，BigQuant `cn_future_static_data` 提供合约-交易日级历史截面，Tushare `fut_settle` 提供手续费和保证金日频线索，Tushare `fut_basic` 提供合约文本说明和交易时间说明。凡是从合约日频表反推产品级历史规则，都必须先检查同一产品、同一交易日、不同合约之间是否一致；不一致时不能直接压缩成产品级规则。
+TIER1 的目标是生成每个品种一份产品级 YAML，由 `ProductMetaManager` 读取。外部来源里，BigQuant `cn_future_product_info` 提供产品级当前规则线索，BigQuant `cn_future_static_data` 提供合约-交易日级历史截面，Tushare `fut_basic` 提供合约文本说明和交易时间说明。手续费、保证金和下单量限制已迁移为 TIER3 日频字段，不再从合约日频表压缩生成产品级规则。凡是从合约日频表反推产品级历史规则，都必须先检查同一产品、同一交易日、不同合约之间是否一致；不一致时不能直接压缩成产品级规则。
 
 ### `StaticMeta.product`
 
@@ -101,96 +101,18 @@ TIER1 的目标是生成每个品种一份产品级 YAML，由 `ProductMetaManag
 - Output: YAML 顶层 `combination_type: 1`。
 - Open questions: 见 `decisions.md` 中“StaticMeta 是否允许历史变化”。
 
-### `TransactionCostRule.effective_date`
+### `TransactionCostRule.*` - migrated to TIER3
 
-- Local model: `TransactionCostRule`
-- Tier: TIER1
-- Versioned: yes, `transaction_cost_history`
-- Local meaning: 某条手续费规则开始生效的交易日。
-- External sources: Tushare `fut_settle.trade_date` + `trading_fee_rate/trading_fee/offset_today_fee` 为主；BigQuant `cn_future_product_info.commission_*` 提供当前值校验；交易所手续费公告为最终证据。
-- Grain mismatch: Tushare 是合约-交易日级，本地是产品级历史规则。
-- Analysis: 对同一产品按交易日聚合，识别手续费值发生变化的日期。若所有活跃合约同日同值变化，可生成产品级 `effective_date`；若仅部分合约变化，需通过 `scope` 表达或人工确认公告范围。
-- Validation: 变化日期应能被交易所公告解释；当前最新规则应与 BigQuant 产品级 `commission_*` 接近或一致。
-- Output: `transaction_cost_history[].effective_date`，格式 `YYYY-MM-DD`。
-- Open questions: 见 `decisions.md` 中“手续费字段语义与 scope 口径”。
-
-### `TransactionCostRule.commission_type`
-
-- Local model: `TransactionCostRule`
-- Tier: TIER1
-- Versioned: yes
-- Local meaning: 手续费计价方式，`flat` 表示按手收取，`ratio` 表示按成交金额比例收取。
-- External sources: BigQuant `cn_future_product_info.commission_type`、Tushare `fut_settle.trading_fee`、`trading_fee_rate`。
-- Grain mismatch: BigQuant 是产品级当前编码，Tushare 是合约-交易日级双字段。
-- Analysis: 初步规则为：`trading_fee` 非空且 `trading_fee_rate` 为空/零时映射 `flat`；`trading_fee_rate` 非空且 `trading_fee` 为空/零时映射 `ratio`。若两者同时非空，必须抽样比对交易所公告。
-- Validation: `commission_type` 与 `open/close_today/close_yesterday` 的数量级一致；`ratio` 通常为很小的小数，`flat` 通常为元/手。
-- Output: `commission_type: flat` 或 `ratio`。
-- Open questions: 见 `decisions.md` 中“手续费字段语义与 scope 口径”。
-
-### `TransactionCostRule.open`
-
-- Local model: `TransactionCostRule`
-- Tier: TIER1
-- Versioned: yes
-- Local meaning: 开仓手续费，单位由 `commission_type` 决定。
-- External sources: Tushare `fut_settle.trading_fee` 或 `trading_fee_rate` 为主；BigQuant `cn_future_product_info.commission_open` 为当前值校验。
-- Grain mismatch: Tushare 合约-交易日级需要压缩到产品级历史。
-- Analysis: 根据 `commission_type` 选择金额或费率字段作为 `open`。同一产品同日不同合约不一致时，应判断是否存在按合约月份、主力/非主力、近月/远月的差异。
-- Validation: 与当前产品级值、交易所公告样本、历史变化点一致。
-- Output: `transaction_cost_history[].open`。
-- Open questions: 见 `decisions.md` 中“手续费字段语义与 scope 口径”。
-
-### `TransactionCostRule.close_yesterday`
-
-- Local model: `TransactionCostRule`
-- Tier: TIER1
-- Versioned: yes
-- Local meaning: 平昨手续费，单位由 `commission_type` 决定。
-- External sources: Tushare `fut_settle.trading_fee` 或 `trading_fee_rate` 为主；BigQuant `cn_future_product_info.commission_yesterday` 为当前值校验。
-- Grain mismatch: Tushare 文档未明确区分开仓和平昨，BigQuant 产品表仅提供当前值。
-- Analysis: 初步假设平昨与开仓同值，但必须用交易所公告或 BigQuant 当前值验证。若某产品有平昨减免或特殊规则，应生成独立值。
-- Validation: 对比 `commission_open` 与 `commission_yesterday`；抽样核对上期所、能源中心等区分今昨仓品种。
-- Output: `transaction_cost_history[].close_yesterday`。
-- Open questions: 见 `decisions.md` 中“手续费字段语义与 scope 口径”。
-
-### `TransactionCostRule.close_today`
-
-- Local model: `TransactionCostRule`
-- Tier: TIER1
-- Versioned: yes
-- Local meaning: 平今手续费，单位由 `commission_type` 决定。
-- External sources: Tushare `fut_settle.offset_today_fee` 为主；BigQuant `cn_future_product_info.commission_today` 为当前值校验；交易所公告为最终证据。
-- Grain mismatch: Tushare 字段说明写作“平今仓手续费率”，但其数值可能需要结合 `commission_type` 判断。
-- Analysis: 对每个产品检查 `offset_today_fee` 与 `trading_fee/trading_fee_rate` 的数量级关系。若平今字段为空，优先回退为与平昨相同，但需标记为推断值。
-- Validation: 当前值与 BigQuant `commission_today` 一致；历史突变点可被公告解释。
-- Output: `transaction_cost_history[].close_today`。
-- Open questions: 见 `decisions.md` 中“手续费字段语义与 scope 口径”。
-
-### `TransactionCostRule.scope`
-
-- Local model: `TransactionCostRule`
-- Tier: TIER1
-- Versioned: yes
-- Local meaning: 该条手续费规则只作用于特定合约时的合约代码列表；空列表表示全产品适用。
-- External sources: Tushare `fut_settle.ts_code` 的合约级差异；交易所公告中的适用合约范围。
-- Grain mismatch: 本字段正是为处理产品级压缩失败而保留。
-- Analysis: 默认生成 `scope: []`。当同一产品同日仅部分合约出现手续费差异，且差异可被公告确认时，生成带合约列表的规则。
-- Validation: `scope` 内合约必须属于该产品；如果合约范围可用规则表达但当前模型只能列举，应评估是否接受显式列表。
-- Output: `transaction_cost_history[].scope`。
-- Open questions: 见 `decisions.md` 中“手续费字段语义与 scope 口径”。
-
-### `TransactionCostRule.condition`
-
-- Local model: `TransactionCostRule`
-- Tier: TIER1
-- Versioned: yes
-- Local meaning: 复杂手续费规则的补充条件表达，目前模型类型为 `Any`。
-- External sources: 交易所公告、手续费特殊规则文本。
-- Grain mismatch: 外部公告通常是文本规则，不是结构化字段。
-- Analysis: 自动入库阶段默认写 `condition: null`。只有出现无法用 `scope` 和三类手续费数值表达的规则时，才写结构化字典，例如按成交额区间、套保/投机属性、客户类型等。
-- Validation: 非空 `condition` 必须保留来源公告和人工确认记录。
-- Output: `transaction_cost_history[].condition`。
-- Open questions: 暂无；先采取保守默认值。
+- Local model: no longer written to TIER1 `product_meta`.
+- Tier: TIER1 historical note only.
+- Versioned: not applicable in TIER1.
+- Local meaning: 手续费规则已从产品级历史规则迁移为合约-交易日级动态字段，归入 `InstrumentDailyStatus.commission_*`。
+- External sources: 见 TIER3 中 `InstrumentDailyStatus.commission_type`、`commission_open`、`commission_open_today`、`commission_close`、`commission_close_today` 的入库方案。
+- Grain mismatch: 原产品级压缩会丢失同一产品、同一交易日、不同合约之间可能存在的手续费差异，因此不再从日频结算参数表压缩生成 TIER1 `transaction_cost_history`。
+- Analysis: 后续若仍需要产品级“摘要手续费规则”，应从 TIER3 结果派生为分析视图或报告，而不是作为 TIER1 权威数据源。
+- Validation: TIER1 YAML 不应再包含 `transaction_cost_history`；手续费字段完整性、单位归一化和跨源校验均在 TIER3 执行。
+- Output: none in TIER1。
+- Open questions: 暂无。
 
 ### `PriceTickRule.effective_date`
 
@@ -198,10 +120,10 @@ TIER1 的目标是生成每个品种一份产品级 YAML，由 `ProductMetaManag
 - Tier: TIER1
 - Versioned: yes, `price_tick_history`
 - Local meaning: 最小变动价位规则开始生效的交易日。
-- External sources: BigQuant `cn_future_static_data.price_tick` 为主；BigQuant `cn_future_product_info.price_tick/old_price_tick` 为当前和旧值线索；交易所公告为最终证据。
-- Grain mismatch: 合约-交易日级反推产品级版本。
-- Analysis: 按产品、交易日统计 `price_tick` 值域，识别值变化日。若变更日之后老合约仍保留旧值，则生成新规则并在 `remain_old_rule_instruments` 中列出老合约。
-- Validation: 变化日期应与交易所公告一致；最新值应与 BigQuant 产品表 `price_tick` 一致。
+- External sources: `docs/代码修改笔记/期货交易规则/中国期货市场历史品种最小价格变动（Price Tick 最小变动价位）变更调研报告 _Antigravity.md` 为唯一权威来源。
+- Grain mismatch: 调研报告为品种级历史事实，与本地产品级版本规则匹配。
+- Analysis: 以调研报告列出的历史变更日期作为 `effective_date` 事实边界。经调研，中国期货历史上最小变动价位变更不采用新老划断方案，因此每次变更按产品级规则直接切换。
+- Validation: 不再使用外部数据源做二次校验；入库结果应完整覆盖调研报告列出的真实历史变更。
 - Output: `price_tick_history[].effective_date`。
 - Open questions: 暂无。
 
@@ -211,24 +133,11 @@ TIER1 的目标是生成每个品种一份产品级 YAML，由 `ProductMetaManag
 - Tier: TIER1
 - Versioned: yes
 - Local meaning: 最小变动价位数值。
-- External sources: BigQuant `cn_future_static_data.price_tick` 为主；BigQuant `cn_future_product_info.price_tick`、合约表公告为校验。
-- Grain mismatch: 同一产品不同历史合约可能因新老划断不同值。
-- Analysis: 对每个规则版本选择新规则值。若同一日同一产品存在两个值，应通过上市日期、合约月份和公告判断哪个是新规则、哪个是保留旧规则。
-- Validation: 合约级 `price_tick` 应能由产品级规则加 `remain_old_rule_instruments` 解释。
+- External sources: `docs/代码修改笔记/期货交易规则/中国期货市场历史品种最小价格变动（Price Tick 最小变动价位）变更调研报告 _Antigravity.md` 为唯一权威来源。
+- Grain mismatch: 调研报告给出品种级变更前后值，与本地产品级版本规则匹配。
+- Analysis: 对每个规则版本直接采用调研报告中的变更后最小变动价位；首个历史版本采用调研报告中的变更前最小变动价位或上市初始规则。调研报告中列为非真实变更、非标准品种、旧代码或冗余记录的内容不得写入真实历史版本。
+- Validation: 不再使用外部数据源做二次校验；版本序列应完整覆盖调研报告列出的真实变更品种，且不存在需要由 `PriceTickRule` 承接的合约级新老划断例外。
 - Output: `price_tick_history[].price_tick`。
-- Open questions: 暂无。
-
-### `PriceTickRule.remain_old_rule_instruments`
-
-- Local model: `PriceTickRule`
-- Tier: TIER1
-- Versioned: yes
-- Local meaning: 新老划断时继续使用旧价位规则的合约列表。
-- External sources: BigQuant `cn_future_static_data.instrument/price_tick` 的横截面差异；交易所公告中的老合约范围。
-- Grain mismatch: 本字段显式承接合约级例外。
-- Analysis: 在某个 `effective_date` 后，仍等于旧 `price_tick` 的存续合约进入列表；一刀切变更则为空列表。
-- Validation: 列表合约必须在变更日已上市且仍未到期；列表应随公告范围闭合。
-- Output: `price_tick_history[].remain_old_rule_instruments`。
 - Open questions: 暂无。
 
 ### `MultiplierRule.effective_date`
@@ -257,70 +166,18 @@ TIER1 的目标是生成每个品种一份产品级 YAML，由 `ProductMetaManag
 - Output: `multiplier_history[].multiplier`。
 - Open questions: 暂无。
 
-### `OrderVolumeLimitsRule.effective_date`
+### `OrderVolumeLimitsRule.*` - migrated to TIER3
 
-- Local model: `OrderVolumeLimitsRule`
-- Tier: TIER1
-- Versioned: yes, `order_volume_limits_history`
-- Local meaning: 下单量限制规则开始生效的交易日。
-- External sources: BigQuant `cn_future_static_data` 的四个 order volume 字段为主；交易所公告为校验。
-- Grain mismatch: 合约-交易日级反推产品级历史。
-- Analysis: 对四个字段组成 tuple，按产品、交易日识别 tuple 变化点。只有当同一产品同日所有适用合约 tuple 一致时，才自动生成产品级规则。
-- Validation: 变化点与公告或合约规则表一致；异常单合约差异进入人工复核。
-- Output: `order_volume_limits_history[].effective_date`。
-- Open questions: 见 `decisions.md` 中“产品级规则压缩失败时的处理方式”。
-
-### `OrderVolumeLimitsRule.max_market_order_volume`
-
-- Local model: `OrderVolumeLimitsRule`
-- Tier: TIER1
-- Versioned: yes
-- Local meaning: 市价单最大下单手数。
-- External sources: BigQuant `cn_future_static_data.max_market_order_volume` 为主。
-- Grain mismatch: 合约-交易日级到产品级。
-- Analysis: 与其他三个下单量字段一起成组处理，不单独生成版本。
-- Validation: 值应为正整数，且大于等于最小市价单下单量。
-- Output: `order_volume_limits_history[].max_market_order_volume`。
-- Open questions: 见 `decisions.md` 中“产品级规则压缩失败时的处理方式”。
-
-### `OrderVolumeLimitsRule.min_market_order_volume`
-
-- Local model: `OrderVolumeLimitsRule`
-- Tier: TIER1
-- Versioned: yes
-- Local meaning: 市价单最小下单手数。
-- External sources: BigQuant `cn_future_static_data.min_market_order_volume` 为主。
-- Grain mismatch: 合约-交易日级到产品级。
-- Analysis: 与四字段 tuple 同步处理。
-- Validation: 值通常为 `1`；若为 `0` 或缺失需检查是否表示不支持市价单。
-- Output: `order_volume_limits_history[].min_market_order_volume`。
-- Open questions: 见 `decisions.md` 中“产品级规则压缩失败时的处理方式”。
-
-### `OrderVolumeLimitsRule.max_limit_order_volume`
-
-- Local model: `OrderVolumeLimitsRule`
-- Tier: TIER1
-- Versioned: yes
-- Local meaning: 限价单最大下单手数。
-- External sources: BigQuant `cn_future_static_data.max_limit_order_volume` 为主。
-- Grain mismatch: 合约-交易日级到产品级。
-- Analysis: 与四字段 tuple 同步处理。
-- Validation: 值应为正整数，且通常大于等于市价单最大下单量。
-- Output: `order_volume_limits_history[].max_limit_order_volume`。
-- Open questions: 见 `decisions.md` 中“产品级规则压缩失败时的处理方式”。
-
-### `OrderVolumeLimitsRule.min_limit_order_volume`
-
-- Local model: `OrderVolumeLimitsRule`
-- Tier: TIER1
-- Versioned: yes
-- Local meaning: 限价单最小下单手数。
-- External sources: BigQuant `cn_future_static_data.min_limit_order_volume` 为主。
-- Grain mismatch: 合约-交易日级到产品级。
-- Analysis: 与四字段 tuple 同步处理。
-- Validation: 值通常为 `1`；不得大于最大限价单下单量。
-- Output: `order_volume_limits_history[].min_limit_order_volume`。
-- Open questions: 见 `decisions.md` 中“产品级规则压缩失败时的处理方式”。
+- Local model: no longer written to TIER1 `product_meta`.
+- Tier: TIER1 historical note only.
+- Versioned: not applicable in TIER1.
+- Local meaning: 下单量限制规则已从品种级历史规则迁移为合约-交易日级动态字段，归入 `InstrumentDailyStatus.max_market_order_volume`、`min_market_order_volume`、`max_limit_order_volume`、`min_limit_order_volume`。
+- External sources: 见 TIER3 中四个 `InstrumentDailyStatus.*_order_volume` 字段的入库方案。
+- Grain mismatch: BigQuant `cn_future_static_data` 的四个 order volume 字段本身是合约-交易日级。2026-07-02 的数据画像显示，多个产品在同一交易日的不同合约之间存在真实 tuple 差异，例如上期所/能源中心临近交割合约最小下单量不同，中金所不同合约组的市价单最大量不同。因此该变量不能安全压缩为纯品种级规则。
+- Analysis: TIER1 不再生成 `order_volume_limits_history`。若未来仍需要品种级默认值，可从 TIER3 派生分析视图或服务端 fallback，但不得作为权威 TIER1 入库结果。
+- Validation: TIER1 YAML 不应再包含 `order_volume_limits_history`；下单量限制字段完整性、同一 `(trading_date, instrument)` 唯一性和缺失值策略均在 TIER3 执行。
+- Output: none in TIER1。
+- Open questions: 领域模型和 manager 中现存 `OrderVolumeLimitsRule` / `get_order_volume_limits()` 后续是否删除或改为兼容旧数据，另行决定。
 
 ### `BaseSessions.effective_date`
 
@@ -328,10 +185,14 @@ TIER1 的目标是生成每个品种一份产品级 YAML，由 `ProductMetaManag
 - Tier: TIER1
 - Versioned: yes, `sessions_history`
 - Local meaning: 基础交易时段规则开始生效的交易日，不包含临时或生命周期 override。
-- External sources: BigQuant `cn_future_product_info.trading_period`、Tushare `fut_basic.trade_time_desc` 为线索；交易所合约表、夜盘公告和历史规则文件为主证据。
-- Grain mismatch: 外部结构化程度不足，且产品级文本通常只反映当前规则。
-- Analysis: 不建议仅从文本自动入库。应先将交易所规则和历史公告整理成产品级基础 session 版本；BigQuant/Tushare 文本用于辅助解析当前日盘/夜盘边界。
-- Validation: 当前版本应与 BigQuant/Tushare 文本一致；历史版本应与交易所公告一致；不能把节假日无夜盘、最后交易日缩短等写入基础 session。
+- External sources:
+  - universe：`db/rules_ingestion/data/derived/20260624/product_meta_static/yaml/*.yaml`。
+  - 历史事实主来源：`docs/代码修改笔记/期货交易规则/交易时段基础规则/期货品种上市时间汇总.md`、`期货品种夜盘开始日期和调整情况汇总报告.md`、`期货品种日盘交易时段调整报告.md`。
+  - 当前规则校验来源：BigQuant `db/rules_ingestion/data/raw/20260622/bigquant/cn_future_product_info/full.parquet` 的 `trading_period`。
+  - 日期转换辅助：Tushare 交易日历 `db/rules_ingestion/data/raw/20260622/tushare/fut_trade_cal/`。
+- Grain mismatch: BigQuant `trading_period` 是品种级当前文本/编码，只反映当前普通交易日规则；基础规则历史文档包含上市日、夜盘物理日晚间日期和历史调整日期，需要转换为 `sessions_history` 的产品级版本序列。
+- Analysis: 以 97 个 static YAML 品种为入库 universe。每个产品至少生成一个上市日起的基础 session 版本；夜盘启用和永久时段调整生成新的基础版本；中金所日盘永久调整生成新的基础版本。夜盘报告中的 `night_session_start_from`、夜盘调整日期若为物理日晚间口径，应结合交易日历转换为目标 `trading_date` 口径，并在中间审计输出保留原始物理日期和转换后交易日。BigQuant `trading_period` 只用于解析和校验最新版本，不用于反推历史生效日。
+- Validation: 每个 universe 品种必须至少有一个 `sessions_history` 版本；同一产品版本按 `effective_date` 升序且不得重复；最新版本应与 BigQuant `trading_period` 一致，不一致进入审计；历史版本必须可追溯到基础规则文档。节假日无夜盘、疫情暂停夜盘、系统故障延迟开市、最后交易日缩短、熔断等不得写入 `sessions_history`。
 - Output: `sessions_history[].effective_date`。
 - Open questions: 暂无。
 
@@ -341,10 +202,10 @@ TIER1 的目标是生成每个品种一份产品级 YAML，由 `ProductMetaManag
 - Tier: TIER1
 - Versioned: yes
 - Local meaning: 上午连续竞价小节列表，左闭右开语义。
-- External sources: 交易所规则/合约表为主；BigQuant `trading_period`、Tushare `trade_time_desc` 为辅助。
-- Grain mismatch: 来源多为文本，需要解析成 `[['09:00', '10:15'], ['10:30', '11:30']]`。
-- Analysis: 按交易所和品种解析日盘上午结构，注意中金所和商品交易所开盘时间不同。
-- Validation: 时间格式统一为 `HH:MM`；小节按时间升序且不重叠。
+- External sources: 基础规则历史文档为历史版本主来源；BigQuant `trading_period` 为当前版本校验来源；Tushare 交易时间文本仅作为辅助线索。
+- Grain mismatch: 外部多为 `090000-101500` 或自然语言文本，需要解析为 `[['09:00', '10:15'], ['10:30', '11:30']]`；中金所与商品交易所上午结构不同，且中金所股指/国债存在历史开盘时间调整。
+- Analysis: 商品交易所普通上午盘通常为 `09:00-10:15`、`10:30-11:30`；中金所当前股指和国债通常为 `09:30-11:30`，历史上股指和国债部分品种曾为 `09:15-11:30`。上午盘基础永久调整写入新的 `sessions_history` 版本；最后交易日、熔断或临时暂停造成的上午差异不写入基础版本。
+- Validation: 时间格式统一为 `HH:MM`；每个小节按交易日内时间顺序排列且不重叠；最新上午盘应能从 BigQuant 当前 `trading_period` 解析得到；中金所历史版本须与日盘调整报告一致。
 - Output: `sessions_history[].morning_sessions`。
 - Open questions: 暂无。
 
@@ -354,10 +215,10 @@ TIER1 的目标是生成每个品种一份产品级 YAML，由 `ProductMetaManag
 - Tier: TIER1
 - Versioned: yes
 - Local meaning: 下午连续竞价小节列表。
-- External sources: 交易所规则/合约表为主；BigQuant `trading_period`、Tushare `trade_time_desc` 为辅助。
-- Grain mismatch: 文本到结构化时间段。
-- Analysis: 普通下午盘写入基础 session；最后交易日删除下午盘属于 `session_override_rules`，不得改写基础规则。
-- Validation: 当前普通交易日计算结果与行情快照时段、交易所合约表一致。
+- External sources: 基础规则历史文档为历史版本主来源；BigQuant `trading_period` 为当前版本校验来源；Tushare 交易时间文本仅作为辅助线索。
+- Grain mismatch: 外部多为文本或压缩时间串，需要解析为 `[['13:30', '15:00']]`、`[['13:00', '15:00']]` 或 `[['13:00', '15:15']]` 等结构化区间。
+- Analysis: 商品交易所普通下午盘通常为 `13:30-15:00`；中金所股指当前为 `13:00-15:00`，国债当前为 `13:00-15:15`。IF/IH/IC 在 2016-01-01 起下午收盘由 `15:15` 调整为 `15:00`，应作为基础版本变化；TF/T/TS 在 2020-07-20 只调整上午开盘，下午仍为 `15:15`。最后交易日删除下午盘或提前收盘属于 `session_override_rules`，不得改写基础规则。
+- Validation: 最新下午盘应与 BigQuant 当前 `trading_period` 一致；中金所历史下午盘版本须与日盘调整报告一致；所有区间须满足开始早于结束。
 - Output: `sessions_history[].afternoon_sessions`。
 - Open questions: 暂无。
 
@@ -367,10 +228,14 @@ TIER1 的目标是生成每个品种一份产品级 YAML，由 `ProductMetaManag
 - Tier: TIER1
 - Versioned: yes
 - Local meaning: 夜盘连续竞价小节列表，无夜盘则为空列表。
-- External sources: 交易所夜盘公告/合约表为主；BigQuant `trading_period`、Tushare `trade_time_desc`、BigQuant `cn_future_level1_snapshot.time` 为辅助校验。
-- Grain mismatch: 夜盘物理日期与交易日归属不同，文本也常不说明历史启用日期。
-- Analysis: 按产品维护夜盘启用、暂停、恢复和永久变更的基础版本；节假日、疫情暂停、技术故障等应进入 override，而不是基础 session，除非交易所永久修改规则。
-- Validation: 有夜盘产品的当前夜盘收市时间应与数据源文本一致；无夜盘产品必须输出 `[]`。
+- External sources:
+  - 历史事实主来源：`期货品种夜盘开始日期和调整情况汇总报告.md`。
+  - 当前规则校验来源：BigQuant `cn_future_product_info.trading_period`。
+  - 日期转换辅助：Tushare 交易日历 `fut_trade_cal`。
+  - 特殊安排边界参考：`中国期货市场交易时段规则特殊安排_历史事实_CodeX.md`。
+- Grain mismatch: 夜盘启用和调整文档中的日期常为物理日历日晚间，而 YAML `effective_date` 使用交易日口径；BigQuant 当前文本只显示当前夜盘是否存在及当前收市时间，不包含历史启用、暂停和恢复过程。
+- Analysis: 夜盘从无到有属于基础 session 新版本；夜盘永久缩短或永久调整也属于基础 session 新版本。夜盘区间按产品写入，例如 `[['21:00', '23:00']]`、`[['21:00', '01:00']]`、`[['21:00', '02:30']]`；无夜盘写 `[]`。历史上的临时停夜盘、节假日后首个交易日无夜盘、2019-12-26 延迟开市、熔断等不写入基础夜盘，而进入 `session_override_rules` 或 realized 事件。疫情期间夜盘暂停是日期区间 override，不应生成“暂停”和“恢复”两个基础版本；PG 等上市时处于疫情暂停期的品种，基础规则仍可具有夜盘，实际无夜盘由疫情 override 解释。
+- Validation: 最新夜盘区间应与 BigQuant 当前 `trading_period` 一致；夜盘启用前版本必须为 `[]`；永久调整版本必须与夜盘调整报告一致；无夜盘产品最新版本必须输出 `[]`。所有跨零点区间以 `HH:MM` 字符串保存，由下游 resolver 按交易日语义解释。
 - Output: `sessions_history[].night_sessions`。
 - Open questions: 暂无。
 
@@ -391,7 +256,15 @@ TIER1 的目标是生成每个品种一份产品级 YAML，由 `ProductMetaManag
 
 ## TIER 2
 
-TIER2 的目标是生成全市场合约注册表 parquet，当前 `InstrumentRegistryManager` 会读取目录下所有 `*.parquet`，拼接后以本地标准 `instrument` 作为唯一索引。TIER2 应优先服务“合约身份、生命周期、交割属性和报单代码”的稳定查询，不承载日频状态变化。
+TIER2 的目标是生成合约注册表。每个交易所一个 parquet 文件，包含其下所有合约。当前 `InstrumentRegistryManager` 会读取目录下所有 `*.parquet`，拼接后以本地标准 `instrument` 作为唯一索引。TIER2 应优先服务“合约身份、生命周期、交割属性和报单代码”的稳定查询，不承载日频状态变化。TIER2 合约 universe 统一来自 Tushare `fut_basic`，并只保留真实可交易合约；主连、指数、连续等人为构造合约应剔除。由于交易所结算参数表历史覆盖不完整，TIER2 的 `fut_basic` 合约 universe 会大于 TIER3 的交易所结算参数表 universe，这是预期现象。
+
+预期生成文件：
+* `SHFE.parquet`
+* `INE.parquet`
+* `DCE.parquet`
+* `CZCE.parquet`
+* `GFEX.parquet`
+* `CFFEX.parquet`
 
 ### `InstrumentRegistry.instrument`
 
@@ -399,25 +272,13 @@ TIER2 的目标是生成全市场合约注册表 parquet，当前 `InstrumentReg
 - Tier: TIER2
 - Versioned: no
 - Local meaning: 本地标准合约代码，全市场唯一主键。
-- External sources: BigQuant `cn_future_basic_info.instrument` 为主；Tushare `fut_basic.ts_code`、BigQuant `cn_future_static_data.instrument` 为校验。
-- Grain mismatch: BigQuant/Tushare 均为合约级或合约-交易日级，但后缀和大小写口径不同。
-- Analysis: 按已决策的本地标准代码体系，将外部合约代码转换为本地 canonical code。普通合约必须过滤掉主力、连续、指数类合成合约；Tushare 侧应使用 `fut_type=1`。
-- Validation: 转换后 `instrument` 必须全市场唯一；应能从 `instrument` 解析出 `product`、`delivery_year`、`delivery_month` 并与来源字段一致。
+- External sources: Tushare `fut_basic.symbol` 为计划解析来源；实际执行中见下方 `Plan deviation`。
+- Grain mismatch: `fut_basic` 同时包含真实可交易合约和人为构造的主连、指数、连续等合约，需要先做 universe 过滤。
+- Analysis: 计划直接使用 `fut_basic.symbol` 生成本地 canonical instrument，不使用 BigQuant 或交易所结算表做校验，也不再维护多来源 source-to-local 映射。真实可交易合约的代码应为品种字母后接 3/4 位交割年月数字；`IC`、`ICL`、`ICL1` 这类指数、主连或连续合约应剔除。
+- Validation: `instrument` 必须全市场唯一。
 - Output: registry parquet 列 `instrument`。
+- Plan deviation: TIER2 实际入库时改用 `ts_code` 点号前缀生成本地 `instrument`，因为 CZCE 的 `symbol` 会折叠 decade 信息，例如 `CF1001.ZCE` 与 `CF2001.ZCE` 都可能对应 `symbol=CF001`，无法满足全市场唯一主键约束。`fut_basic.symbol` 改用于生成 `exchange_inst`，并按交易所报单代码大小写约定标准化：CFFEX/CZCE 品种字母保留大写，SHFE/DCE/GFEX/INE 品种字母使用小写。
 - Open questions: 暂无，沿用 `decisions.md` 中“本地标准代码体系”。
-
-### `InstrumentRegistry.name`
-
-- Local model: `InstrumentRegistry`
-- Tier: TIER2
-- Versioned: no
-- Local meaning: 合约中文名称。
-- External sources: BigQuant `cn_future_basic_info.name` 为主；Tushare `fut_basic.name`、BigQuant `cn_future_static_data.name` 为校验。
-- Grain mismatch: 合约级名称可能随数据源格式不同，例如是否包含交易所、月份或品种简称。
-- Analysis: 优先保留外部合约级名称，不强行归约为品种名。若不同来源名称不一致，记录差异但不影响主键入库。
-- Validation: 名称应能与 `product` 和交割月份大致对应；空值或明显非普通合约名称进入人工复核。
-- Output: registry parquet 列 `name`。
-- Open questions: 暂无。
 
 ### `InstrumentRegistry.product`
 
@@ -425,25 +286,12 @@ TIER2 的目标是生成全市场合约注册表 parquet，当前 `InstrumentReg
 - Tier: TIER2
 - Versioned: no
 - Local meaning: 合约所属本地标准品种代码。
-- External sources: BigQuant `cn_future_basic_info.product_code` 为主；BigQuant `cn_future_static_data.product_id`、Tushare `fut_basic.fut_code`、合约代码解析结果为校验。
-- Grain mismatch: 合约级字段和代码解析结果应一致。
-- Analysis: 优先使用来源字段，若缺失则从 `instrument` 解析。郑商所等大小写差异统一转换为大写本地产品代码。
-- Validation: `product` 必须能在 TIER1 产品 YAML 中找到；同一合约跨来源映射出的产品必须一致。
+- External sources: Tushare `fut_basic.fut_code` 与 `fut_basic.symbol`。
+- Grain mismatch: 无。
+- Validation: `product` 必须能在 TIER1 产品 YAML 中找到；`product` 应与 `instrument` 的品种前缀一致。
 - Output: registry parquet 列 `product`。
-- Open questions: 暂无。
+- Open questions: 沿用 `decisions.md` 中“本地标准代码体系”。
 
-### `InstrumentRegistry.product_class`
-
-- Local model: `InstrumentRegistry`
-- Tier: TIER2
-- Versioned: no
-- Local meaning: 产品类型编码，当前模型为 `int`，用于区分期货、期权、组合、套利等类别。
-- External sources: BigQuant `cn_future_static_data.product_class` 为主；Tushare `fut_basic.fut_type` 仅用于过滤普通合约，不能直接替代产品类型。
-- Grain mismatch: BigQuant 字段为字符串或外部编码，本地模型为整数枚举。
-- Analysis: 先建立外部 `product_class` 到本地整数枚举的映射表。当前入库范围聚焦普通期货合约，因此可先只允许“期货”类型通过，其他类型进入隔离样本。
-- Validation: `instrument` 不应包含主力、连续、期权、组合等合成或非普通期货合约；枚举未知值不得静默落库。
-- Output: registry parquet 列 `product_class`。
-- Open questions: 见 `decisions.md` 中“InstrumentRegistry.product_class 本地枚举”。
 
 ### `InstrumentRegistry.exchange`
 
@@ -451,10 +299,10 @@ TIER2 的目标是生成全市场合约注册表 parquet，当前 `InstrumentReg
 - Tier: TIER2
 - Versioned: no
 - Local meaning: 本地标准交易所代码。
-- External sources: BigQuant `cn_future_basic_info.exchange` 为主；BigQuant `cn_future_static_data.exchange`、Tushare `fut_basic.exchange` 为校验。
-- Grain mismatch: 外部交易所代码格式不同，需要映射到本地官方/CTP 风格。
-- Analysis: 使用与 TIER1 相同的 source-to-local 交易所映射。registry parquet 可按交易所分区保存，但行内仍保留 `exchange` 字段。
-- Validation: 合约后缀、产品所属交易所、来源字段三者应一致；不一致时暂停该合约入库。
+- External sources: Tushare `fut_basic.exchange`。
+- Grain mismatch: 无。
+- Analysis: 使用 `fut_basic.exchange` 生成本地 `exchange` 字段。registry parquet 可按交易所分区保存，但行内仍保留 `exchange` 字段。
+- Validation: `exchange` 必须为本地支持的交易所代码；与产品所属交易所不一致时进入人工复核。
 - Output: registry parquet 列 `exchange`。
 - Open questions: 暂无，沿用 `decisions.md` 中“本地标准代码体系”。
 
@@ -464,12 +312,12 @@ TIER2 的目标是生成全市场合约注册表 parquet，当前 `InstrumentReg
 - Tier: TIER2
 - Versioned: no
 - Local meaning: 合约上市或开始交易日期。
-- External sources: BigQuant `cn_future_basic_info.list_date` 为主；BigQuant `cn_future_static_data.open_date`、Tushare `fut_basic.list_date` 为校验。
-- Grain mismatch: 合约级和合约-交易日级字段应最终压缩为单个日期。
-- Analysis: 对同一合约取来源中的最早明确上市/开始交易日期。若 BigQuant `list_date` 与 `open_date` 不一致，应判断一个是否为数据记录起点，不能机械取最早。
-- Validation: `list_date <= last_trade_date`；对于有夜盘品种，上市首日夜盘归属问题不改变注册表日期，只在 session 规则中处理。
+- External sources: Tushare `fut_basic.list_date` 。无需利用 BigQuant 数据做二次校验。
+- Grain mismatch: 无。
+- Analysis: 无。
+- Validation: 无。
 - Output: registry parquet 列 `list_date`，日期格式。
-- Open questions: 见 `decisions.md` 中“合约生命周期日期字段语义优先级”。
+- Open questions: 无。
 
 ### `InstrumentRegistry.last_trade_date`
 
@@ -477,12 +325,12 @@ TIER2 的目标是生成全市场合约注册表 parquet，当前 `InstrumentReg
 - Tier: TIER2
 - Versioned: no
 - Local meaning: 合约最后交易日。
-- External sources: Tushare `fut_basic.delist_date` 为主；BigQuant `cn_future_basic_info.delist_date`、BigQuant `cn_future_static_data.expire_date` 为校验；交易所合约规则用于异常确认。
-- Grain mismatch: 不同来源可能使用退市日、到期日、最后交易日等不同命名。
-- Analysis: 初步将 Tushare `delist_date` 作为最后交易日候选；BigQuant `delist_date/expire_date` 需通过样本确认其是否等同最后交易日。若来源不一致，优先交易所规则和 Tushare 明确语义。
-- Validation: `last_trade_date` 应早于或等于 `end_deliv_date`；对金融期货无实物交割或交割日特殊的品种需单独校验。
+- External sources: Tushare `fut_basic.delist_date`。无需利用 BigQuant 数据做校验。。
+- Grain mismatch: 无。
+- Analysis: 无。
+- Validation: 无。
 - Output: registry parquet 列 `last_trade_date`。
-- Open questions: 见 `decisions.md` 中“合约生命周期日期字段语义优先级”。
+- Open questions: 无。
 
 ### `InstrumentRegistry.delivery_year`
 
@@ -490,10 +338,10 @@ TIER2 的目标是生成全市场合约注册表 parquet，当前 `InstrumentReg
 - Tier: TIER2
 - Versioned: no
 - Local meaning: 交割年份。
-- External sources: BigQuant `cn_future_static_data.delivery_year` 为主；Tushare `fut_basic.d_month`、合约代码解析为校验。
-- Grain mismatch: BigQuant 为合约-交易日级，需要压缩为合约级；Tushare 可能为文本日期。
-- Analysis: 对同一合约取唯一 `delivery_year`。若缺失，从合约代码月份解析，但需处理三位/四位年月、郑商所早期合约代码等历史格式。
-- Validation: `delivery_year` 与 `delivery_month` 组合应匹配 `instrument` 和 `d_month`。
+- External sources: Tushare `fut_basic.d_month`解析。
+- Grain mismatch: 无。
+- Analysis: 无。
+- Validation: 无。
 - Output: registry parquet 列 `delivery_year`。
 - Open questions: 暂无。
 
@@ -503,25 +351,13 @@ TIER2 的目标是生成全市场合约注册表 parquet，当前 `InstrumentReg
 - Tier: TIER2
 - Versioned: no
 - Local meaning: 交割月份。
-- External sources: BigQuant `cn_future_static_data.delivery_month` 为主；Tushare `fut_basic.d_month`、合约代码解析为校验。
-- Grain mismatch: 同一合约日频记录应唯一。
-- Analysis: 对同一合约取唯一月份；若来源缺失则从合约代码解析。
-- Validation: 取值必须为 `1..12`；与产品可交易月份规则交叉校验。
+- External sources: Tushare `fut_basic.d_month`、解析。
+- Grain mismatch: 无。
+- Analysis: 无。
+- Validation: 无。
 - Output: registry parquet 列 `delivery_month`。
 - Open questions: 暂无。
 
-### `InstrumentRegistry.start_deliv_date`
-
-- Local model: `InstrumentRegistry`
-- Tier: TIER2
-- Versioned: no
-- Local meaning: 开始交割日。
-- External sources: BigQuant `cn_future_static_data.start_deliv_date` 为主；交易所合约规则为校验。
-- Grain mismatch: 只有 BigQuant 日频静态表直接提供，需从多日记录压缩为单值。
-- Analysis: 对同一合约取非空唯一值。若金融期货或无实物交割品种没有开始交割日，应决定本地是否允许空值或使用特殊占位。
-- Validation: 若存在，应满足 `last_trade_date <= start_deliv_date <= end_deliv_date` 的常见关系；不满足时按品种规则复核。
-- Output: registry parquet 列 `start_deliv_date`。
-- Open questions: 见 `decisions.md` 中“无交割日期合约的空值策略”。
 
 ### `InstrumentRegistry.end_deliv_date`
 
@@ -529,25 +365,13 @@ TIER2 的目标是生成全市场合约注册表 parquet，当前 `InstrumentReg
 - Tier: TIER2
 - Versioned: no
 - Local meaning: 最后交割日。
-- External sources: BigQuant `cn_future_static_data.end_deliv_date` 为主；Tushare `fut_basic.last_ddate`、BigQuant `cn_future_basic_info.last_deliver_date` 为校验。
-- Grain mismatch: 合约级和日频静态表均可能提供，但命名和语义需要校验。
-- Analysis: 优先取 BigQuant `end_deliv_date`，再用 Tushare `last_ddate` 和 BigQuant `last_deliver_date` 交叉确认。若来源不一致，按交易所合约规则人工复核。
-- Validation: `end_deliv_date` 应不早于 `last_trade_date`；无实物交割品种需符合空值策略。
+- External sources: Tushare `fut_basic.last_ddate`
+- Grain mismatch: 无。
+- Analysis: 无。
+- Validation: 无。
 - Output: registry parquet 列 `end_deliv_date`。
-- Open questions: 见 `decisions.md` 中“合约生命周期日期字段语义优先级”和“无交割日期合约的空值策略”。
+- Open questions: 见 `decisions.md` “无交割日期合约的空值策略”。
 
-### `InstrumentRegistry.exchange_inst`
-
-- Local model: `InstrumentRegistry`
-- Tier: TIER2
-- Versioned: no
-- Local meaning: 交易所报单代码或交易代码，不含供应商后缀。
-- External sources: BigQuant `cn_future_basic_info.trading_code`、BigQuant `cn_future_static_data.trading_code` 为主；Tushare `fut_basic.symbol` 为校验。
-- Grain mismatch: 供应商可能将带后缀合约代码和交易所报单代码混用。
-- Analysis: 优先保留交易所实际报单使用的短代码，例如 `rb2408` 或 `SR409`。本地 `instrument` 负责全市场唯一，`exchange_inst` 负责交易接口/交易所内部代码。
-- Validation: `exchange_inst` 去除大小写差异后应能与 `instrument` 主体部分对应；同一交易所内应唯一。
-- Output: registry parquet 列 `exchange_inst`。
-- Open questions: 暂无。
 
 ### `InstrumentRegistry.multiplier`
 
@@ -555,16 +379,18 @@ TIER2 的目标是生成全市场合约注册表 parquet，当前 `InstrumentReg
 - Tier: TIER2
 - Versioned: no
 - Local meaning: 该合约注册层面的合约乘数。
-- External sources: BigQuant `cn_future_basic_info.multiplier` 和 `cn_future_static_data.volume_multiplier` 为主；BigQuant `cn_future_product_info.multiplier`、TIER1 `MultiplierRule`、Tushare `fut_basic.per_unit/multiplier` 为校验。
-- Grain mismatch: TIER1 是产品级历史规则，TIER2 是合约级最终属性；日频静态表需压缩为合约级。
-- Analysis: 优先取合约自身来源。若某合约生命周期内 `volume_multiplier` 存在变化，应判断是否是数据修正、规则变更还是同一合约跨版本变化；当前 TIER2 只能存单值，无法表达合约级历史乘数。
-- Validation: `multiplier` 应能被 TIER1 对应日期的 `MultiplierRule` 解释；必须为正整数。
+- External sources: Tushare `fut_basic.per_unit/multiplier` 。
+- Grain mismatch: 无。
+- Analysis: 对 CFFEX，取 `multiplier`列；其他交易所取`per_unit`列。
+- Validation: 无。
 - Output: registry parquet 列 `multiplier`。
-- Open questions: 见 `decisions.md` 中“同一合约，不同外部数据源的取值不同如何处理”。
+- Open questions: 无。
 
 ## TIER 3
 
-TIER3 的目标是生成合约-交易日级日频状态 parquet，供 `InstrumentDailyStatusManager` 按 `{exchange}_{product}.parquet` 读取。该层只处理外部数据源可以直接或间接提供的日频状态字段；`TradingSessions` 虽然也是合约-交易日级领域模型，但它由本地 `BaseSessions` 与 `SessionOverrideRules` 解析生成，不属于“外部数据源 -> 本地数据库”的入库对象。
+TIER3 的目标是生成合约-交易日级日频状态 parquet，供 `InstrumentDailyStatusManager` 按 `{exchange}_{product}.parquet` 读取。该层只处理外部数据源可以直接或间接提供的日频状态字段；`TradingSessions` 虽然也是合约-交易日级领域模型，但它由本地 `BaseSessions` 与 `SessionOverrideRules` 解析生成，不属于“外部数据源 -> 本地数据库”的入库对象。保证金与手续费字段的数据来源限定为已下载的交易所历史结算参数表；下单量限制字段使用 BigQuant `cn_future_static_data` 的合约-交易日级观测值，不再压缩为 TIER1 产品级规则。由于交易所结算参数表和 BigQuant 静态日频表历史覆盖均不完整，TIER3 合约 universe 和字段非空覆盖会小于 TIER2 `fut_basic` universe。
+
+目标文件命名：`{EXCHANGE}_{PRODUCT}.parquet`，即交易所代码和品种代码都大写。
 
 ### `InstrumentDailyStatus.trading_date`
 
@@ -572,12 +398,12 @@ TIER3 的目标是生成合约-交易日级日频状态 parquet，供 `Instrumen
 - Tier: TIER3
 - Versioned: yes, daily
 - Local meaning: 交易日，是合约日频状态表的日期主键之一。
-- External sources: BigQuant `cn_future_static_data.trading_day` 为主；Tushare `fut_trade_cal.cal_date/is_open/pretrade_date` 为交易日历校验；Tushare `fut_settle.trade_date`、`ft_limit.trade_date` 为覆盖校验。
-- Grain mismatch: BigQuant 为合约-交易日级，Tushare 日历为交易所-自然日级。
-- Analysis: 以 BigQuant 日频静态表中的 `trading_day` 作为入库日期，统一转换为 `datetime.date`。按交易所用 Tushare `fut_trade_cal` 校验该日期是否开市，并检查是否存在 BigQuant 有合约记录但交易日历标记休市、或交易日历开市但关键品种无任何合约记录的异常。
-- Validation: `trading_date` 必须在对应交易所开市日历中；同一 parquet 文件内 `(trading_date, instrument)` 唯一；日期范围应覆盖 TIER2 注册合约生命周期内的主要交易日。
+- External sources: 交易所原始结算参数表所在日期目录，例如 `trading_day=20260521`。
+- Grain mismatch: 大多数交易所结算参数表按交易日下载，目录日期即可直接作为 TIER3 `trading_date`；CFFEX 结算参数表不是每个交易日都有，更像参数发布/变更表。
+- Analysis: 除 CFFEX 外，直接从原始目录名解析交易日，并统一转换为 `datetime.date`。CFFEX 需先从 TIER2 合约注册信息获取每张合约的 `list_date` 和 `last_trade_date`，再使用 CFFEX 交易日历生成该生命周期内的交易日列表，并将最近一次有效结算参数向后展开到后续交易日。
+- Validation: 非 CFFEX 数据的 `trading_date` 必须与原始结算参数表目录日期一致；CFFEX 展开日期必须落在合约上市日至最后交易日之间；同一 parquet 文件内 `(trading_date, instrument)` 唯一。
 - Output: product-date parquet 列 `trading_date`。
-- Open questions: 见 `decisions.md` 中“TIER3 日期与合约覆盖范围”。
+- Open questions: 暂无。
 
 ### `InstrumentDailyStatus.instrument`
 
@@ -585,10 +411,10 @@ TIER3 的目标是生成合约-交易日级日频状态 parquet，供 `Instrumen
 - Tier: TIER3
 - Versioned: yes, daily
 - Local meaning: 本地标准合约代码，是合约日频状态表的合约主键。
-- External sources: BigQuant `cn_future_static_data.instrument` 为主；TIER2 `InstrumentRegistry.instrument` 为本地主表校验；Tushare `fut_settle.ts_code` 为跨源校验。
-- Grain mismatch: BigQuant/Tushare 供应商代码需要映射为本地 canonical code。
-- Analysis: 对 BigQuant 合约代码执行与 TIER2 相同的 source-to-local 标准化。只允许能在 `InstrumentRegistry` 找到的普通期货合约进入 TIER3；主力、连续、指数、期权和组合合约应隔离。
-- Validation: 每条 TIER3 记录必须能 join 到 TIER2 registry；`instrument` 对应的 `product` 必须与输出 parquet 文件的品种一致；同一 `(trading_date, instrument)` 不得重复。
+- External sources: 交易所原始结算参数表中的合约字段，例如 DCE `contractID`、SHFE/INE `INSTRUMENTID`、CZCE `合约代码`、CFFEX `期货合约` 。TIER2 registry 的 `exchange_inst -> instrument` 映射作为交易所合约代码转本地合约代码的权威映射。
+- Grain mismatch: 交易所原始合约代码是 exchange format，下单/交易所口径可能与本地 canonical code 不一致；TIER3 universe 由交易所结算参数表决定，可能小于 TIER2 的 Tushare `fut_basic` universe。
+- Analysis: 先读取交易所结算参数表中的原始合约字段，并按 TIER2 的 `exchange_inst` 大小写口径归一为 exchange format；再使用 TIER2 registry 中同一交易所下的 `exchange_inst -> instrument` 映射生成本地 `instrument`。不得仅凭字符串规则直接把交易所原始代码改写成本地主键，尤其是 CZCE 跨 decade 合约会出现重复 `exchange_inst`，需要结合 TIER2 注册信息和交易日/合约生命周期处理映射歧义。CFFEX 虽然结算表非日频，但已人工核对确认其结算表合约 universe 包含 Tushare `fut_basic` 的真实可交易合约 universe，因此无需再做覆盖检查，也无需回退到 Tushare universe。
+- Validation: 映射后的 `instrument` 必须存在于 TIER2 registry，且其 `exchange` 和 `product` 与输出文件归属一致；同一 `(trading_date, instrument)` 不得重复；若交易所结算参数表合约字段无法映射到 TIER2 `exchange_inst`，需进入审计而不是临时按字符串规则生成本地 `instrument`；TIER3 缺少 TIER2 中某些合约时，应优先解释为交易所结算参数表历史覆盖不足，而不是 TIER2 universe 错误。
 - Output: product-date parquet 列 `instrument`。
 - Open questions: 暂无，沿用“本地标准代码体系”和 TIER2 普通合约过滤决策。
 
@@ -598,12 +424,12 @@ TIER3 的目标是生成合约-交易日级日频状态 parquet，供 `Instrumen
 - Tier: TIER3
 - Versioned: yes, daily
 - Local meaning: 该合约在该交易日是否可交易。
-- External sources: BigQuant `cn_future_static_data.is_trading` 为主；Tushare `fut_trade_cal.is_open`、TIER2 `list_date/last_trade_date`、BigQuant `inst_life_phase` 为校验。
-- Grain mismatch: `is_trading` 是合约-交易日状态，交易日历是交易所级状态，生命周期日期是合约级静态边界。
-- Analysis: 将 BigQuant `is_trading` 映射为布尔值。若交易所休市，理论上不应生成该交易日记录；若生成，则 `is_tradable` 必须为 `False` 并进入异常分析。上市前、暂停、到期后状态应与 `inst_life_phase` 联动。
-- Validation: 本地约束关系为：`not_started/paused/expired` 对应 `is_tradable=False`，`started` 通常对应 `True`。若 `inst_life_phase=started` 但 `is_tradable=False`，需判断是否为临时停牌、节假日、数据口径或交易暂停。
-- Output: product-date parquet 列 `is_tradable`，供 manager 读取后转换为 `bool`。
-- Open questions: 见 `decisions.md` 中“is_trading 与 inst_life_phase 映射口径”。
+- External sources: 暂无；当前不再使用外部数据源推断该字段。
+- Grain mismatch: 交易所结算参数表不能稳定表达单合约当日是否可交易，且 BigQuant 日频静态表时间跨度有限。
+- Analysis: 本阶段直接忽略该字段，不从外部数据推断交易状态。入库时统一写空值。
+- Validation: 确认输出 parquet 中该列存在且全为空；后续如需要恢复该字段，应另行设计来源和规则。
+- Output: product-date parquet 列 `is_tradable = None`。
+- Open questions: 暂无。
 
 ### `InstrumentDailyStatus.inst_life_phase`
 
@@ -611,12 +437,64 @@ TIER3 的目标是生成合约-交易日级日频状态 parquet，供 `Instrumen
 - Tier: TIER3
 - Versioned: yes, daily
 - Local meaning: 合约生命周期阶段，只允许 `not_started`、`started`、`paused`、`expired`。
-- External sources: BigQuant `cn_future_static_data.inst_life_phase` 为主；TIER2 `list_date/last_trade_date`、BigQuant `is_trading` 为校验。
-- Grain mismatch: BigQuant 字段值域可能是外部编码或英文/中文字符串，本地为固定 literal。
-- Analysis: 需要先用实样统计 BigQuant `inst_life_phase` 的全量值域，再建立映射表。若来源已是相同英文值，可直接保留；若为数字或中文状态，应显式映射到本地四类枚举。
-- Validation: `trading_date < list_date` 时应为 `not_started`；`trading_date > last_trade_date` 时应为 `expired`；上市至最后交易日期间大多数开市日应为 `started`，少数异常停牌可为 `paused`。
-- Output: product-date parquet 列 `inst_life_phase`。
-- Open questions: 见 `decisions.md` 中“is_trading 与 inst_life_phase 映射口径”。
+- External sources: 暂无；当前不再使用 BigQuant `cn_future_static_data.inst_life_phase`。
+- Grain mismatch: 交易所结算参数表不提供本地四类生命周期枚举，且 BigQuant 日频静态表时间跨度有限。
+- Analysis: 本阶段直接忽略该字段，不从上市日、最后交易日或结算表出现情况反推生命周期状态。入库时统一写空值。
+- Validation: 确认输出 parquet 中该列存在且全为空。
+- Output: product-date parquet 列 `inst_life_phase = None`。
+- Open questions: 暂无。
+
+### `InstrumentDailyStatus.max_market_order_volume`
+
+- Local model: `InstrumentDailyStatus`
+- Tier: TIER3
+- Versioned: yes, daily
+- Local meaning: 合约在该交易日的市价单最大下单手数。
+- External sources: BigQuant `cn_future_static_data.max_market_order_volume`。
+- Grain mismatch: 来源为合约-交易日级，与 TIER3 目标粒度一致；不再反推产品级历史规则。
+- Analysis: 直接按 `(instrument, trading_date)` 写入。BigQuant `cn_future_static_data` 覆盖日期较短，当前快照最早约为 2024 年；早期年份或 BigQuant 缺失日期不得向前填充、不得使用产品级默认值补齐，统一写 `null`。若后续 TIER3 主表以交易所结算参数表或 registry/calendar 展开了更长日期范围，则只在 BigQuant 有同一合约同一交易日观测值时填入，否则保持空值。`0` 是有效观测值，尤其可能表示该合约/合约组不支持市价单或市价单最大量为零，不能当作缺失。
+- Validation: 非空值应为非负整数；若同一 `(trading_date, instrument)` 出现多个值，必须进入审计而不是取众数；与 `min_market_order_volume` 同时非空时应满足 `max_market_order_volume >= min_market_order_volume`，除非经人工确认 `max_market_order_volume = 0` 表示不支持市价单。
+- Output: product-date parquet 列 `max_market_order_volume`，允许 `null`。
+- Open questions: 当前 `InstrumentDailyStatus` dataclass 尚未包含四个 order volume 字段，正式入库前需要同步扩展模型、manager 和 parquet schema。
+
+### `InstrumentDailyStatus.min_market_order_volume`
+
+- Local model: `InstrumentDailyStatus`
+- Tier: TIER3
+- Versioned: yes, daily
+- Local meaning: 合约在该交易日的市价单最小下单手数。
+- External sources: BigQuant `cn_future_static_data.min_market_order_volume`。
+- Grain mismatch: 来源为合约-交易日级，与 TIER3 目标粒度一致。
+- Analysis: 与其他三个下单量字段一起从 BigQuant 合约日频静态表写入，不做产品级压缩。BigQuant 覆盖前的早期年份或缺失交易日直接写 `null`，不向前填充到合约上市日，也不从同产品其他合约推断。
+- Validation: 非空值应为正整数；若 `max_market_order_volume` 非空且大于 0，则应满足 `min_market_order_volume <= max_market_order_volume`；若同一 `(trading_date, instrument)` 多值，进入审计。
+- Output: product-date parquet 列 `min_market_order_volume`，允许 `null`。
+- Open questions: 同 `max_market_order_volume`。
+
+### `InstrumentDailyStatus.max_limit_order_volume`
+
+- Local model: `InstrumentDailyStatus`
+- Tier: TIER3
+- Versioned: yes, daily
+- Local meaning: 合约在该交易日的限价单最大下单手数。
+- External sources: BigQuant `cn_future_static_data.max_limit_order_volume`。
+- Grain mismatch: 来源为合约-交易日级，与 TIER3 目标粒度一致。
+- Analysis: 直接按合约日频观测写入。BigQuant 覆盖期之外的早期年份和缺失日期写 `null`；不使用产品级默认值、同日其他合约值或最新观测值做补齐。
+- Validation: 非空值应为正整数；通常应大于等于 `min_limit_order_volume`，且通常不小于 `max_market_order_volume`，但跨交易所差异需以来源字段为准；同一 `(trading_date, instrument)` 多值进入审计。
+- Output: product-date parquet 列 `max_limit_order_volume`，允许 `null`。
+- Open questions: 同 `max_market_order_volume`。
+
+### `InstrumentDailyStatus.min_limit_order_volume`
+
+- Local model: `InstrumentDailyStatus`
+- Tier: TIER3
+- Versioned: yes, daily
+- Local meaning: 合约在该交易日的限价单最小下单手数。
+- External sources: BigQuant `cn_future_static_data.min_limit_order_volume`。
+- Grain mismatch: 来源为合约-交易日级，与 TIER3 目标粒度一致。
+- Analysis: 与四字段 tuple 同步处理，按 `(instrument, trading_date)` 原样保留合约级差异。BigQuant 覆盖期之外的早期年份和缺失日期写 `null`，不向前填充。
+- Validation: 非空值应为正整数；不得大于 `max_limit_order_volume`；同一 `(trading_date, instrument)` 多值进入审计。
+- Output: product-date parquet 列 `min_limit_order_volume`，允许 `null`。
+- Open questions: 同 `max_market_order_volume`。
 
 ### `InstrumentDailyStatus.long_margin_ratio`
 
@@ -624,12 +502,12 @@ TIER3 的目标是生成合约-交易日级日频状态 parquet，供 `Instrumen
 - Tier: TIER3
 - Versioned: yes, daily
 - Local meaning: 交易所多头保证金率，按小数存储，例如 `0.08` 表示 8%。
-- External sources: BigQuant `cn_future_static_data.long_margin_ratio` 为主；Tushare `fut_settle.long_margin_rate` 为校验；Tushare `ft_limit.m_ratio` 只能作为最低保证金率辅助参考。
-- Grain mismatch: BigQuant 和 Tushare 都是合约-交易日级，但单位可能是小数或百分数；`ft_limit.m_ratio` 语义是最低交易保证金率，不等同于多头保证金率。
-- Analysis: 先用数值分布判断单位，统一归一化为小数。若 Tushare `long_margin_rate` 与 BigQuant `long_margin_ratio` 不一致，应区分投机/套保、最低/实际、交易所/期货公司口径，不可简单覆盖。
-- Validation: 数值应在合理区间内，通常 `0 < ratio < 1`；与 `short_margin_ratio` 的差异应可由交易所规则解释；突变点应与交易所保证金调整公告或临近交割月规则一致。
+- External sources: 本地已下载交易所结算参数表，目录 `db/rules_ingestion/data/raw/exchange_settlement_data_scraping/`；CFFEX 字段 `合约多头保证金`，SHFE/INE 字段 `SPEC_LONGMARGINRATIO`，CZCE 字段 `交易保证金率` 或 `买交易保证金率`，DCE/GFEX 字段 `specBuyRate`。
+- Grain mismatch: 交易所结算参数表通常是合约-交易日级或参数发布日级；CFFEX 更像参数变更列表，需向后展开到后续交易日。CZCE 历史表头变动较多；SHFE 原始目录中包含 INE 品种，但入库时 INE 品种的 `exchange` 必须改回 `INE`。
+- Analysis: 按交易所建立字段解析器，先统一合约代码、交易日和交易所代码，再按交易所单位规则归一化为小数。CFFEX 保证金字段按 `12%` 这类百分号文本解析；DCE/GFEX 的 `specBuyRate` 直接使用原值，例如 `0.09` 表示 9%；SHFE/INE 清洗后字段直接使用原值。CZCE 只有单一 `交易保证金率` 时，同时映射为多头和空头；存在买/卖字段时分别取买方字段。CFFEX 参数发布日数据需结合交易日历向前填充，但不得填充到合约上市前或最后交易日后。
+- Validation: 数值应在合理区间内，通常 `0 < ratio < 1`；同一 `(trading_date, instrument)` 只能有一个多头保证金率；与 `short_margin_ratio` 的差异应可由交易所字段解释。
 - Output: product-date parquet 列 `long_margin_ratio`。
-- Open questions: 见 `decisions.md` 中“保证金率来源优先级与单位归一化”。
+- Open questions: 暂无。
 
 ### `InstrumentDailyStatus.short_margin_ratio`
 
@@ -637,15 +515,83 @@ TIER3 的目标是生成合约-交易日级日频状态 parquet，供 `Instrumen
 - Tier: TIER3
 - Versioned: yes, daily
 - Local meaning: 交易所空头保证金率，按小数存储，例如 `0.08` 表示 8%。
-- External sources: BigQuant `cn_future_static_data.short_margin_ratio` 为主；Tushare `fut_settle.short_margin_rate` 为校验；Tushare `ft_limit.m_ratio` 只能作为最低保证金率辅助参考。
-- Grain mismatch: 与多头保证金率相同，需处理来源语义和单位差异。
-- Analysis: 与 `long_margin_ratio` 成对处理，不单独建立版本逻辑。若多空保证金率不同，应保留差异；若某来源只给最低保证金率，不得填充成多空字段。
-- Validation: 数值应在合理区间内；与 Tushare `short_margin_rate` 的差异应输出冲突报告；同一合约同一日多空字段缺一时不得静默补零。
+- External sources: 本地已下载交易所结算参数表；CFFEX 字段 `合约空头保证金`，SHFE/INE 字段 `SPEC_SHORTMARGINRATIO`，CZCE 字段 `交易保证金率` 或 `卖交易保证金率`，DCE/GFEX 字段 `specSellRate`。
+- Grain mismatch: 与多头保证金率相同，需处理交易所目录归属、表头历史变化、发布日向交易日展开和单位归一化。
+- Analysis: 与 `long_margin_ratio` 成对处理。CZCE 只有单一保证金率字段时可同时写入多空字段；存在买/卖字段时空头取卖方字段。若某来源只给最低保证金率或无法区分多空，不得静默填充为空头字段，除非该交易所该表头明确表示买卖同率。
+- Validation: 数值应在合理区间内；同一合约同一日多空字段缺一时不得静默补零；INE 品种必须在输出文件名和行内 `exchange` 口径中归属 `INE`。
 - Output: product-date parquet 列 `short_margin_ratio`。
-- Open questions: 见 `decisions.md` 中“保证金率来源优先级与单位归一化”。
+- Open questions: 暂无。
+
+### `InstrumentDailyStatus.commission_type`
+
+- Local model: `InstrumentDailyStatus`
+- Tier: TIER3
+- Versioned: yes, daily
+- Local meaning: 手续费计价方式，`flat` 表示按手收取，`ratio` 表示按成交金额比例收取。
+- External sources: 本地交易所结算参数表；CFFEX `交易手续费标准` 文本解析，SHFE/INE `TRADEFEERATION` 与 `TRADEFEEUNIT` 非零/非空字段判断，CZCE `手续费收取方式`，DCE/GFEX `style`。
+- Grain mismatch: 交易所结算参数表是合约-交易日级或参数发布日级，本地 TIER3 也是合约-交易日级；CFFEX 参数发布日需展开。外部字段可能以中文文本、字段二选一、枚举或数值单位表达同一语义。
+- Analysis: 建立交易所专用映射。CFFEX 文本含“元/手”映射为 `flat`，含“万分之”或比例表达映射为 `ratio`；SHFE/INE 优先使用非零非空的 `TRADEFEERATION` 或 `TRADEFEEUNIT` 判断比例/金额，清洗后数值直接使用；DCE/GFEX 直接映射 `style`，其中 `绝对值` 为元/手，`比例值` 为万分之；CZCE 若 `手续费收取方式` 缺失，则按表头和字段语义推断，缺失收取方式且 `交易手续费=5` 这类数值按 `5` 元/手处理。
+- Validation: `commission_type` 必须为 `flat` 或 `ratio`；同一日同一合约不得出现多种类型；类型应与手续费数值数量级一致。
+- Output: product-date parquet 列 `commission_type`。
+- Open questions: 暂无。
+
+### `InstrumentDailyStatus.commission_open`
+
+- Local model: `InstrumentDailyStatus`
+- Tier: TIER3
+- Versioned: yes, daily
+- Local meaning: 开仓手续费，单位由 `commission_type` 决定；`flat` 为元/手，`ratio` 为成交金额比例小数。
+- External sources: 本地交易所结算参数表；CFFEX `交易手续费标准`，SHFE/INE `TRADEFEERATION` 或 `TRADEFEEUNIT`，CZCE `交易手续费`，DCE/GFEX `openFee`。
+- Grain mismatch: 大多数来源可直接定位到合约-交易日；CFFEX 发布日需要向后展开；部分交易所字段同时表达开仓和平仓默认费率。
+- Analysis: 按 `commission_type` 和交易所单位规则归一化数值。若交易所只给一个普通交易手续费字段，则写入 `commission_open`，并作为 `commission_close` 的默认候选；DCE/GFEX 明确给出 `openFee` 时优先使用该字段，且按 `style` 判断元/手或万分之。文本如“万分之0.23”需转换为 `0.000023`，金额如“3元/手”转换为 `3.0`。CZCE 在 `手续费收取方式=比例值` 时，`交易手续费=1` 表示万分之一；没有该字段时，`交易手续费=5` 表示 5 元/手。
+- Validation: 不允许负数；`ratio` 通常应远小于 `1`，`flat` 应为合理元/手金额；同一 `(trading_date, instrument)` 必须唯一；归一化前后值需进入中间审计报告。
+- Output: product-date parquet 列 `commission_open`。
+- Open questions: 暂无。
+
+### `InstrumentDailyStatus.commission_open_today`
+
+- Local model: `InstrumentDailyStatus`
+- Tier: TIER3
+- Versioned: yes, daily
+- Local meaning: 日内开平仓对应的开仓侧特殊手续费；无特殊规则时允许为空。
+- External sources: DCE/GFEX `shortOpenFee` 为主；其他交易所结算参数表目前未提供稳定对应字段。
+- Grain mismatch: 该字段只在部分交易所/部分历史阶段存在；不能从普通开仓手续费机械复制。
+- Analysis: 仅当交易所结算参数表明确给出日内开仓优惠或特殊开仓字段时写入。DCE/GFEX 使用 `shortOpenFee`；其他交易所默认 `None`，除非结算参数表字段明确支持。
+- Validation: 若非空，必须与 `commission_type` 的单位一致；不得大于明显异常数量级；缺失时保留为空，不补零。
+- Output: product-date parquet 列 `commission_open_today`。
+- Open questions: 暂无。
+
+### `InstrumentDailyStatus.commission_close`
+
+- Local model: `InstrumentDailyStatus`
+- Tier: TIER3
+- Versioned: yes, daily
+- Local meaning: 普通平仓手续费，区别于平今仓手续费 `commission_close_today`。
+- External sources: 本地交易所结算参数表；CFFEX `交易手续费标准`，SHFE/INE `TRADEFEERATION` 或 `TRADEFEEUNIT`，CZCE `交易手续费`，DCE/GFEX `offsetFee`。
+- Grain mismatch: 有些交易所用同一字段表达开仓和普通平仓；DCE/GFEX 明确区分 `openFee` 与 `offsetFee`。
+- Analysis: 若交易所提供独立平仓字段，直接使用；若只提供普通交易手续费字段，则普通平仓默认与开仓同值，但需在中间审计报告中标记为字段共用而非独立观测。入库 parquet 统一输出新版字段 `commission_close`。
+- Validation: `commission_close` 与 `commission_open` 不一致时应能由交易所字段解释；平今字段不得覆盖普通平仓字段。
+- Output: product-date parquet 列 `commission_close`。
+- Open questions: 暂无。
+
+### `InstrumentDailyStatus.commission_close_today`
+
+- Local model: `InstrumentDailyStatus`
+- Tier: TIER3
+- Versioned: yes, daily
+- Local meaning: 平今仓手续费；无平今特殊规则时允许为空，读取后由业务逻辑判断是否回退普通平仓费。
+- External sources: 本地交易所结算参数表；CFFEX `平今仓收取率` 结合 `交易手续费标准` 推断，SHFE/INE `DISCOUNTRATE` 结合 `TRADEFEERATION` 或 `TRADEFEEUNIT` 计算，CZCE `日内平今仓手续费`，DCE/GFEX `shortOffsetFee`。
+- Grain mismatch: 平今字段可能是直接金额/比例，也可能是相对普通手续费的收取率；部分交易所或历史阶段缺失。
+- Analysis: 直接字段优先。CFFEX 若 `平今仓收取率` 表示普通手续费的倍数或比例，则先解析普通手续费，再计算平今值并保留推断来源。SHFE/INE 先用 `TRADEFEERATION` 或 `TRADEFEEUNIT` 得到普通手续费率或手续费额，再按相同单位计算平今值：平今仓手续费率 = `DISCOUNTRATE * TRADEFEERATION`；平今仓手续费额 = `DISCOUNTRATE * TRADEFEEUNIT`；若 `DISCOUNTRATE=0`，则该合约免收平今仓手续费，`commission_close_today=0`。CZCE/DCE/GFEX 使用对应字段。字段缺失时保留 `None`，不自动等同普通平仓费，避免掩盖交易所未披露或历史缺口。
+- Validation: 非空值必须与 `commission_type` 单位一致；若由收取率或折扣率推断，需保留原始普通手续费字段、`平今仓收取率`/`DISCOUNTRATE` 和计算结果。
+- Output: product-date parquet 列 `commission_close_today`。
+- Open questions: 暂无。
 
 ### TIER3 supporting ingestion notes
 
-- Calendar input: Tushare `fut_trade_cal` 应作为交易所交易日历的主校验来源，但不直接生成某合约是否可交易。
-- Code normalization: TIER3 必须复用 TIER1/TIER2 的 source-to-local 映射，避免同一合约在不同层级出现不同主键。
-- Provenance: 当前 `InstrumentDailyStatus` 模型没有 provenance 字段；建议在原始下载区和中间审计报告中保留来源表、下载批次、字段冲突和单位归一化记录，而不是向 TIER3 parquet 增加未建模字段。
+- Calendar input: 非 CFFEX 交易日直接来自交易所结算参数表目录日期；CFFEX 需使用 CFFEX 交易日历在合约生命周期内展开日频记录。
+- Code normalization: TIER3 合约代码应先归一为 TIER2 `exchange_inst` 的交易所报单口径，再通过 TIER2 registry 映射到本地 `instrument`。本地 `instrument` 口径为“品种字母大写 + 交割数字、无交易所后缀”，并与 TIER2 实际入库时由 `ts_code` 点号前缀生成的 `instrument` 保持一致。
+- Settlement source priority: TIER3 保证金、手续费、交易日和合约字段以本地已下载交易所结算参数表为入库来源，不使用 BigQuant 或 Tushare 做二次校验；下单量限制四字段例外，使用 BigQuant `cn_future_static_data` 的合约-交易日级字段作为唯一来源。BigQuant 覆盖期之外的早期年份或缺失日期直接写 `null`，不向前填充。
+- Unit normalization: CFFEX 原始字段通常带清晰文本单位，保证金如 `12%` 按百分号解析，手续费如 `万分之0.23` 或 `3元/手` 按文本语义解析。CZCE 需结合表头和 `手续费收取方式` 解析，缺少收取方式时 `交易手续费` 按元/手处理；若 `手续费收取方式=比例值`，则 `交易手续费` 按万分之处理。DCE/GFEX 依赖 `style` 字段，`绝对值` 为元/手，`比例值` 为万分之；`specBuyRate` 和 `specSellRate` 直接使用原值。SHFE/INE 清洗后的 `TRADEFEERATION`、`TRADEFEEUNIT`、保证金率和 `DISCOUNTRATE` 直接使用原值。
+- INE handling: INE 品种虽然可能位于 `exchange=SHFE` 原始目录或与 SHFE 共用抓取流程，但清洗后和 TIER3 输出中必须恢复为 `exchange=INE`，并按 `INE_{PRODUCT}.parquet` 的本地交易所口径管理。
+- Provenance: 当前 `InstrumentDailyStatus` 模型没有 provenance 字段；建议在原始下载区和中间审计报告中保留来源表、下载批次、字段冲突、缺失字段、推断规则和单位归一化记录，而不是向 TIER3 parquet 增加未建模字段。

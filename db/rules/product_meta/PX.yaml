@@ -1,0 +1,38 @@
+# -------------------- static Meta --------------------
+product: PX
+exchange: CZCE
+name: 对二甲苯
+position_date_type: undistinguished
+max_margin_side_algorithm: false
+combination_type: 0
+
+# -------------------- price tick rule --------------------
+price_tick_history:
+- effective_date: '2023-09-15'
+  price_tick: 2.0
+
+# -------------------- sessions history -------------------
+sessions_history:
+- effective_date: '2023-09-15'
+  morning_sessions:
+  - - 09:00
+    - '10:15'
+  - - '10:30'
+    - '11:30'
+  afternoon_sessions:
+  - - '13:30'
+    - '15:00'
+  night_sessions: []
+- effective_date: '2023-09-18'
+  morning_sessions:
+  - - 09:00
+    - '10:15'
+  - - '10:30'
+    - '11:30'
+  afternoon_sessions:
+  - - '13:30'
+    - '15:00'
+  night_sessions:
+  - - '21:00'
+    - '23:00'
+

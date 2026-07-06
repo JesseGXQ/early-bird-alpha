@@ -7,7 +7,7 @@ import yaml
 from pathlib import Path
 from datetime import date
 from data.rules.models import (
-    StaticMeta, TransactionCostRule, PriceTickRule, MultiplierRule, OrderVolumeLimitsRule, 
+    StaticMeta, PriceTickRule, MultiplierRule, OrderVolumeLimitsRule, 
     BaseSessions, SessionOverrideRules
 )
 
@@ -111,37 +111,6 @@ class ProductMetaManager:
             combination_type=int(raw['combination_type']),
         )
 
-    def get_transaction_cost(self, product: str, trading_date: date) -> TransactionCostRule:
-        """
-        返回特定交易日的交易成本规则。
-
-        Parameters
-        ------
-        product: str
-            品种代码，例如'RB'。
-        trading_date: datetime.date
-            交易日期。
-
-        Returns
-        ------
-        TransactionCostRule
-            交易成本规则。
-        """
-        raw = self._load(product)
-        if 'transaction_cost_history' not in raw:
-            raise ValueError(f'{product} 的 YAML 文件未包含交易成本规则。 ')
-        rule = self._get_effective_rule(history=raw['transaction_cost_history'],
-                                        trading_date=trading_date)
-        return TransactionCostRule(
-            effective_date=date.fromisoformat(rule['effective_date']),
-            commission_type=rule['commission_type'],
-            open=float(rule['open']),
-            close_today=float(rule['close_today']),
-            close_yesterday=float(rule['close_yesterday']),
-            scope=rule['scope'],
-            condition=rule['condition']
-        )
-
     def get_price_tick(self, product: str, trading_date: date) -> PriceTickRule:
         """
         返回特定交易日的最小变动价位规则。
@@ -166,7 +135,6 @@ class ProductMetaManager:
         return PriceTickRule(
             effective_date=date.fromisoformat(rule['effective_date']),
             price_tick=float(rule['price_tick']),
-            remain_old_rule_instruments=rule.get('remain_old_rule_instruments', [])
         )
     
     def _get_multiplier(self, product: str, trading_date: date) -> MultiplierRule:
@@ -251,31 +219,31 @@ class ProductMetaManager:
             afternoon_sessions=rule['afternoon_sessions'],
             night_sessions=rule.get('night_sessions', [])
         )
+
+    def _load_market_session_override_rules(self) -> dict[str, Any]:
+        """读取市场级 session override rules yaml 文件"""
+        path = self._meta_dir / 'market_session_override_rules' / 'market_session_override_rules.yaml'
+        if not path.exists():
+            raise FileNotFoundError(f'未找到市场级 session override rules 文件： {path}')
+        with open(path, encoding='utf-8') as fh:
+            rule: dict[str, Any] = yaml.safe_load(fh)
+        return rule
     
-    def get_session_override_rules(self, product: str) -> SessionOverrideRules:
+    def get_session_override_rules(self) -> SessionOverrideRules:
         """
         返回交易时段规则特殊安排。
 
-        Parameters
-        ------
-        product: str
-            品种代码，例如'RB'。
-        trading_date: datetime.date
-            交易日期。
-        
         Returns
         ------
         SessionOverrideRules
             交易时段规则特殊安排。
         """
-        raw = self._load(product)
-        if 'session_override_rules' not in raw:
-            raise ValueError(f'{product} 的 YAML 文件未包含交易时段规则特殊安排。')
-        rule = raw['session_override_rules']
+        rule = self._load_market_session_override_rules()
         return SessionOverrideRules(
-            recurring_instrument_lifecycle_rules=rule.get(['recurring_instrument_lifecycle_rules'],[]),
-            scheduled_dated_overrides=rule.get(['scheduled_dated_overrides'],[]),
-            realized_session_events=rule.get(['realized_session_events'],[])
+            schema_version=rule['schema_version'],
+            recurring_instrument_lifecycle_rules=rule.get('recurring_instrument_lifecycle_rules',[]),
+            scheduled_dated_overrides=rule.get('scheduled_dated_overrides',[]),
+            realized_session_events=rule.get('realized_session_events',[])
         )
     
 

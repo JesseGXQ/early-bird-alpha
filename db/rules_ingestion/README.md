@@ -44,7 +44,7 @@
 - `external_sources.md`: 记录 Tushare、BigQuant 等外部数据源的表级画像。
 - `variable_ingestion_plan.md`: 按本地变量记录入库来源、校验规则、转换逻辑和输出格式。
 - `execution_log.md`: 记录实际下载、分析、校验和入库执行过程。
-- `decisions.md`: 记录规则入库任务中需要人工决策的问题（例如关键设计判断等需要拍板的决策）。
+- `decisions.md`: 记录规则入库任务中需要人工决策的问题（例如关键设计判断等需要拍板的决策）。文档中包含`List of Decided Decisions`（已有决策概括）。
 - `task.md`：对所有任务进行跟踪和记录。
 
 如果开始保存大批量数据，可再增加 `raw_snapshots/` 和 `derived_outputs/`。

@@ -143,9 +143,16 @@ def create_simulation_feed(
     
     # 构造数据清洗管道(data cleaning pipeline)
     clean_pipeline = CleaningPipeline()
-    # 1. 数据增广器，涨跌停价
+
+    # 1. 合约翻译器
+    code_translator = InstrumentCodeTranslator(
+        registry_manager=registry_manager
+    )
+    clean_pipeline.add_filter(code_translator)
+    # 2. 数据增广器，涨跌停价
     daily_snapshot_loader = DailySnapshotLoader(
-        daily_snapshot_dir=env_config.daily_snapshot_dir
+        daily_snapshot_dir=env_config.daily_snapshot_dir,
+        meta_manager=meta_manager
     )
     daily_snapshot_manager = DailySnapshotManager(
         daily_snapshot_loader=daily_snapshot_loader
@@ -155,18 +162,18 @@ def create_simulation_feed(
         daily_snapshot_manager=daily_snapshot_manager
     )
     clean_pipeline.add_filter(enricher_price_limit)
-    # 2. 数据增广器，日历交易时间戳
+    # 3. 数据增广器，日历交易时间戳
     enricher_gen_cal_ts = DataEnricherGenerateCalendarTimestamp(
         calendar=calendar
     )
     clean_pipeline.add_filter(enricher_gen_cal_ts)
-    # 3. 异常值过滤器
+    # 4. 异常值过滤器
     outlier_filter = OutlierFilter()
     clean_pipeline.add_filter(outlier_filter)
-    # 4. 涨跌停状态打标器
+    # 5. 涨跌停状态打标器
     price_limit_filter = PriceLimitFilter()
     clean_pipeline.add_filter(price_limit_filter)
-    # 5. 数据格式规范器
+    # 6. 数据格式规范器
     output_enforcer = OutputSchemaEnforcer()
     clean_pipeline.add_filter(output_enforcer)
 

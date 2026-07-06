@@ -1,0 +1,38 @@
+# -------------------- static Meta --------------------
+product: SC
+exchange: INE
+name: 原油
+position_date_type: distinguish_today_yesterday
+max_margin_side_algorithm: true
+combination_type: 0
+
+# -------------------- price tick rule --------------------
+price_tick_history:
+- effective_date: '2018-03-26'
+  price_tick: 0.1
+
+# -------------------- sessions history -------------------
+sessions_history:
+- effective_date: '2018-03-26'
+  morning_sessions:
+  - - 09:00
+    - '10:15'
+  - - '10:30'
+    - '11:30'
+  afternoon_sessions:
+  - - '13:30'
+    - '15:00'
+  night_sessions: []
+- effective_date: '2018-03-27'
+  morning_sessions:
+  - - 09:00
+    - '10:15'
+  - - '10:30'
+    - '11:30'
+  afternoon_sessions:
+  - - '13:30'
+    - '15:00'
+  night_sessions:
+  - - '21:00'
+    - 02:30
+
