@@ -8,7 +8,7 @@ from __future__ import annotations
 import pandas as pd
 from datetime import date
 from pathlib import Path
-from typing import Literal, TYPE_CHECKING
+from typing import TYPE_CHECKING
 from data.rules.models import InstrumentDailyStatus
 if TYPE_CHECKING:
     from data.rules.product_meta_manager import ProductMetaManager
@@ -25,6 +25,8 @@ class InstrumentDailyStatusManager:
         合约日频动态状态数据的目录路径。
     meta_manager: ProductMetaManager
         品种元数据管家。
+    registry_manager: InstrumentRegistryManager
+        合约注册属性管家。
     
     Methods
     ------
@@ -155,3 +157,40 @@ class InstrumentDailyStatusManager:
 
         return self._inst_date_cache[cache_key]
     
+# ===================================
+# simple test
+# ===================================
+if __name__ == '__main__':
+    from datetime import date
+    # 构造期货品种元数据管家和合约注册属性管家
+    from data.rules.instrument_registry_manager import InstrumentRegistryManager
+    from data.rules.product_meta_manager import ProductMetaManager
+    product_meta_dir = 'db/rules/product_meta'
+    meta_manager = ProductMetaManager(product_meta_dir)
+    
+    instrument_registry_dir = 'db/rules/instrument_registry'
+    registry_manager = InstrumentRegistryManager(instrument_registry_dir)
+    # 构造合约日频状态管家
+    instrument_daily_status_dir = r'db\rules\instrument_daily_status'
+    daily_status_manager = InstrumentDailyStatusManager(
+        instrument_daily_status_dir,
+        meta_manager, 
+        registry_manager
+    )
+    # 测试获取某品种在某个交易日的**所有合约的日频状态属性**
+    product = 'ag'
+    trading_date = date(2026, 3, 25)
+    daily_status_dict = daily_status_manager.get_status_all_inst_of_product_on_date(product=product, trading_date=trading_date)
+
+    print(f'列出品种 {product} 在交易日 {trading_date} 的所有合约的日频状态属性：')
+    for contract, daily_status in daily_status_dict.items():
+        print(f'合约 = {contract}, 日频属性 = {daily_status}')
+    
+    # 测试特定交易日，某合约的日频动态状态属性
+    contract = 'ag2609'
+    trading_date = date(2026, 3, 25)
+    daily_status2 = daily_status_manager.get_status_inst_on_date(contract=contract, trading_date=trading_date)
+    print(f'合约 {contract} 在 {trading_date} 的日频状态属性为 {daily_status2}')
+
+    print('ALL DONE.')
+

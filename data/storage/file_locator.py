@@ -6,10 +6,8 @@ from pathlib import Path
 from datetime import date
 import warnings
 
-
-
 if TYPE_CHECKING:
-    from data.calendar.calendar import TradingCalendar
+    from data.calendar.product_calendar import ProductCalendar
     from data.rules.product_meta_manager import ProductMetaManager
     from data.rules.instrument_registry_manager import InstrumentRegistryManager
 
@@ -23,7 +21,7 @@ class FileLocator:
     ------
     data_dir: str
         储存 TICK 数据或 1min 数据的目录
-    calendar: TradingCalendar
+    calendar: ProductCalendar
         交易日历实例。
     
     Methods
@@ -35,12 +33,12 @@ class FileLocator:
     """
     def __init__(self, 
                  data_dir: str, 
-                 calendar: TradingCalendar,
+                 calendar: ProductCalendar,
                  meta_manager: ProductMetaManager,
                  registry_manager: InstrumentRegistryManager
                  ):
         self.data_dir: Path = Path(data_dir)
-        self.calendar: TradingCalendar = calendar
+        self.calendar: ProductCalendar = calendar
         self.meta_manager: ProductMetaManager = meta_manager
         self.registry_manager: InstrumentRegistryManager = registry_manager
         

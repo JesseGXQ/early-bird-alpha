@@ -55,7 +55,7 @@ class SessionRuleResolver:
 
         # Initialize action list
         applied_override_ids: list[str] = []
-        actions: list[dict[str, str | list[list[str]]]] = []
+        actions: list[dict[str, Any]] = []
 
         # Collect matched lifecycle rules 
         matched_lifecycle_rules = self._collect_recurring_lifecycle_rules(
@@ -99,7 +99,7 @@ class SessionRuleResolver:
                 exception_intervals.append(exception) 
 
         # 2. apply exception intervals
-        realized_sessions = self._apply_exception_intervals(
+        realized_sessions = self._apply_exception_interval(
             scheduled_sessions, exception_intervals)
 
         # 3. 将 exception interval 对应的 event_id 加入 applied_override_ids
@@ -129,7 +129,7 @@ class SessionRuleResolver:
         
         for rule in recurring_instrument_lifecycle_rules:
             # 1. 判断 scope 是否匹配
-            if not self._scope_matches(rule['scope'], contract):
+            if not self._scope_matches(rule['scope'], contract, trading_date):
                 continue
             # 2. 判断日期范围是否包含输入的 trading_date
             effective_from_date = pd.Timestamp(rule['effective_from']).date() 
@@ -166,7 +166,7 @@ class SessionRuleResolver:
 
         for override in scheduled_dated_overrides:
             # 1. 判断 scope 是否匹配
-            if not self._scope_matches(override['scope'], contract):
+            if not self._scope_matches(override['scope'], contract, trading_date):
                 continue
 
             # 2. 根据 date_selector.type 进行判断
@@ -202,7 +202,7 @@ class SessionRuleResolver:
         session_events: list[dict[str, Any]] = []
 
         for event in realized_session_events:
-            scope_match = self._scope_matches(event['scope'], contract)
+            scope_match = self._scope_matches(event['scope'], contract, trading_date)
             date_match = pd.Timestamp(event['trading_date']).date() == trading_date
             if scope_match and date_match: 
                 session_events.append(event)
@@ -249,29 +249,25 @@ class SessionRuleResolver:
             }
 
             {
-                "operation": "apply_exception_intervals",
-                "exception_intervals":[
-                    {
-                        "session_group": "morning",
-                        "start": "10:00",
-                        "end": "10:01",
-                        "market_state": "halted"
-                    },
-                    {
-                        "session_group": "morning",
-                        "start": "10:02",
-                        "end": "10:02",
-                        "market_state": "call_auction"
-                    }
-                
-                ]
+                "operation": "apply_exception_interval",
+                "session_group": "morning",
+                "start": "10:00",
+                "end": "10:01",
+                "market_state": "halted"
+            }
+            {
+                "operation": "apply_exception_interval",
+                "session_group": "morning",
+                "start": "10:02",
+                "end": "10:02",
+                "market_state": "call_auction"
             }
         ]
 
         session_group: morning/afternoon/night,
-        operation: remove_session_group/replace_session_group/set_first_interavl_start/set_last_interval_end/apply_exception_intervals
+        operation: remove_session_group/replace_session_group/set_first_interavl_start/set_last_interval_end/apply_exception_interval
 
-        执行顺序： remove > replace > set interval start or end > apply_exception_intervals
+        执行顺序： remove > replace > set interval start or end > apply_exception_interval
 
         执行规则：
 
@@ -290,7 +286,10 @@ class SessionRuleResolver:
                 raise ValueError(f"operation {action['operation']} is not allowed. Allowed operations are: {allowed_operations}")
             if action['session_group'] not in session_groups:
                 raise ValueError(f"session_group {action['session_group']} is not allowed. Allowed session groups are: {session_groups}")
-
+            if action['operation'] == 'apply_exception_interval':
+                for key in ('start', 'end', 'market_state'):
+                    if key not in action:
+                        raise ValueError(f"apply_exception_interval action 缺少必要字段 {key}: {action}")
         modified_sessions: dict[str, list[list[str]]] = {
             'morning': [interval.copy() for interval in base_sessions.morning_sessions],
             'afternoon': [interval.copy() for interval in base_sessions.afternoon_sessions],
@@ -315,6 +314,7 @@ class SessionRuleResolver:
             return times_sorted
 
         for session_group in ('morning', 'afternoon', 'night'):
+
             actions_in_session = [action for action in actions if action['session_group']==session_group]
 
             # if there's remove operation, implement it and skip all else
@@ -361,7 +361,7 @@ class SessionRuleResolver:
                 # If there are both first interval start and last interval end for replace
                 # 确保 start time for replace is before end time for replace
                 # 只要用 sort_trading_times 函数做一次排序，若排序出来 start_time 不是前面的那个，就抛出错误
-                if all([value for _, value in start_end_time_for_replace]): 
+                if all([value for _, value in start_end_time_for_replace.items()]): 
                     start_time = start_end_time_for_replace['start_time']
                     end_time = start_end_time_for_replace['end_time']
                     _sorted = sort_trading_times(np.array([start_time, end_time]), morning_session_start_time)
@@ -382,11 +382,11 @@ class SessionRuleResolver:
                         raise ValueError(f'需要替换交易小节 {session_group} 结束时间为 {start_end_time_for_replace['end_time']}，但该小节实际上不存在。')
                     modified_sessions[session_group][-1][-1] = start_end_time_for_replace['end_time'].strftime("%H:%M")
             
-            # implement apply_exception_intervals
-            exception_intervals: list[dict[str, str]] = [action['exception_intervals'] for action in actions if action['operation']=='apply_exception_intervals']
+            # implement apply_exception_interval
             group_exceptions = [
-                exception for exception in exception_intervals
-                if exception['session_group'] == session_group
+                action for action in actions
+                if action['operation'] == 'apply_exception_interval'
+                and action['session_group'] == session_group
             ]
             modified_sessions[session_group] = self._subtract_exceptions(modified_sessions[session_group], group_exceptions)
             
@@ -496,8 +496,8 @@ class SessionRuleResolver:
 
             start = time_to_minutes(exception['start'], anchor)
             end = time_to_minutes(exception['end'], anchor)
-            if end <= start:
-                raise ValueError(f"exception interval 开始时间必须早于结束时间，实际为: {exception}")
+            if end < start:
+                raise ValueError(f"exception interval 开始时间不能晚于结束时间，实际为: {exception}")
             return start, end
 
         def subtract_one_interval(
@@ -586,7 +586,7 @@ class SessionRuleResolver:
                     return False
         return True
 
-    def _apply_exception_intervals(
+    def _apply_exception_interval(
         self, 
         scheduled_sessions: BaseSessions, 
         exception_intervals: list[dict[str, Any]],

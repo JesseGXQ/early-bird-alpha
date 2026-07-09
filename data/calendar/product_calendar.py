@@ -5,78 +5,30 @@ import numpy as np
 from pathlib import Path
 from datetime import date, time, timedelta
 import warnings
-
 from data.rules.models import TradingSessions
 
-
-
 if TYPE_CHECKING:
+    from data.calendar.exchange_calendar_manager import ExchangeCalendarManager
     from data.rules.product_meta_manager import ProductMetaManager  
     from data.rules.trading_rule_service import TradingRuleService
 
-class ExchangeTradingCalendar:
+class ProductCalendar:
     """
-    交易所级交易日历。
+    特定品种的交易日历。
 
-    只负责交易所交易日序列相关的基础能力，不依赖品种级交易时段规则。
-    """
-    def __init__(self, exchange: str, calendar_dir: str):
-        self.exchange: str = exchange.upper()
-
-        path = Path(calendar_dir) / f'{self.exchange}.csv'
-        
-        # 设置为 pd.DatetimeIndex；"in" operation is O(1), and use get_loc method to return index.
-        df_cal = pd.read_csv(path)
-        assert df_cal.shape[1] == 1 # 确保只有一列，就是 trading_date
-        self.exchange_trading_dates: pd.DatetimeIndex = pd.DatetimeIndex(pd.to_datetime(df_cal.iloc[:, 0], format='%Y%m%d')).sort_values()
-
-    def is_trading_date(self, date: date) -> bool:
-        """判断某个日期是否为交易日。"""
-        return pd.Timestamp(date) in self.exchange_trading_dates
-    
-    def next_trading_date(self, date: date) -> date:
-        """返回指定日期之后的下一个交易日。"""
-        if self.exchange_trading_dates[-1].date() <= date:
-            raise ValueError(f'【ExchangeTradingCalendar】找不到所查询的日期 {date} 的下一个交易日。目前已储存的历史交易日列表的最新值为 {self.exchange_trading_dates[-1].date()}。')
-        
-        _ts = pd.Timestamp(date)
-        _idx = self.exchange_trading_dates.get_indexer([_ts])[0]
-        if _idx != -1: #exact match
-            return self.exchange_trading_dates[_idx + 1].date()
-        # else: no exact match - 输入的 date 参数不是交易日，此时返回在该日期后最临近的一个交易日
-        _idx_nearest_after = self.exchange_trading_dates.get_indexer([_ts], method='backfill')[0]
-        return self.exchange_trading_dates[_idx_nearest_after].date()
-    
-    def get_trading_date(self, calendar_timestamp: pd.Timestamp) -> date:
-        """
-        返回日历交易时间戳归属的交易日(Trading Date)，夜盘时间戳归属于下一个交易日。
-        """
-        calendar_date = calendar_timestamp.date()
-        # 过了下午 17:00，一定是下一个交易日的夜盘
-        if calendar_timestamp.time() > pd.Timestamp('17:00:00').time():
-            return self.next_trading_date(calendar_date)
-        else:
-            # 17:00 之前，如果日历日本身是交易日，那就是今天
-            if self.is_trading_date(calendar_date):
-                return calendar_date
-            # 17:00 之前，但日历日是非交易日
-            return self.next_trading_date(calendar_date)
-
-class TradingCalendar:
-    #Note: 对象的职责边界与实例化粒度（Object Responsibility & Instantiation Granularity）问题。 
-    #由于不同的品种对应交易所不同，所以交易日历不同，因此，该类在实例化时，更理想的方式是服务于某个特定品种，其应该是有状态的(Stateful)。
-    #也就是说，在实例化一开始，就传入特定品种参数，从而让每一个实例服务于一个特定品种。例如 `rb_calendar`。
-    """
-    交易日历。
+    该类负责针对特定品种进行交易日历的管理与查询。包含判断交易日、查找下一个交易日，
+    以及将时间戳映射为交易日、交易小节（夜盘/早盘/午盘）、分钟偏移量等，并支持进行反向映射。
 
     Parameters
     ------
     product: str
         品种代码，例如'RB'。
     meta_manager: ProductMetaManager
-        品种元数据管家。用于查询品种对应的交易所，从而加载相应的交易日历。
-    calendar_dir: str
-        (各交易所的)交易日历 CSV 文件储存路径。
+        品种元数据管家，用于查询该品种所归属的交易所。
+    exchange_calendar_manager: ExchangeCalendarManager
+        交易所层面的交易日历管家，处理具体交易所层面的日历查询。
+    trading_rule_service: TradingRuleService, optional
+        期货交易规则统一门面服务，用于查询合约的交易时段 and 规则。
 
     Methods
     ------
@@ -85,43 +37,44 @@ class TradingCalendar:
     next_trading_date(date)
         返回指定日期之后的下一个交易日。
     get_trading_date(calendar_timestamp)
-        返回时间戳对应的交易日，夜盘归属于下一交易日。
+        返回日历交易时间戳归属的交易日（采用“17:00清算物理分割线”法则，夜盘时间戳归入下一个交易日）。
     get_session_id(instrument, calendar_timestamp, view)
-        判断时间戳所属的交易小节。
+        获取时间戳落入的交易小节 ID：0(夜盘), 1(早盘), 2(午盘), -1(非合法交易时段)。
     get_time_offset(instrument, calendar_timestamp, view)
-        计算时间戳距所属交易小节起点的时间偏移。
+        计算时间戳距离其所属交易小节起点的 Timedelta 推移（正确扣除盘中休市时段）。
     get_minute_offset(instrument, calendar_timestamp, view)
-        计算时间戳距所属交易小节起点的分钟数偏移。
+        计算时间戳距离其所属交易小节起点的分钟数推移。
     get_trading_dates(calendar_timestamps)
-        批量返回时间戳对应的交易日。
+        批量获取日历交易时间戳列表对应的归属交易日。
     get_session_ids(instruments, calendar_timestamps, view)
-        批量返回时间戳所属的交易小节。
+        批量获取时间戳所属的交易小节 ID。
     get_minute_offsets(instruments, calendar_timestamps, view)
-        批量返回时间戳距所属交易小节起点的分钟数偏移。
+        批量获取时间戳距离其所属交易小节起点的分钟数偏移。
     get_calendar_timestamp_from_date_session_offset(instrument, trading_date, session_id, minute_offset, view)
-        反向翻译交易日、交易小节和分钟偏移为时间戳。
+        根据交易日、交易小节 ID 和分钟偏移，反向翻译为唯一的日历交易时间戳。
     get_calendar_timestamps_from_date_session_offset(instruments, trading_dates, session_ids, minute_offsets, view)
-        批量反向翻译为交易时间戳。
+        批量将交易日、交易小节 ID 和分钟偏移反向翻译为日历交易时间戳。
     get_standard_timestamps(instrument, start_date, end_date, freq, view)
-        获取区间内指定频率的完美交易时间戳。
-
+        获取指定日期区间内，特定频率 of 完美交易时间戳。
+    get_calendar_timestamp_from_trading_date_and_time(instrument, trading_date, t, view)
+        将交易日与时间（时分秒）组合翻译为唯一的日历交易时间戳（处理夜盘跨自然日等复杂情况）。
+    get_calendar_timestamps_from_trading_date_and_time(instruments, trading_dates, t_s, view)
+        批量将交易日与时间组合翻译为日历交易时间戳。
     """
     def __init__(self, 
                  product: str,
                  meta_manager: ProductMetaManager,
-                 calendar_dir: str,
+                 exchange_calendar_manager: ExchangeCalendarManager,
                  trading_rule_service: TradingRuleService | None = None):
         self.product: str = product
         self.meta_manager: ProductMetaManager = meta_manager
         self.trading_rule_service: TradingRuleService | None = trading_rule_service
+        self.exchange_calendar_manager: ExchangeCalendarManager = exchange_calendar_manager
 
         # 向 meta_manager 询问该品种所对应的交易所
-        exchange = self.meta_manager.get_static_meta(product).exchange
-        # 构造交易所层交易日历
-        self.exchange_calendar: ExchangeTradingCalendar = ExchangeTradingCalendar(exchange=exchange, calendar_dir=calendar_dir)
-        
-        # 设置为pd.DatetimeIndex，"in" operation is O(1), and use get_loc method to return index.
-        self.exchange_trading_dates: pd.DatetimeIndex = self.exchange_calendar.exchange_trading_dates
+        self.exchange: str = self.meta_manager.get_static_meta(product).exchange
+        # 储存品种所对应的交易所交易日
+        self.exchange_trading_dates: pd.DatetimeIndex = self.exchange_calendar_manager.exchange_trading_dates[self.exchange]
 
     def is_trading_date(self, date: date) -> bool:
         """判断某个日期是否为交易日。
@@ -136,7 +89,7 @@ class TradingCalendar:
         bool
             若输入的日期是交易日，返回 True。不是则返回 False。
         """
-        return self.exchange_calendar.is_trading_date(date)
+        return self.exchange_calendar_manager.is_trading_date(self.exchange, date)
     
     def next_trading_date(self, date: date) -> date:
         """
@@ -158,7 +111,7 @@ class TradingCalendar:
             若查询日期 `date` 超出历史交易日列表范围（即大于等于所储存的最新交易日）。
 
         """
-        return self.exchange_calendar.next_trading_date(date)
+        return self.exchange_calendar_manager.next_trading_date(self.exchange,date)
     
     def get_trading_date(self, calendar_timestamp: pd.Timestamp) -> date:
         """
@@ -175,7 +128,7 @@ class TradingCalendar:
             该时间戳所归属的交易日，夜盘归属下一个交易日。
         
         """
-        return self.exchange_calendar.get_trading_date(calendar_timestamp)
+        return self.exchange_calendar_manager.get_trading_date(self.exchange,calendar_timestamp)
     
     def _require_trading_rule_service(self) -> TradingRuleService:
         """校验 TradingRuleService 已注入，并返回它。"""
@@ -207,7 +160,7 @@ class TradingCalendar:
             return 'morning', session.morning_sessions
         if session_id == 2:
             return 'afternoon', session.afternoon_sessions
-        raise ValueError(f'【TradingCalendar】未知交易小节 session_id={session_id}。仅支持 0(夜盘)、1(早盘)、2(午盘)。')
+        raise ValueError(f'【ProductCalendar】未知交易小节 session_id={session_id}。仅支持 0(夜盘)、1(早盘)、2(午盘)。')
     
     @staticmethod
     def _day_session_timestamp(trading_date: date, time_str: str) -> pd.Timestamp:
@@ -276,7 +229,7 @@ class TradingCalendar:
                 if self._time_in_interval(t, start_t, end_t):
                     return session_id
         
-        warnings.warn(f'【TradingCalendar】警告：时间戳 {calendar_timestamp} 不属于 {instrument} 的交易时段！')
+        warnings.warn(f'【ProductCalendar】警告：时间戳 {calendar_timestamp} 不属于 {instrument} 的交易时段！')
         return -1 #返回异常状态
     
     def get_time_offset(
@@ -421,9 +374,9 @@ class TradingCalendar:
         try:
             _idx = self.exchange_trading_dates.get_loc(trading_date) # this raises a KeyError if not found
         except KeyError:
-            raise ValueError(f'【TradingCalendar】交易日期 {trading_date} 不在 {self.product} 的交易日列表中。')
+            raise ValueError(f'【ProductCalendar】交易日期 {trading_date} 不在 {self.product} 的交易日列表中。')
         if _idx == 0: # 此时 _idx -1 = -1,会返回最后一个交易日，逻辑错误。
-            raise ValueError(f'【TradingCalendar】品种 {self.product} 没有比 {trading_date} 更早的交易日了。')
+            raise ValueError(f'【ProductCalendar】品种 {self.product} 没有比 {trading_date} 更早的交易日了。')
         return self.exchange_trading_dates[_idx - 1].date()
     
     def _get_cal_ts_for_night_sesssion(self, night_start_t: time, t: time, trading_date: date, ) -> pd.Timestamp:
@@ -461,7 +414,7 @@ class TradingCalendar:
             交易时间戳。
         """
         if minute_offset < 0:
-            raise ValueError(f'【TradingCalendar】分钟偏移量不能为负数，实际为 {minute_offset}。')
+            raise ValueError(f'【ProductCalendar】分钟偏移量不能为负数，实际为 {minute_offset}。')
 
         session = self._get_trading_sessions(instrument, trading_date, view=view)
         session_group, intervals = self._get_session_intervals_by_id(session, session_id)
@@ -475,16 +428,17 @@ class TradingCalendar:
             minutes_passed += interval_minutes
 
         raise ValueError(
-            f'【TradingCalendar】分钟偏移量 {minute_offset} 超过了 {instrument} 在 {trading_date} '
+            f'【ProductCalendar】分钟偏移量 {minute_offset} 超过了 {instrument} 在 {trading_date} ' +
             f'的 {session_group} 小节总分钟数 {minutes_passed}。请检查输入的分钟偏移量是否合理。'
         )
 
     def get_calendar_timestamps_from_date_session_offset(self,
-                                                         instruments: Iterable[str],
-                                                         trading_dates: Iterable[date],
-                                                         session_ids: Iterable[int],
-                                                         minute_offsets: Iterable[int],
-                                                         view: Literal['scheduled', 'realized'] = 'scheduled') -> np.ndarray:
+        instruments: Iterable[str],
+        trading_dates: Iterable[date],
+        session_ids: Iterable[int],
+        minute_offsets: Iterable[int],
+        view: Literal['scheduled', 'realized'] = 'scheduled'
+    ) -> np.ndarray:
         """
         反向翻译器（向量化版本）：根据交易日期(trading_date)、交易小节(session_id)和分钟偏移量(minute_offset)，返回交易时间戳。
         
@@ -530,12 +484,12 @@ class TradingCalendar:
 
         Parameters
         ------
-            start_date: datetime.date
-                起始日期（交易日）。
-            end_date: datetime.date
-                结束日期（交易日）。
-            freq: str
-                时间频率。格式同 Pandas Offset Aliases 保持一致。
+        start_date: datetime.date
+            起始日期（交易日）。
+        end_date: datetime.date
+            结束日期（交易日）。
+        freq: str
+            时间频率。格式同 Pandas Offset Aliases 保持一致。
 
         Returns
         ------
@@ -543,8 +497,9 @@ class TradingCalendar:
             （日历）交易时间戳列表。
 
         """
-
+        
         # 从 exchange_trading_dates 中提取从 start_date 至 end_date 的交易日期列表
+        
         trading_dates = self.exchange_trading_dates[self.exchange_trading_dates.slice_indexer(start=start_date, end=end_date)].date
         
         standard_timestamps = []
@@ -611,7 +566,7 @@ class TradingCalendar:
                         )
                     return pd.Timestamp(f'{trading_date.isoformat()} {str(t)}')
 
-        raise ValueError(f'【TradingCalendar】时间 {t} 不属于 {instrument} 在 {trading_date} 的 {view} 交易时段。')
+        raise ValueError(f'【ProductCalendar】时间 {t} 不属于 {instrument} 在 {trading_date} 的 {view} 交易时段。')
     
     def get_calendar_timestamps_from_trading_date_and_time(
         self,
@@ -648,3 +603,6 @@ class TradingCalendar:
             )
             for instrument, trading_date, t in zip(instruments, trading_dates, t_s)
         ])
+
+
+    

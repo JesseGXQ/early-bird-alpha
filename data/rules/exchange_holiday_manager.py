@@ -107,3 +107,28 @@ class ExchangeHolidayManager:
         exchange = exchange.upper()
         self._load_exchange(exchange)
         return trading_date in self._exchange_no_night_trading_dates_cache[exchange]
+    
+# ============================================
+#  a simple test
+# ============================================
+if __name__ == '__main__':
+    exchange_holiday_dir = r'db\rules\exchange_holiday'
+    manager = ExchangeHolidayManager(exchange_holiday_dir=exchange_holiday_dir)
+    
+    # 1. 获取完整节假日安排 dataframe
+    exchange = 'SHFE'
+    df = manager.get_holiday_arrangements(exchange)
+    print(f'exchange={exchange} 的节假日安排完整 dataframe 前5行：', df.head())
+    print(f'exchange={exchange} 的节假日安排完整 dataframe 后5行：', df.tail())
+
+    # 2. 判定特定交易日是否是(因节假日导致的)无夜盘交易日
+    exchange = 'SHFE'
+    from datetime import date
+    trading_date = date(2025, 10, 10) #应该有夜盘 
+    is_no_night = manager.is_no_night_trading_date(exchange, trading_date)
+    print(f'交易日 {trading_date} 是否无夜盘： {is_no_night}')
+
+    trading_date = date(2025, 10, 9) #应该无夜盘 
+    is_no_night = manager.is_no_night_trading_date(exchange, trading_date)
+    print(f'交易日 {trading_date} 是否无夜盘： {is_no_night}')
+

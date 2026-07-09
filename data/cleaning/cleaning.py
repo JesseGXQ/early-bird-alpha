@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from logging import Filter
 from typing import TYPE_CHECKING
 import pandas as pd
 from abc import ABC, abstractmethod
+from datetime import time
 
 from utils.validation_utils import check_df_columns_exist
 
 if TYPE_CHECKING:
     from data.storage.daily_snapshot_manager import DailySnapshotManager
     from data.rules.instrument_registry_manager import InstrumentRegistryManager
-    from data.calendar.calendar import TradingCalendar
+    from data.calendar.product_calendar import ProductCalendar
 
 #滤芯标准接口
 class FilterBase(ABC):
@@ -60,9 +60,9 @@ class DataEnricherPriceLimit(FilterBase):
     向 DailySnapshotManager 请求对应品种在特定交易日的涨跌停价信息，并将其合并到 TICK 数据中。
     (DailySnapShotManager 提供 get_price_limits 方法，根据输入的product, contract, trading_date, 返回 (涨停价，跌停价) )
     """
-    def __init__(self, product, daily_snapshot_manager: DailySnapshotManager):
-        self.product = product
-        self.daily_snapshot_manager = daily_snapshot_manager
+    def __init__(self, product: str, daily_snapshot_manager: DailySnapshotManager):
+        self.product: str = product
+        self.daily_snapshot_manager: DailySnapshotManager = daily_snapshot_manager
     
     def apply(self, df: pd.DataFrame) -> pd.DataFrame:
 
@@ -74,7 +74,7 @@ class DataEnricherPriceLimit(FilterBase):
             raise ValueError('【DataEnricherPriceLimit】未能在数据中找到合约代码列 "InstrumentID"。请检查原始数据。')
         
         if 'TradingDay' in clean_df.columns:
-            trading_dates = pd.unique(pd.DatetimeIndex(clean_df['TradingDay']).date)
+            trading_dates = pd.unique(pd.DatetimeIndex(clean_df['TradingDay'].astype(str)).date)
         else:
             raise ValueError('【DataEnricherPriceLimit】未能在数据中找到交易日列 "TradingDay"。请检查原始数据。')
         
@@ -100,7 +100,7 @@ class DataEnricherGenerateCalendarTimestamp(FilterBase):
     数据增强滤芯：生成日历交易时间戳
     负责将原始数据中的交易时间戳（日期为交易日期，即夜盘的日期为下一个交易日）转换为日历时间戳，并存入新列 'calendar_timestamp' 中。
     """
-    def __init__(self, calendar: TradingCalendar):
+    def __init__(self, calendar: ProductCalendar):
         self.calendar = calendar
 
     def apply(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -110,9 +110,9 @@ class DataEnricherGenerateCalendarTimestamp(FilterBase):
         # 确保所需列存在
         check_df_columns_exist(clean_df, ['InstrumentID', 'TradingDay', 'UpdateTime','UpdateMillisec'])
         # 合成一个完整的交易时间戳。
-        clean_df['trading_date'] = pd.to_datetime(clean_df['TradingDay']).dt.date 
-        timedelta_series = pd.to_timedelta(clean_df['UpdateTime']) + pd.to_timedelta(clean_df['UpdateMillisec'], unit='ms') 
-        clean_df['update_time'] = pd.to_datetime(timedelta_series).time
+        clean_df['trading_date'] = pd.to_datetime(clean_df['TradingDay'].astype(str)).dt.date 
+        update_time_str_list: list[str] = (clean_df['UpdateTime'] + ':' + clean_df['UpdateMillisec'].astype(str)).tolist()
+        clean_df['update_time'] = [time.fromisoformat(time_str) for time_str in update_time_str_list]
         clean_df['calendar_timestamp'] = self.calendar.get_calendar_timestamps_from_trading_date_and_time(
             instruments=clean_df['InstrumentID'].astype(str).str.upper(),
             trading_dates=clean_df['trading_date'],
@@ -164,7 +164,7 @@ class PriceLimitFilter(FilterBase):
 
         #检查必要的列是否存在（一般而言，涨跌停价由交易所提供在 TICK 中，
         #但由于我们这份原始购买的数据没有涨跌停价(UpperLimitPrice, LowerLimitPrice)，所以我们在代码中（清洗工序）
-        #还需要额外的一部Data Enrichment。这里有很多细节需要注意，见word文档备注。
+        #还需要额外的一步Data Enrichment。这里有很多细节需要注意，见word文档备注。
         #这里我们暂时假设已经enrich完毕，即存在涨跌停价这两个字段。
 
         required_cols = ['LastPrice', 'UpperLimitPrice', 'LowerLimitPrice']
@@ -180,15 +180,21 @@ class PriceLimitFilter(FilterBase):
         clean_df['is_limit_up'] = False
         clean_df['is_limit_down'] = False
 
-        #判定涨停：价格触及涨停，且卖一队列为空（卖一价为0，或某些数据中卖一量为0）
-        limit_up_cond = (clean_df['LastPrice'] >= clean_df['UpperLimitPrice']) & \
-                        ((clean_df['AskPrice1'] <= 0) | (clean_df.get('AskVolume1',0) <= 0))
+        # 判定涨停：价格触及涨停，且卖一队列为空（卖一价为0，或卖一量为0）
+        if 'AskVolume1' in clean_df.columns:
+            ask_empty = (clean_df['AskPrice1'] <= 0) | (clean_df['AskVolume1'] <= 0)
+        else:
+            ask_empty = clean_df['AskPrice1'] <= 0
+        limit_up_cond = (clean_df['LastPrice'] >= clean_df['UpperLimitPrice']) & ask_empty
         
-        #判定跌停：价格触及跌停，且买一队列为空
-        limit_down_cond = (clean_df['LastPrice'] <= clean_df['LowerLimitPrice']) & \
-                          ((clean_df['BidPrice1'] <=0) | (clean_df.get('BidVolume1',0) <=0 ))
+        # 判定跌停：价格触及跌停，且买一队列为空（买一价为0，或买一量为0）
+        if 'BidVolume1' in clean_df.columns:
+            bid_empty = (clean_df['BidPrice1'] <= 0) | (clean_df['BidVolume1'] <= 0)
+        else:
+            bid_empty = clean_df['BidPrice1'] <= 0
+        limit_down_cond = (clean_df['LastPrice'] <= clean_df['LowerLimitPrice']) & bid_empty
         
-        #赋值
+        # 赋值
         clean_df.loc[limit_up_cond, 'is_limit_up'] = True
         clean_df.loc[limit_down_cond, 'is_limit_down'] = True
 

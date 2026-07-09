@@ -147,16 +147,11 @@ scheduled_dated_overrides:
         - all
       instruments: all
     actions:
-      - operation: apply_exception_intervals
-        exception_intervals:
-          - session_group: morning
-            start: '10:00'
-            end: '10:01'
-            market_state: halted
-          - session_group: morning
-            start: '10:02'
-            end: '10:02'
-            market_state: call_auction
+      - operation: apply_exception_interval
+        session_group: morning
+        start: '10:00'
+        end: '10:03'
+        market_state: halted
     sources:
       - url: https://www.mfa.gov.cn/web//wjb_673085/zzjg_673183/gjjjs_674249/gjzzyhygk_674253/dmgh_674605/xgxw_674611/202212/t20221206_10985889.shtml
         note: 根据 bar 1min 原始数据分析，表现为10:00, 10:01两根K线缺失，10:02重新出现。根据交易所复牌规则，在 10:03:00 恢复连续竞价交易前，需要进行复牌集合竞价。该分钟线记录了 10:03:00 撮合成功的第一笔集合竞价成交（或包含部分复牌前准备状态数据），因此数据商将该数据计入 10:02 的 K线内，表现为有成交量但量偏低。
@@ -223,6 +218,4 @@ realized_session_events:
     sources:
       - url: http://www.cffex.com.cn/cn/mtxw/20160105/19578.html
         note: 具体触发时间和暂停区间依据历史事实文档的熔断暂停交易时间段表；部分资料将第二次触发记为09:58，本文件采用历史事实文档中的09:59。
-
-
 

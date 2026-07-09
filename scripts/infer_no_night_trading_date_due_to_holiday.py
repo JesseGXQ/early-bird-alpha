@@ -6,7 +6,7 @@
 
 """
 import pandas as pd
-from data.calendar.calendar import ExchangeTradingCalendar   
+from data.calendar.exchange_calendar_manager import ExchangeCalendarManager 
 import datetime
 
 CALENDAR_DIR = 'db/calendar/trading_calendars'
@@ -26,14 +26,14 @@ def infer_and_write(exchange: str) -> None:
     制作并保存交易所节假日 csv 文件，其中包含列 inferred_no_night_trading_date。
     """
     exchange = exchange.upper()
-    # 1. 构造交易所交易日历
-    exchange_calendar = ExchangeTradingCalendar(exchange, CALENDAR_DIR)
+    # 1. 构造交易所交易日历管家
+    exchange_calendar_manager = ExchangeCalendarManager(CALENDAR_DIR)
     # 2. 读取 national holiday csv 文件
     df = pd.read_csv(NATIONAL_HOLIDAY_PATH)
     # 3. 推断无夜盘的交易日——节假日后的第一个交易日无夜盘
     df['date'] = pd.to_datetime(df['date'])
     # 首先做日期过滤，在节假日 dataframe 中，仅保留日期大于等于交易所首个夜盘交易日的行
-    if exchange not in EXCHANGE_NIGHT_SESSION_START_DATE: # 若没有过夜盘，直接返回
+    if exchange not in EXCHANGE_NIGHT_SESSION_START_DATE: # 若交易所没有过夜盘，直接返回
         print('该交易所无夜盘，直接跳过!')
         return
     df = df[df['date'].dt.date >= EXCHANGE_NIGHT_SESSION_START_DATE[exchange]]
@@ -43,7 +43,7 @@ def infer_and_write(exchange: str) -> None:
     df = df.drop_duplicates(subset=['year','holiday_str'], keep='last') # 仅保留节假日的最后一天（例如2013-01-01、2013-01-02、2013-01-03)都是元旦，仅保留 2013-01-03这一天。
     
     df['inferred_no_night_trading_date'] = [
-        exchange_calendar.next_trading_date(dt) 
+        exchange_calendar_manager.next_trading_date(exchange=exchange, date=dt) 
         for dt in df['date'].dt.date.tolist()
     ]
     # 4. 写入新的csv文件

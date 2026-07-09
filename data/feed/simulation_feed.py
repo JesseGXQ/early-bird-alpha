@@ -12,7 +12,7 @@ from data.feed.models import ContractTick, MarketSnapshot
 if TYPE_CHECKING:
     from data.stitching.stitching import ContinuousContractManager
     from data.cleaning.cleaning import CleaningPipeline
-    from data.calendar.calendar import TradingCalendar
+    from data.calendar.product_calendar import ProductCalendar
     from data.storage.file_locator import FileLocator
 
 
@@ -67,7 +67,7 @@ class SimulationFeed:
     ------
     product: str
         品种代码，例如'RB'。
-    calendar: TradingCalendar
+    calendar: ProductCalendar
         交易日历实例，提供交易日、交易小节、分钟偏移等查询功能。
     contract_manager: ContinuousContractManager
         连续合约大管家，包含 master_table 属性(换月总表)，提供 `get_active_physical_contracts` 方法，根据交易日期返回主力合约列表。
@@ -84,7 +84,7 @@ class SimulationFeed:
     """
     def __init__(self, 
             product: str,
-            calendar: TradingCalendar, 
+            calendar: ProductCalendar, 
             file_locator: FileLocator,
             clean_pipeline: CleaningPipeline, # 已经添加了滤芯的清洗管道
             contract_manager: ContinuousContractManager):

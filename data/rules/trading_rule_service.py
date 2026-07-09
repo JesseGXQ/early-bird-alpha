@@ -4,7 +4,6 @@
 from __future__ import annotations
 from datetime import date
 from typing import TYPE_CHECKING, Literal
-import copy
 
 from data.rules.models import TradingSessions
 from data.rules.session_rule_resolver import SessionRuleResolver
@@ -14,6 +13,7 @@ if TYPE_CHECKING:
     from data.rules.instrument_registry_manager import InstrumentRegistryManager
     from data.rules.exchange_holiday_manager import ExchangeHolidayManager
     from data.rules.instrument_daily_status_manager import InstrumentDailyStatusManager
+    from data.calendar.exchange_calendar_manager import ExchangeCalendarManager
 
 
 class TradingRuleService:
@@ -28,6 +28,8 @@ class TradingRuleService:
         合约注册数据管家 (Tier 2 合约注册）。
     holiday_manager : ExchangeHolidayManager
         交易所节假日管家。
+    exchange_calendar_manager: ExchangeCalendarManager
+        交易所交易日历管家。
     daily_status_manager: InstrumentDailyStatusManger or None, default None
         合约日频动态状态属性管家。默认为 None。
     
@@ -42,11 +44,13 @@ class TradingRuleService:
         meta_manager: ProductMetaManager,
         registry_manager: InstrumentRegistryManager,
         holiday_manager: ExchangeHolidayManager,
+        exchange_calendar_manager: ExchangeCalendarManager,
         daily_status_manager: InstrumentDailyStatusManager | None = None # 可选持有
     ):
         self.meta_manager: ProductMetaManager = meta_manager
         self.registry_manager: InstrumentRegistryManager = registry_manager
         self.holiday_manager: ExchangeHolidayManager = holiday_manager
+        self.exchange_calendar_manager: ExchangeCalendarManager = exchange_calendar_manager
         self.daily_status_manager: InstrumentDailyStatusManager | None = daily_status_manager
 
         self._trading_sessions_cache: dict[tuple[str, date, str], TradingSessions] = {} # key: (contract, trading_date, view)
@@ -89,6 +93,12 @@ class TradingRuleService:
         TradingSessions
             合约在指定交易日的真实交易时段。
         """
+        # 检验传入的 trading_date 是否为交易日
+        product = self.registry_manager.get_instrument_registry(contract=contract).product
+        exchange = self.meta_manager.get_static_meta(product).exchange
+        if not self.exchange_calendar_manager.is_trading_date(exchange, trading_date):
+            raise ValueError(f'【TradingRuleService】参数错误，传入的 trading_date 参数取值为 {trading_date} ，该日期不是交易日。')
+
         # 验证传入的 view 是否合法
         if view not in ['scheduled', 'realized']:
             raise ValueError(f"参数 view 目前只能取 'scheduled'/'realized'，传入的为 {view}。")
@@ -107,7 +117,7 @@ class TradingRuleService:
         base_sessions = self.meta_manager.get_base_sessions(product, trading_date)
         
         # 2. 获取该 product 的 SessionOverrideRules
-        session_override_rules = self.meta_manager.get_session_override_rules(product)
+        session_override_rules = self.meta_manager.get_session_override_rules()
 
         # 3. 调用 SessionRuleResolver.resolve_rules(...) 得到 TradingSessions，并缓存
         rule_resolver = self._get_session_rule_resolver()
@@ -121,7 +131,11 @@ class TradingRuleService:
         self._trading_sessions_cache[(contract, trading_date, view)] = trading_sessions
         return trading_sessions
 
-        
+
+
+    
+
+    
 
 
     

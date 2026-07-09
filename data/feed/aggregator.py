@@ -4,7 +4,7 @@ import pandas as pd
 
 if TYPE_CHECKING:
     from data.config import SamplingConfig
-    from data.calendar.calendar import TradingCalendar
+    from data.calendar.product_calendar import ProductCalendar
 
 class BarAggregator:
     """
@@ -24,7 +24,7 @@ class BarAggregator:
 
     Parameters
     ------
-    calendar: TradingCalendar
+    calendar: ProductCalendar
         交易日历实例。
     sample_config: SamplingConfig, optional
         采样配置参数，包含对齐方式(alignment)，缺失值处理方法(imputation_method)和夜盘开关(include_night_session)。
@@ -38,9 +38,9 @@ class BarAggregator:
     """
 
     def __init__(self, 
-                 calendar: TradingCalendar,
+                 calendar: ProductCalendar,
                  sample_config: SamplingConfig):
-        self.calendar: TradingCalendar = calendar #这个实例是“针对某个特定品种的，是 stateful 的。因此 BarAggregator 类的实例，也是 stateful 的。
+        self.calendar: ProductCalendar = calendar #这个实例是“针对某个特定品种的，是 stateful 的。因此 BarAggregator 类的实例，也是 stateful 的。
         self.sample_config: SamplingConfig = sample_config
     
     def _parse_freq_to_minutes(self, freq: str) -> int:
@@ -84,7 +84,7 @@ class BarAggregator:
         df.index = pd.to_datetime(df.index) # explicitly set to DatetimeIndex
         df.sort_index(inplace=True)
 
-        df_index = pd.DatetimeIndex(df.index) # 方便后续传给 TradingCalendar 下的各种索引器使用
+        df_index = pd.DatetimeIndex(df.index) # 方便后续传给 calendar 下的各种索引器使用
 
         # 将索引列(calendar_time)映射到 trading_date
         _dates = self.calendar.get_trading_dates(calendar_timestamps=df_index)
@@ -98,12 +98,12 @@ class BarAggregator:
             df['group_id'] = 0
             df['session_id'] = -1 # 日频没有交易小节的概念，统一标记为 -1
         else: #为分钟级或小时级
-            # 向 TradingCalendar 索要该品种的每个 calendar_timestamp 所对应的交易小节
+            # 向 calendar 索要该品种的每个 calendar_timestamp 所对应的交易小节
             df['session_id'] = self.calendar.get_session_ids(
                 instruments=df['Dominant_Contract'],
                 calendar_timestamps=df_index,
             )
-            # 向 TradingCalendar 索要相对交易小节(session)开始时点的偏移分钟数(三个 session 分别为夜盘、早盘、午盘)
+            # 向 calendar 索要相对交易小节(session)开始时点的偏移分钟数(三个 session 分别为夜盘、早盘、午盘)
             df['minute_offset'] = self.calendar.get_minute_offsets(
                 instruments=df['Dominant_Contract'],
                 calendar_timestamps=df_index,
@@ -127,7 +127,7 @@ class BarAggregator:
             )
         
         # 由于原始数据时间轴存在可能的缺失 bar， 因此 'first' of calendar_time 可能会使出现 M5 下出现 14:22 这类时间戳标签。应当对其进行标准化，改为 14:20(区间左侧)。
-        # 只要用 group_id * minutes 计算出小节内的分钟偏移量，就可以联同交易日期(trading_date)，交易小节(session_id) 一起传给 TradingCalendar 的一个反向翻译器，得到标准化后的 calendar_time。
+        # 只要用 group_id * minutes 计算出小节内的分钟偏移量，就可以联同交易日期(trading_date)，交易小节(session_id) 一起传给 calendar 的一个反向翻译器，得到标准化后的 calendar_time。
         resampled_df.reset_index(inplace=True) 
         normalized_calendar_times = self.calendar.get_calendar_timestamps_from_date_session_offset(
             instruments=resampled_df['Dominant_Contract'],

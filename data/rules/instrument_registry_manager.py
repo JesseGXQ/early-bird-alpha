@@ -20,15 +20,20 @@ class InstrumentRegistryManager:
     """
     合约注册表管家。
 
+    负责从指定目录加载各交易所的合约注册表 Parquet 数据，并在内存中进行统一汇总与缓存。
+    提供合约注册属性的查询以及系统内部合约代码与交易所报单代码之间的转换功能。
+
     Parameters
     ------
     instrument_registry_dir: str
-        合约注册表数据的目录路径。
+        合约注册表数据的目录路径，目录下应包含各交易所的 parquet 数据文件。
     
     Methods
     ------
-    get_instrument(contract)
-        获取合约的注册信息。
+    get_instrument_registry(contract: str) -> InstrumentRegistry
+        获取指定合约的注册信息（具有内存缓存，确保每个合约的 InstrumentRegistry 实例只创建一次）。
+    translate_code(direction: Literal['internal_to_exchange', 'exchange_to_internal'], code: str, trading_date: date | None = None) -> str
+        翻译合约代码。支持在系统内部合约代码（如郑商所补全为4位的 CF2001）与交易所实际报单代码（如 CF001）之间进行双向转换。
     """
 
     def __init__(self, instrument_registry_dir: str):
@@ -155,26 +160,29 @@ class InstrumentRegistryManager:
             
             return instruments[0]
 
+# ================================
+# simple test
+# ================================
+if __name__ == '__main__':
+    from datetime import date
+    instrument_registry_dir = 'db/rules/instrument_registry'
+    manager = InstrumentRegistryManager(instrument_registry_dir)
 
-            
+    contract = 'PX2609' 
+    registry = manager.get_instrument_registry(contract)
 
-
-
-        
-        
-        
-
-
-
-
-        
-
-        
-
+    print(f'Instrument = {contract}，合约注册信息 {registry}')
     
+    # code format translation
+    print(f'Test code format translation')
+    # internal to exchange
+    internal_code = 'PX2609'
+    code = manager.translate_code('internal_to_exchange', internal_code)
+    print(f'Internal to Exchange: {internal_code} -> {code}')
 
+    exchange_code = 'PX609'
+    trading_date = date(2026, 3, 25)
+    code = manager.translate_code('exchange_to_internal', exchange_code, trading_date)
+    print(f'Exchange to Internal: {exchange_code}, {trading_date} -> {code}')
 
-    
-    
-
-
+    print('All done!')

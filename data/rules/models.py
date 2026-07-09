@@ -53,47 +53,6 @@ class PriceTickRule:
     price_tick: float
 
 @dataclass(frozen=True)
-class MultiplierRule:
-    """
-    （某一时期开始生效的）合约乘数规则。
-
-    Parameters
-    ------
-    effective_date: datetime.date
-        规则生效日期。
-    multiplier: int
-        合约乘数。
-    """
-    effective_date: date
-    multiplier: int
-
-@dataclass(frozen=True)
-class OrderVolumeLimitsRule:
-    """
-    （某一时期开始生效的）最大最小下单量限制。
-
-    Parameters
-    ------
-    effective_date: datetime.date
-        规则生效日期。
-    max_market_order_volume: int
-        市价单最大下单量。
-    min_market_order_volume: int
-        市价单最小下单量。
-    max_limit_order_volume: int
-        限价单最大下单量。  
-    min_limit_order_volume: int
-        限价单最小下单量。
-    
-    """
-    effective_date: date
-    max_market_order_volume: int
-    min_market_order_volume: int
-    max_limit_order_volume: int
-    min_limit_order_volume: int
-
-
-@dataclass(frozen=True)
 class BaseSessions:
     """
     (某一时期开始生效的)基础交易时段规则。包含早盘、午盘和夜盘。

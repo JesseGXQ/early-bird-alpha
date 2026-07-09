@@ -7,7 +7,7 @@ import yaml
 from pathlib import Path
 from datetime import date
 from data.rules.models import (
-    StaticMeta, PriceTickRule, MultiplierRule, OrderVolumeLimitsRule, 
+    StaticMeta, PriceTickRule,  
     BaseSessions, SessionOverrideRules
 )
 
@@ -27,12 +27,8 @@ class ProductMetaManager:
     ------
     get_static_meta(product)
         返回品种的静态属性。
-    get_transaction_cost(product, trading_date)
-        返回特定交易日的交易成本规则。
     get_price_tick(product, trading_date)
         返回特定交易日的最小变动价位规则。
-    get_order_volume_limits(product, trading_date)
-        返回特定交易日的下单量限制规则。
     get_base_sessions(product, trading_date)
         返回特定交易日的基础交易时段规则。
     get_session_override_rules(product)
@@ -84,7 +80,7 @@ class ProductMetaManager:
         # 若交易规则历史列表按日期排序，则最后一个满足“输入交易日期在特定规则生效日期以后”的规则就是所需结果
         # 首先做一层防御判断(输入的 trading_date 早于最早生效的规则日期，导致 applicable 为空，直接抛出错误)
         if not applicable:
-            raise ValueError(f'找不到 {trading_date} 及之前生效的规则。历史最早记录为 {sorted_history[0]['effective_date']}。')
+            raise ValueError(f"找不到 {trading_date} 及之前生效的规则。历史最早记录为 {sorted_history[0]['effective_date']}。")
         return applicable[-1] 
     
     def get_static_meta(self, product: str) -> StaticMeta:
@@ -135,61 +131,6 @@ class ProductMetaManager:
         return PriceTickRule(
             effective_date=date.fromisoformat(rule['effective_date']),
             price_tick=float(rule['price_tick']),
-        )
-    
-    def _get_multiplier(self, product: str, trading_date: date) -> MultiplierRule:
-        """
-        返回特定交易日的合约乘数规则。
-
-        Parameters
-        ------
-        product: str
-            品种代码，例如'RB'。
-        trading_date: datetime.date
-            交易日期。
-        
-        Returns
-        ------
-        MultiplierRule
-            合约乘数规则。
-        """
-        raw = self._load(product)
-        if 'multiplier_history' not in raw:
-            raise ValueError(f'{product} 的 YAML 文件未包含合约乘数规则。')
-        rule = self._get_effective_rule(history=raw['multiplier_history'],
-                                        trading_date=trading_date)
-        return MultiplierRule(
-            effective_date=date.fromisoformat(rule['effective_date']),
-            multiplier=int(rule['multiplier'])
-        )
-
-    def get_order_volume_limits(self, product: str, trading_date: date) -> OrderVolumeLimitsRule:
-        """
-        返回特定交易日的下单量限制规则。
-
-        Parameters
-        ------
-        product: str
-            品种代码，例如'RB'。
-        trading_date: datetime.date
-            交易日期。
-        
-        Returns
-        ------
-        OrderVolumeLimitsRule
-            下单量限制规则。
-        """
-        raw = self._load(product)
-        if 'order_volume_limits_history' not in raw:
-            raise ValueError(f'{product} 的 YAML 文件未包含下单量限制规则。')
-        rule = self._get_effective_rule(history=raw['order_volume_limits_history'],
-                                        trading_date=trading_date)
-        return OrderVolumeLimitsRule(
-            effective_date=date.fromisoformat(rule['effective_date']),
-            max_market_order_volume=int(rule['max_market_order_volume']),
-            min_market_order_volume=int(rule['min_market_order_volume']),
-            max_limit_order_volume=int(rule['max_limit_order_volume']),
-            min_limit_order_volume=int(rule['min_limit_order_volume'])
         )
     
     def get_base_sessions(self, product: str, trading_date: date) -> BaseSessions:
@@ -245,7 +186,31 @@ class ProductMetaManager:
             scheduled_dated_overrides=rule.get('scheduled_dated_overrides',[]),
             realized_session_events=rule.get('realized_session_events',[])
         )
+
+# ================================
+# simple test
+# ================================
+if __name__ == '__main__':
+    from datetime import date
+    product_meta_dir = 'db/rules/product_meta'
+    meta_manager = ProductMetaManager(product_meta_dir)
+    product = 'y'
     
+    static_meta = meta_manager.get_static_meta(product)
+    print(f'product = {product} ，静态属性: {static_meta}')
+
+    trading_date = date(2026, 3, 25)
+    price_tick_rule = meta_manager.get_price_tick(product, trading_date)
+    print(f'最小价位变动规则, {price_tick_rule}')
+
+    base_session = meta_manager.get_base_sessions(product, trading_date)
+    session_overrie_rules = meta_manager.get_session_override_rules()
+    print(f'交易时段基础规则, {base_session}')
+    print(f'交易时段特殊规则, {session_overrie_rules}')
+
+
+
+
 
 
 

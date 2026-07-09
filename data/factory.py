@@ -12,7 +12,7 @@ from data.rules.instrument_daily_status_manager import InstrumentDailyStatusMana
 from data.rules.trading_rule_service import TradingRuleService
 from data.storage.daily_snapshot_manager import DailySnapshotManager
 
-from data.calendar.calendar import TradingCalendar
+from data.calendar.product_calendar import ProductCalendar
 
 from data.feed.aggregator import BarAggregator
 from data.feed.research_feed import ResearchFeed
@@ -77,7 +77,7 @@ def create_research_feed(
     """
     #1. 解析环境
     meta_manager, registry_manager, _, _, trading_rule_service = _create_trading_rule_components(env_config)
-    calendar = TradingCalendar(
+    calendar = ProductCalendar(
         product=product, 
         meta_manager=meta_manager, 
         calendar_dir=env_config.calendar_dir,
@@ -124,7 +124,7 @@ def create_simulation_feed(
     根据换月配置和环境配置，组装并返回一个 SimulationFeed 实例。
     """
     meta_manager, registry_manager, _, _, trading_rule_service = _create_trading_rule_components(env_config)
-    calendar = TradingCalendar(
+    calendar = ProductCalendar(
         product=product,
         meta_manager=meta_manager,
         calendar_dir=env_config.calendar_dir,

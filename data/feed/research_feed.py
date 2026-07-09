@@ -8,7 +8,7 @@ from utils.validation_utils import check_df_columns_exist
 if TYPE_CHECKING:
     from data.stitching.stitching import ContinuousContractManager
     from data.rules.product_meta_manager import ProductMetaManager
-    from data.calendar.calendar import TradingCalendar
+    from data.calendar.product_calendar import ProductCalendar
     from data.feed.aggregator import BarAggregator
     from data.storage.file_locator import FileLocator
     from data.storage.bar_loader import BarLoader
@@ -29,7 +29,7 @@ class ResearchFeed:
         连续合约大管家，包含 master_table 属性(换月总表)，有 Dominant_Contract, Price_Gap 列。
     meta_manager: ProductMetaManager
         品种元数据管家，提供品种的交易时间、交易小节划分等元信息查询功能。
-    calendar: TradingCalendar
+    calendar: ProductCalendar
         交易日历实例，提供交易日、交易小节、分钟偏移等查询功能。
     file_locator: FileLocator
         文件寻址器，提供根据合约代码和日期查询 1min 数据文件路径的功能。
@@ -52,7 +52,7 @@ class ResearchFeed:
             product: str,
             contract_manager: ContinuousContractManager, 
             meta_manager: ProductMetaManager, 
-            calendar: TradingCalendar, 
+            calendar: ProductCalendar, 
             file_locator: FileLocator, 
             bar_loader: BarLoader, 
             bar_aggregator: BarAggregator,
@@ -61,7 +61,7 @@ class ResearchFeed:
         self.product: str = product.upper()
         self.contract_manager: ContinuousContractManager = contract_manager #包含 master_table 属性(换月总表)，有Dominant_Contract, Price_Gap 列
         self.meta_manager: ProductMetaManager = meta_manager
-        self.calendar: TradingCalendar = calendar
+        self.calendar: ProductCalendar = calendar
         self.file_locator: FileLocator = file_locator
         self.bar_loader: BarLoader = bar_loader
         self.bar_aggregator: BarAggregator = bar_aggregator
