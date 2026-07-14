@@ -5,6 +5,8 @@ from data.rules.instrument_daily_status_manager import InstrumentDailyStatusMana
 from data.rules.exchange_holiday_manager import ExchangeHolidayManager
 from data.calendar.exchange_calendar_manager import ExchangeCalendarManager
 from data.rules.trading_rule_service import TradingRuleService
+from data.storage.daily_snapshot_loader import DailySnapshotLoader
+from data.storage.daily_snapshot_manager import DailySnapshotManager, ContractDailySnapshot
 
 # ----------------------------------------------------------------
 # 基础目录配置 Fixtures
@@ -29,6 +31,10 @@ def exchange_holiday_dir():
 @pytest.fixture(scope="session")
 def calendar_dir():
     return r'db\calendar\trading_calendars'
+
+@pytest.fixture(scope='session')
+def daily_snapshot_dir():
+    return r'db\market\daily_snapshots\bar_1d\bar_1d_tushare\cleaned'
 
 # ----------------------------------------------------------------
 # 各业务数据管理器 Fixtures (设置为 session 级别，避免重复读取硬盘数据)
@@ -58,6 +64,15 @@ def holiday_manager(exchange_holiday_dir):
 def exchange_calendar_manager(calendar_dir):
     return ExchangeCalendarManager(calendar_dir)
 
+@pytest.fixture(scope='session')
+def daily_snapshot_loader(daily_snapshot_dir, meta_manager):
+    return DailySnapshotLoader(daily_snapshot_dir=daily_snapshot_dir, 
+                               meta_manager=meta_manager)
+
+@pytest.fixture(scope='session')
+def daily_snapshot_manager(daily_snapshot_loader, registry_manager):
+    return DailySnapshotManager(daily_snapshot_loader=daily_snapshot_loader,
+                                registry_manager=registry_manager)
 # ----------------------------------------------------------------
 # 统一交易规则服务门面 Fixture
 # ----------------------------------------------------------------

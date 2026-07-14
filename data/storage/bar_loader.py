@@ -72,6 +72,7 @@ class BarLoader:
         
         # 1. 若命中缓存
         if file_path in self._cache:
+            print(f'{file_path} 已读取过并有缓存，直接返回。')
             self._cache.move_to_end(file_path)
             return self._cache[file_path].copy() #返回副本，防止外部修改
         
@@ -111,5 +112,16 @@ class BarLoader:
         return df.copy() # 返回副本，防止外部修改
     
 
+# =============================
+# inline testing
+# =============================
+if __name__ == '__main__':
+    loader = BarLoader()
+    file_path = r"D:\量化策略\CTA策略\RAW_DATA\1min\SHFE\AU\AU2506.csv"
+    df = loader.load_1min_bar(file_path=file_path)
+    print(f'路径为 {file_path} 的 bar 原始数据读取结果为：')
+    print(df)
+    print(f' dataframe 的各列 dtypes 为：')
+    print(df.dtypes)
 
 

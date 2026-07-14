@@ -8,7 +8,9 @@ from data.cleaning.cleaning import (
     PriceLimitFilter,
     InstrumentCodeTranslator,
     CleaningPipeline,
-    DataEnricherPriceLimit
+    DataEnricherPriceLimit,
+    DataEnricherGenerateCalendarTimestamp,
+    OutputSchemaEnforcer
 )
 
 # ==========================================
@@ -101,35 +103,22 @@ def test_price_limit_filter_limit_down():
 
 
 # ==========================================
-# 3. 使用 Mock 测试 InstrumentCodeTranslator (依赖外部管理器的滤芯)
+# 3. 测试 InstrumentCodeTranslator
 # ==========================================
 
-def test_instrument_code_translator():
+def test_instrument_code_translator(registry_manager):
     """
     测试合约代码翻译器。
-    由于它依赖 InstrumentRegistryManager 的 translate_code 方法，
-    我们使用 unittest.mock.MagicMock 来模拟这个管理器，从而实现单纯的单元测试。
     """
-    # 1. 模拟 InstrumentRegistryManager 实例
-    mock_registry = MagicMock()
-    # 2. 规定 mock_registry.translate_code 的返回值
-    # 假设把 'SR309' (郑商所老合约格式) 翻译为内部格式 'SR2309'
-    mock_registry.translate_code.return_value = 'SR2309'
-    
-    # 3. 构造被测类，并将 mock 注入
-    translator = InstrumentCodeTranslator(registry_manager=mock_registry)
-    
-    # 4. 准备测试数据
-    test_data = pd.DataFrame({
-        'InstrumentID': ['SR309'],
-        'TradingDay': ['2023-09-01']
+    translator = InstrumentCodeTranslator(registry_manager=registry_manager)
+
+    test_df = pd.DataFrame({
+        'InstrumentID': ['AP805'],
+        'TradingDay': [20180119]
     })
-    
-    result_df = translator.apply(test_data)
-    
-    # 5. 验证是否调用了 mock 方法，以及转换后的值是否符合预期
-    mock_registry.translate_code.assert_called_once_with('exchange_to_internal', 'SR309', pd.to_datetime('2023-09-01').date())
-    assert result_df['InstrumentID'].tolist() == ['SR2309']
+
+    result_df = translator.apply(test_df)
+    assert result_df['InstrumentID'].tolist()[0] == 'AP1805'
 
 # ======================================================
 # 4. 测试 DataEnricherPriceLimit
@@ -149,7 +138,6 @@ def test_data_enricher_price_limit():
     result_df = enricher.apply(test_df)
 
     mock_daily_snapshot_manager.get_price_limits.assert_called_once_with(
-        product='RB',
         contract='RB2610',
         trading_date=datetime.date(2026, 1, 9)
     )
@@ -159,18 +147,126 @@ def test_data_enricher_price_limit():
 # =======================================
 # 测试 DataEnricherGenerateCalendarTimestamp
 # =======================================
-def test_data_enricher_generate_calendar_timestamp():
+def test_data_enricher_generate_calendar_timestamp(exchange_calendar_manager,
+                                                   meta_manager, rule_service):
     import numpy as np
+    from data.calendar.product_calendar import ProductCalendar
 
     real_df = pd.read_csv('d:/量化策略/CTA策略/RAW_DATA/TICK/2026/20260109/rb2610.csv')
-    first_row = real_df.iloc[0,:]
+    row = real_df.iloc[3,:]
 
     test_df = pd.DataFrame({
-        'InstrumentID': first_row['Instrument'],
-        'TradingDay': first_row['TradingDay'],
-        'UpdateTime': first_row['UpdateTime'],
-        'UpdateMillisec': first_row['UpdateMillisec']
+        'InstrumentID': [row['InstrumentID']],
+        'TradingDay': [row['TradingDay']],
+        'UpdateTime': [row['UpdateTime']],
+        'UpdateMillisec': [row['UpdateMillisec']]
     })
 
-    mock_calendar = MagicMock()
-    mock_calendar.get_calendar_timestamps_from_traing_date_and_time.return_value = np.array([])
+    rb_calendar = ProductCalendar(product='rb', meta_manager=meta_manager,
+                                  exchange_calendar_manager=exchange_calendar_manager,
+                                  trading_rule_service=rule_service)
+    
+    enricher = DataEnricherGenerateCalendarTimestamp(rb_calendar)
+    result_df = enricher.apply(test_df)
+    assert result_df['calendar_timestamp'].tolist()[0] == pd.Timestamp('2026-01-08 21:00:00.500000')
+
+# ============================================
+# 测试清洗流水线（全滤芯集成测试）
+# ============================================
+def test_pipeline(exchange_calendar_manager, meta_manager, rule_service, registry_manager):
+    """全流程测试：读取真实 TICK 原始数据，流过所有滤芯，验证最终产出。"""
+    from data.calendar.product_calendar import ProductCalendar
+    from data.storage.daily_snapshot_loader import DailySnapshotLoader
+    from data.storage.daily_snapshot_manager import DailySnapshotManager
+
+    # ----------------------------------------------------------
+    # 0. 准备：读取真实 TICK 原始数据（取前 200 行，涵盖异常行和正常数据）
+    # ----------------------------------------------------------
+    raw_df = pd.read_csv(
+        'd:/量化策略/CTA策略/RAW_DATA/TICK/2026/20260109/rb2610.csv',
+        nrows=200
+    )
+    print(f"\n📥 原始数据行数: {len(raw_df)}")
+
+    # 记录前 5 行的 UpdateTime 用于观察
+    print("原始前5行时间:", raw_df['UpdateTime'].head(5).tolist())
+
+    # ----------------------------------------------------------
+    # 1. 构建 ProductCalendar（RB 品种）
+    # ----------------------------------------------------------
+    rb_calendar = ProductCalendar(
+        product='rb',
+        meta_manager=meta_manager,
+        exchange_calendar_manager=exchange_calendar_manager,
+        trading_rule_service=rule_service
+    )
+
+    # ----------------------------------------------------------
+    # 2. 构建真实的 DailySnapshotManager（涨跌停价查询）
+    # ----------------------------------------------------------
+    daily_snapshot_dir = r'db\market\daily_snapshots\bar_1d\bar_1d_tushare\cleaned'
+    loader = DailySnapshotLoader(daily_snapshot_dir, meta_manager)
+    daily_snapshot_manager = DailySnapshotManager(
+        daily_snapshot_loader=loader,
+        registry_manager=registry_manager
+    )
+
+    # ----------------------------------------------------------
+    # 3. 组装完整清洗流水线
+    # ----------------------------------------------------------
+    pipeline = CleaningPipeline()
+    pipeline.add_filter(InstrumentCodeTranslator(registry_manager=registry_manager))
+    pipeline.add_filter(DataEnricherPriceLimit(
+        product='RB',
+        daily_snapshot_manager=daily_snapshot_manager
+    ))
+    pipeline.add_filter(DataEnricherGenerateCalendarTimestamp(
+        calendar=rb_calendar,
+        drop_invalid_time_rows=True
+    ))
+    pipeline.add_filter(OutlierFilter())
+    pipeline.add_filter(PriceLimitFilter())
+    pipeline.add_filter(OutputSchemaEnforcer())
+
+    # ----------------------------------------------------------
+    # 4. 执行清洗
+    # ----------------------------------------------------------
+    clean_df = pipeline.process(raw_df)
+
+    # ----------------------------------------------------------
+    # 5. 验证
+    # ----------------------------------------------------------
+    print(f"\n✅ 清洗后数据行数: {len(clean_df)}")
+    print(f"   剔除行数: {len(raw_df) - len(clean_df)}")
+    print(f"   预期剔除: 18:47 结算快照 2 行 + 20:59 竞价撮合 1 行 = 3 行")
+
+    # 5a. 不应再有 18:47 或 20:59 的数据（它们不在 scheduled 交易时段内）
+    clean_times = clean_df['calendar_timestamp'].dt.time
+    anomalous = clean_times[clean_times.astype(str).str.startswith(('18:47', '20:59'))]
+    assert len(anomalous) == 0, f'仍有非法交易时段数据残留: {anomalous.tolist()}'
+
+    # 5b. 输出列名应匹配 OutputSchemaEnforcer 的 rename_map
+    expected_cols = [
+        'contract', 'trading_date', 'calendar_timestamp',
+        'last', 'bid', 'ask', 'bid_volume', 'ask_volume',
+        'open_interest', 'is_limit_up', 'is_limit_down'
+    ]
+    for col in expected_cols:
+        assert col in clean_df.columns, f'缺少期望列: {col}'
+
+    # 5c. 数据类型校验
+    assert clean_df['last'].dtype == 'float64'
+    assert clean_df['calendar_timestamp'].dtype == 'datetime64[ns]'
+    assert clean_df['is_limit_up'].dtype == 'bool'
+
+    # 5d. 不应有 last <= 0 的数据
+    assert (clean_df['last'] > 0).all(), '存在 LastPrice <= 0 的数据'
+
+    # 5e. 日历时间戳应单调递增
+    assert clean_df['calendar_timestamp'].is_monotonic_increasing, \
+        'calendar_timestamp 应单调递增'
+
+    print("\n🏁 全流程清洗测试通过！")
+    print(clean_df.head(10).to_string())
+
+

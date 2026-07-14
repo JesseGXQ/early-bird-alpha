@@ -44,71 +44,64 @@ class BarAggregator:
         self.sample_config: SamplingConfig = sample_config
     
     def _parse_freq_to_minutes(self, freq: str) -> int:
-        """将符合 Pandas Offset Aliases 格式的 freq 字符串翻译为分钟数"""
+        """将符合 Pandas Offset Aliases 格式的 freq 字符串翻译为分钟数。"""
         try:
             offset = pd.tseries.frequencies.to_offset(freq)
             return int(pd.Timedelta(offset).total_seconds() / 60)
         except ValueError:
             raise ValueError(f'【BarAggregator】不支持的频率参数：{freq}，目前仅支持分钟(例如 "5min" )，小时(例如 "2h")和日频("1d")')
 
-
     def aggregate(self, 
                   raw_df: pd.DataFrame, 
-                  freq: str, 
-                  add_trading_date_col: bool = False) -> pd.DataFrame:
+                  freq: str) -> pd.DataFrame:
         """
         降频采样运算。
 
         Parameters
         ------
         raw_df: pd.DataFrame
-            原始数据DataFrame，索引为日历交易时间，即calendar_time。
+            原始数据 DataFrame 。索引为日历交易时间（calendar_time）。
         freq: str
-            输出数据的频率，支持分钟级，小时级和日频。
+            输出数据的频率，支持分钟级，小时级。
             格式同 Pandas Offset aliases 保持一致。
-            例: 1min, 5min, 15min, 30min, 1h, 2h, 4h, 1d。
-        add_trading_date_col: bool, default False.
-            是否增添'trading_date'(交易日期标签)列。默认不添加。
+            例: 1min, 5min, 15min, 30min, 1h, 2h, 4h。
         
         Returns
         ------
         pd.DataFrame
-            降频采样后的数据集。索引为calendat_time，即日历交易时间，类型为 pd.DatetimeIndex 。   
-            按日期顺序排列（最早在前）。
+            降频采样后的数据集。索引为 calendar_time，即日历交易时间。按日期顺序排列（最早在前）。类型为 pd.DatetimeIndex。
         """
+        assert freq != '1d' , '仅处理1min数据聚合到非日频（若请求日频，直接读取日频快照数据，无需聚合）'
+
         if raw_df.empty:
             return pd.DataFrame()
         
         # 防御性复制和索引规范化
         df: pd.DataFrame = raw_df.copy()
-        df.index = pd.to_datetime(df.index) # explicitly set to DatetimeIndex
         df.sort_index(inplace=True)
 
-        df_index = pd.DatetimeIndex(df.index) # 方便后续传给 calendar 下的各种索引器使用
+        df_index = df.index # 方便后续传给 calendar 下的各种索引器使用
+        assert isinstance(df_index, pd.DatetimeIndex)
 
-        # 将索引列(calendar_time)映射到 trading_date
-        _dates = self.calendar.get_trading_dates(calendar_timestamps=df_index)
-        df['trading_date'] = _dates
-
-        # 开始重采样
-        minutes = self._parse_freq_to_minutes(freq)
+        # 将索引列(calendar_time)映射到 trading_date（若是 ResearchFeed 的 get_historical_vector 方法调用，则传进来的 dataframe 是包含该列的）
+        if 'trading_date' not in df:
+            _dates = self.calendar.get_trading_dates(calendar_timestamps=df_index)
+            df['trading_date'] = _dates
+        
+        minutes = self._parse_freq_to_minutes(freq=freq)
 
         # 分配组号 (group_id)和交易小节(session_id)，后续将根据 trading_date,session_id 和 group_id 为 key 做聚合运算
-        if minutes == -1: # 日频，整个 trading_date 为一个大组
-            df['group_id'] = 0
-            df['session_id'] = -1 # 日频没有交易小节的概念，统一标记为 -1
-        else: #为分钟级或小时级
-            # 向 calendar 索要该品种的每个 calendar_timestamp 所对应的交易小节
-            df['session_id'] = self.calendar.get_session_ids(
-                instruments=df['Dominant_Contract'],
-                calendar_timestamps=df_index,
-            )
-            # 向 calendar 索要相对交易小节(session)开始时点的偏移分钟数(三个 session 分别为夜盘、早盘、午盘)
-            df['minute_offset'] = self.calendar.get_minute_offsets(
-                instruments=df['Dominant_Contract'],
-                calendar_timestamps=df_index,
-            )
-            df['group_id'] = df['minute_offset'] // minutes
+        # 向 calendar 索要该品种的每个 calendar_timestamp 所对应的交易小节
+        df['session_id'] = self.calendar.get_session_ids(
+            instruments=df['Dominant_Contract'],
+            calendar_timestamps=df_index,
+        )
+        # 向 calendar 索要相对交易小节(session)开始时点的偏移分钟数(三个 session 分别为夜盘、早盘、午盘)
+        df['minute_offset'] = self.calendar.get_minute_offsets(
+            instruments=df['Dominant_Contract'],
+            calendar_timestamps=df_index,
+        )
+        df['group_id'] = df['minute_offset'] // minutes
       
         # 定义聚合字典并做聚合运算
         df['calendar_time'] = df.index # 把索引列 calendar_time 变成普通列，参与聚合运算。聚合后再把它设回索引。
@@ -153,11 +146,7 @@ class BarAggregator:
                 resampled_df = self.impute_missing_bars(resampled_df)
 
         # 剔除辅助列
-        resampled_df = resampled_df.drop(columns=['session_id','group_id','minute_offset','calendar_time'])
-
-        # 是否保留'trading_date'列
-        if not add_trading_date_col:
-            resampled_df = resampled_df.drop(columns=['trading_date'])
+        resampled_df = resampled_df.drop(columns=['session_id','group_id','calendar_time'])
 
         # 将索引格式 explictly 设置为 pd.DatetimeIndex
         resampled_df.index = pd.DatetimeIndex(resampled_df.index)
@@ -213,5 +202,9 @@ class BarAggregator:
         
         # 对于字符串列（如 Dominant_Contract），进行前向填充
         df['Dominant_Contract'] = df['Dominant_Contract'].ffill()
+        df['trading_date'] = df['trading_date'].ffill()
 
         return df
+
+
+

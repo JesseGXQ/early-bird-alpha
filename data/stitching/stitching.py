@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 import pandas as pd
 from datetime import date
 from pathlib import Path
+import warnings
 
 if TYPE_CHECKING:
     from data.config import RolloverConfig
@@ -43,7 +44,7 @@ class RolloverDetector:
         Parameters
         ------
         oi_matrix: pd.DataFrame
-            日频持仓量数据。每一行为一个交易日期，各列为各合约的持仓量 (OpenInterest)。
+            日频持仓量数据。每一行为一个交易日期，各列为各合约的持仓量。
 
         Returns
         ------
@@ -58,6 +59,9 @@ class RolloverDetector:
         days_candidate_led = 0
 
         for date, row in oi_matrix.iterrows():
+            if row.isna().all():
+                warnings.warn(f'{date} 下所有合约的持仓量都为缺失值，跳过该日期；注意，会导致 rollover_calendar 和 master_table 缺乏该交易日的记录。')
+                continue
             daily_max_contract = row.idxmax()
             max_oi = row[daily_max_contract]
 
@@ -95,6 +99,7 @@ class RolloverDetector:
                 'Max_OI_Contract_Today': daily_max_contract
             })
         
+        assert len(rollover_calendar)>0, '换月日历表为空，需要检查原始数据，持仓量在所有日期是否全部缺失？'
         rollover_calendar = pd.DataFrame(rollover_calendar).set_index('Date')
         return rollover_calendar 
 
@@ -119,7 +124,8 @@ class RollGapCalculator:
     
     def build_master_table(self, 
                            rollover_calendar: pd.DataFrame,
-                           daily_matrix: pd.DataFrame) -> pd.DataFrame:
+                           daily_matrix: pd.DataFrame,
+                           print_calculation: bool = False) -> pd.DataFrame:
         """
         生成换月日历（包含Dominant_Contract 和 Price_Gap 列）。索引为交易日期。
 
@@ -128,7 +134,7 @@ class RollGapCalculator:
         rollover_caledar: pd.DataFrame
             换月日历
         daily_matrix: pd.DataFrame
-            日频价格数据。每一行为一个交易日，各列为不同合约的价格（例如收盘价）。
+            日频价格数据。每一行为一个交易日，各列为不同合约的价格（例如结算价或收盘价）。
         
         """
         
@@ -148,22 +154,21 @@ class RollGapCalculator:
                 try:
                     price_old_dominant = daily_matrix.at[date, old_dominant] #日期上更早的主力合约价格
                     price_new_dominant = daily_matrix.at[date, new_dominant] #日期上更新的主力合约价格
-
-                    #跳空缺口 — 确保价格为数值型，兼容字符串等不可减类型
-                    p_old = pd.to_numeric(price_old_dominant, errors='coerce')
-                    p_new = pd.to_numeric(price_new_dominant, errors='coerce')
-
-                    if pd.isna(p_old) or pd.isna(p_new):
-                        raise ValueError(f'非数值类型价格: old={price_old_dominant}, new={price_new_dominant}')
-
-                    gap = p_new - p_old
-
-                    master_table.at[date,'Price_Gap'] = gap
-
-                    print(f"【复权计算】 {date}: {new_dominant} ({p_new}) -> {old_dominant} ({p_old}) | 缺口: {gap}")
                 except KeyError as e:
-                    #如果找不到某天的收盘价
-                    print(f'【AdjustmentCalculator】{date} 缺失价格数据，跳空计算跳过一次。Error: {e}')
+                    # 如果尝试寻找某日的价格时，发现无该日期，直接报错
+                    raise KeyError(f'【RollGapCalculator】{date} 缺失价格数据，无法计算换月跳空。Error: {e}')
+
+                #跳空缺口 — 确保价格为数值型，兼容字符串等不可减类型
+                p_old = pd.to_numeric(price_old_dominant, errors='coerce')
+                p_new = pd.to_numeric(price_new_dominant, errors='coerce')
+                if pd.isna(p_old) or pd.isna(p_new):
+                    raise ValueError(f'转换为 Numeric 后，出现非数值类型价格，交易日 {date}: old={price_old_dominant}, new={price_new_dominant}')
+
+                gap = p_new - p_old
+                master_table.at[date,'Price_Gap'] = gap
+                
+                if print_calculation:
+                    print(f"【复权计算】 {date}: {new_dominant} ({p_new}) -> {old_dominant} ({p_old}) | 缺口: {gap}")
             
             new_dominant = old_dominant # 由于df是按日期倒序做loop，所以对于下一次循环提取的是更早的主力合约(old_dominant)，那么相对应的本次循环的主力合约（相对下一次的）应该是时间上更新的new_domiant。
 

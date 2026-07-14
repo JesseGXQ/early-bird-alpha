@@ -1,16 +1,5 @@
 """
-读取日频快照数据
-
-数据格式提示
-
-日频快照数据，按照每个品种一个 parquet 文件存储：
-    data/
-    └── storage/
-        └── daily_snapshots/
-            ├── RB_daily.parquet
-            ├── CU_daily.parquet
-            ├── IF_daily.parquet
-            └── ...
+读取日频快照数据(daily snapshots)
 """
 from __future__ import annotations
 import pandas as pd
@@ -66,4 +55,26 @@ class DailySnapshotLoader:
             df = pd.read_parquet(file_path, columns=columns)
             return df
         except FileNotFoundError:
-            raise FileNotFoundError(f'未找到 {product} 的日频快照数据文件，请检查路径：{file_path}')
+            raise FileNotFoundError(f'【DailySnapshotLoader】未找到 {product} 的日频快照数据文件，请检查路径：{file_path}')
+        
+
+# ===============================
+# inline testing
+# ===============================
+if __name__ == '__main__':
+    from data.rules.product_meta_manager import ProductMetaManager
+
+    product_meta_dir = r'db\rules\product_meta'
+    meta_manager = ProductMetaManager(product_meta_dir)
+
+    daily_snapshot_dir = r'db\market\daily_snapshots\bar_1d\bar_1d_tushare\cleaned'
+    loader = DailySnapshotLoader(daily_snapshot_dir=daily_snapshot_dir,
+                                 meta_manager=meta_manager)
+    
+    product = 'AP'
+    df = loader.load(product=product)
+    print(f'品种 {product} 的 daily snapshots 数据读取结果为：')
+    print(df)
+    print(f'DataFrame 的所有列为 {df.columns.tolist()}')
+
+

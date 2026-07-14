@@ -6,8 +6,10 @@ from pathlib import Path
 from datetime import date
 import warnings
 
+from data.calendar.exchange_calendar_manager import ExchangeCalendarManager
+from data.calendar.product_calendar import ProductCalendar
+
 if TYPE_CHECKING:
-    from data.calendar.product_calendar import ProductCalendar
     from data.rules.product_meta_manager import ProductMetaManager
     from data.rules.instrument_registry_manager import InstrumentRegistryManager
 
@@ -21,8 +23,12 @@ class FileLocator:
     ------
     data_dir: str
         储存 TICK 数据或 1min 数据的目录
-    calendar: ProductCalendar
-        交易日历实例。
+    meta_manager: ProductMetaManager
+        品种元数据管家。
+    registry_manager: InstrumentRegistryManager
+        合约注册属性管家。
+    exchange_calendar_manager: ExchangeCalendarManager
+        交易所交易日历管家。
     
     Methods
     ------
@@ -33,15 +39,17 @@ class FileLocator:
     """
     def __init__(self, 
                  data_dir: str, 
-                 calendar: ProductCalendar,
                  meta_manager: ProductMetaManager,
+                 exchange_calendar_manager: ExchangeCalendarManager,
                  registry_manager: InstrumentRegistryManager
                  ):
         self.data_dir: Path = Path(data_dir)
-        self.calendar: ProductCalendar = calendar
         self.meta_manager: ProductMetaManager = meta_manager
         self.registry_manager: InstrumentRegistryManager = registry_manager
-        
+        self.exchange_calendar_manager: ExchangeCalendarManager = exchange_calendar_manager
+
+        self._product_calendar_cache: dict[str, ProductCalendar] = {}
+
     def get_1min_file_path(self, contract: str) -> str:
         """获取合约的 1min 数据储存路径。
         
@@ -76,6 +84,18 @@ class FileLocator:
         #若都没找到，警告一下，返回空字符串
         warnings.warn(f'【FileLocator】未找到相关 Parquet 或 CSV 数据：{str(pq_file_path), str(csv_file_path)}')
         return ''
+    
+    def _get_product_calendar(self, product: str) -> ProductCalendar:
+        """获取品种级交易日历"""
+        if product in self._product_calendar_cache:
+            return self._product_calendar_cache[product]
+        calendar = ProductCalendar(
+            product=product, 
+            meta_manager=self.meta_manager,
+            exchange_calendar_manager=self.exchange_calendar_manager
+        )
+        self._product_calendar_cache[product] = calendar
+        return calendar
 
     def get_tick_file_path(self,
                            contract: str, 
@@ -107,19 +127,24 @@ class FileLocator:
             Parquet 或 CSV 数据文件路径。
         
         """
+        # 获取品种级交易日历
+        registry = self.registry_manager.get_instrument_registry(contract)
+        product = registry.product
+        calendar = self._get_product_calendar(product)
+        
         #1. 先将日期统一起来：统一为 trading_date
         if trading_date and (not calendar_date) and (not calendar_timestamp) :
             #传入了 trading_date 参数，但实际上并非交易日
-            if not self.calendar.is_trading_date(trading_date):
+            if not calendar.is_trading_date(trading_date):
                 warnings.warn(f'【FileLocator】传入的 trading_date: {trading_date} 不是交易日，请检查！')
                 return '' 
         #若传了 calendar_timestamp ，将其转化为 trading_date
         elif calendar_timestamp and (not trading_date) and (not calendar_date):
-            trading_date = self.calendar.get_trading_date(calendar_timestamp)
+            trading_date = calendar.get_trading_date(calendar_timestamp)
         #若只传了一个 calendar_date，则默认为非夜盘交易时间（避免映射到下一个交易日)，这里选择中午11:15分
         elif calendar_date and (not trading_date) and (not calendar_timestamp):
             _ts = pd.Timestamp(f'{calendar_date.isoformat()} 11:15:00')
-            trading_date = self.calendar.get_trading_date(_ts)
+            trading_date = calendar.get_trading_date(_ts)
         else:
             raise ValueError(f'必须且仅能传入 trading_date, calendar_date, calendar_timestamp 三者之一。')
         
@@ -141,5 +166,4 @@ class FileLocator:
         #若 CSV 也找不到，警告一下，返回空字符串
         warnings.warn(f'【FileLocator】未找到相关 Parquet 或 CSV 数据：{str(pq_file_path), str(csv_file_path)}')
         return ''
-
 

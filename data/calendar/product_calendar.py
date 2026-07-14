@@ -39,7 +39,7 @@ class ProductCalendar:
     get_trading_date(calendar_timestamp)
         返回日历交易时间戳归属的交易日（采用“17:00清算物理分割线”法则，夜盘时间戳归入下一个交易日）。
     get_session_id(instrument, calendar_timestamp, view)
-        获取时间戳落入的交易小节 ID：0(夜盘), 1(早盘), 2(午盘), -1(非合法交易时段)。
+        获取时间戳落入的交易小节 ID：0(夜盘), 1(早盘), 2(午盘)。
     get_time_offset(instrument, calendar_timestamp, view)
         计算时间戳距离其所属交易小节起点的 Timedelta 推移（正确扣除盘中休市时段）。
     get_minute_offset(instrument, calendar_timestamp, view)
@@ -116,6 +116,8 @@ class ProductCalendar:
     def get_trading_date(self, calendar_timestamp: pd.Timestamp) -> date:
         """
         返回日历交易时间戳归属的交易日(Trading Date), 夜盘时间戳归属于下一个交易日。采用业界标准的“17:00 清算物理分割线”法则。
+
+        注意，该方法本身没有办法判断“时间戳”是否属于品种的合法交易时段。
 
         Parameters
         ------
@@ -211,7 +213,7 @@ class ProductCalendar:
         Returns
         ---
         int
-            时间戳所属交易小节。0(夜盘), 1(早盘), 2(午盘), -1(异常状态, 输入时间戳不属于合法交易时段)。
+            时间戳所属交易小节。0(夜盘), 1(早盘), 2(午盘)。
         
         """
         trading_date = self.get_trading_date(calendar_timestamp)
@@ -229,9 +231,22 @@ class ProductCalendar:
                 if self._time_in_interval(t, start_t, end_t):
                     return session_id
         
-        warnings.warn(f'【ProductCalendar】警告：时间戳 {calendar_timestamp} 不属于 {instrument} 的交易时段！')
-        return -1 #返回异常状态
+        raise ValueError(f'''【ProductCalendar】：时间戳 {calendar_timestamp} 不属于 {instrument} 的交易时段！
+                         合约 {instrument} 在交易日 {trading_date} 的合法交易时段如下： 
+                         {trading_session}
+                         ''')
     
+    def is_valid_trading_timestamp(self, instrument: str, 
+                                   calendar_timestamp: pd.Timestamp, 
+                                   view: Literal['scheduled','realized']='scheduled') -> bool:
+        """判断某个时间戳是否为合法交易时间戳。"""
+        try:
+            _ = self.get_session_id(instrument=instrument, calendar_timestamp=calendar_timestamp, view=view)
+        except ValueError:
+            return False
+        else:
+            return True
+
     def get_time_offset(
         self,
         instrument: str,
@@ -253,10 +268,7 @@ class ProductCalendar:
         
         """
         # 1. 首先获取所在交易小节
-        sid = self.get_session_id(instrument, calendar_timestamp, view=view) #获取交易小节
-        if sid == -1: 
-            raise ValueError(f'合约 {instrument} 的时间戳 {calendar_timestamp} 不属于合法交易时段。无法计算距离交易小节起点的推移。')
-
+        sid = self.get_session_id(instrument, calendar_timestamp, view=view) # 获取交易小节
         trading_date = self.get_trading_date(calendar_timestamp) # 首先获取该时间戳所对应的“交易日”
         session = self._get_trading_sessions(instrument, trading_date, view=view)
         session_group, intervals = self._get_session_intervals_by_id(session, sid)
@@ -372,7 +384,7 @@ class ProductCalendar:
     def _get_prev_trading_date(self, trading_date: date) -> date:
         """获取输入交易日的前一个交易日"""
         try:
-            _idx = self.exchange_trading_dates.get_loc(trading_date) # this raises a KeyError if not found
+            _idx = self.exchange_trading_dates.get_loc(pd.Timestamp(trading_date)) # this raises a KeyError if not found
         except KeyError:
             raise ValueError(f'【ProductCalendar】交易日期 {trading_date} 不在 {self.product} 的交易日列表中。')
         if _idx == 0: # 此时 _idx -1 = -1,会返回最后一个交易日，逻辑错误。
@@ -497,7 +509,7 @@ class ProductCalendar:
             （日历）交易时间戳列表。
 
         """
-        
+
         # 从 exchange_trading_dates 中提取从 start_date 至 end_date 的交易日期列表
         
         trading_dates = self.exchange_trading_dates[self.exchange_trading_dates.slice_indexer(start=start_date, end=end_date)].date
@@ -535,10 +547,14 @@ class ProductCalendar:
 
         Parameters
         ------
+        instrument: str
+            合约代码。
         trading_date: datetime.date
             交易日期。
         t: datetime.time
             时间（时分秒）。
+        view: Literal['scheduled', 'realized'], default 'scheduled'
+            计划或实际交易时段，默认为计划。
 
         Returns
         ------
@@ -583,10 +599,15 @@ class ProductCalendar:
 
         Parameters
         ------
+        instruments: Iterable[str]
+            合约代码列表
         trading_dates: Iterable[datetime.date]
             交易日期列表。
         t_s: Iterable[datetime.time]
             时间列表（时分秒）。
+        view: Literal['scheduled', 'realized'], default 'scheduled'
+            计划或实际交易时段，默认为计划。
+
 
         Returns
         ------

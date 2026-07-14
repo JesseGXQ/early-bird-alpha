@@ -5,6 +5,7 @@ import pandas as pd
 from abc import ABC, abstractmethod
 from datetime import time
 
+from data.rules.trading_rule_service import TradingRuleService
 from utils.validation_utils import check_df_columns_exist
 
 if TYPE_CHECKING:
@@ -41,7 +42,7 @@ class InstrumentCodeTranslator(FilterBase):
         if 'TradingDay' not in cleaned_df:
             raise ValueError(f'未能在数据中找到交易日期列 "TradingDay"。请检查原始数据。')
         
-        trading_dates = pd.to_datetime(cleaned_df['TradingDay']).dt.date.tolist()
+        trading_dates = pd.to_datetime(cleaned_df['TradingDay'], format='%Y%m%d').dt.date.tolist()
         codes= cleaned_df['InstrumentID'].tolist()
 
         instruments = [
@@ -87,7 +88,6 @@ class DataEnricherPriceLimit(FilterBase):
         contract = contracts[0]
         trading_date = trading_dates[0]
         upper_limit_price, lower_limit_price = self.daily_snapshot_manager.get_price_limits(
-            product=self.product,
             contract=contract, 
             trading_date=trading_date)
         clean_df['UpperLimitPrice'] = upper_limit_price
@@ -98,10 +98,33 @@ class DataEnricherPriceLimit(FilterBase):
 class DataEnricherGenerateCalendarTimestamp(FilterBase):
     """
     数据增强滤芯：生成日历交易时间戳
-    负责将原始数据中的交易时间戳（日期为交易日期，即夜盘的日期为下一个交易日）转换为日历时间戳，并存入新列 'calendar_timestamp' 中。
+
+    负责将原始数据中的交易时间戳（日期为交易日期，即夜盘的日期为下一个交易日）
+    转换为日历时间戳，并存入新列 'calendar_timestamp' 中。
+
+    Parameters
+    ----------
+    calendar : ProductCalendar
+        品种交易日历。
+    drop_invalid_time_rows : bool, default=True
+        是否剔除无法转换为合法日历时间戳的非法交易时间行。
+    
+    Returns
+    -------
+    pd.DataFrame
+        包含新增列 'calendar_timestamp' 的清洗后数据。
     """
-    def __init__(self, calendar: ProductCalendar):
+    """
+    为什么要 drop_invalid_time_rows：
+    TICK 数据有些在晚上6点多会有盘后结算快照下发，例如18:47:17和18:47:18会有两笔 TICK，
+    这不属于交易时段数据，需要剔除；另外20:59:00会有一笔TICK，这是集合竞价的撮合结果，是正常交易机制，应该保留。
+    但我们目前在交易时段规则 yaml 文件中尚未记录 call action 的时段，例如上期所夜盘是20:55-20:59。
+    所以在此我们暂时选择将其也剔除掉，后续可以在补充好集合竞价时段规则后，选择予以保留。
+    
+    """
+    def __init__(self, calendar: ProductCalendar, drop_invalid_time_rows = True):
         self.calendar = calendar
+        self.drop_invalid = drop_invalid_time_rows # 是否剔除非法交易时间行
 
     def apply(self, df: pd.DataFrame) -> pd.DataFrame:
 
@@ -113,11 +136,26 @@ class DataEnricherGenerateCalendarTimestamp(FilterBase):
         clean_df['trading_date'] = pd.to_datetime(clean_df['TradingDay'].astype(str)).dt.date 
         update_time_str_list: list[str] = (clean_df['UpdateTime'] + ':' + clean_df['UpdateMillisec'].astype(str)).tolist()
         clean_df['update_time'] = [time.fromisoformat(time_str) for time_str in update_time_str_list]
-        clean_df['calendar_timestamp'] = self.calendar.get_calendar_timestamps_from_trading_date_and_time(
-            instruments=clean_df['InstrumentID'].astype(str).str.upper(),
-            trading_dates=clean_df['trading_date'],
-            t_s=clean_df['update_time']
-        )
+
+        calendar_timestamps: list[pd.Timestamp | None] = []
+        for instrument, trading_date, update_time in clean_df[
+            ['InstrumentID', 'trading_date', 'update_time']
+            ].itertuples(index=False, name=None):
+            try:
+                ts = self.calendar.get_calendar_timestamp_from_trading_date_and_time(
+                    instrument=instrument,
+                    trading_date=trading_date,
+                    t=update_time,
+                    view='scheduled'
+                )
+                calendar_timestamps.append(ts)
+            except ValueError: # 发现不属于合法交易时段
+                calendar_timestamps.append(None)
+            
+        clean_df['calendar_timestamp'] = calendar_timestamps
+        if self.drop_invalid:
+            clean_df = clean_df[clean_df['calendar_timestamp'].notna()] # 剔除非法交易时间行
+
         return clean_df.drop(columns=['trading_date', 'update_time'])
 
 #异常值过滤器
@@ -138,7 +176,7 @@ class OutlierFilter(FilterBase):
 
         #规则1 
         if "LastPrice" in clean_df.columns:
-            clean_df = clean_df[clean_df['LastPrice']>0]
+            clean_df = clean_df[~(clean_df['LastPrice']<=0)] # 这样会保留LastPrice缺失的行
         
         #规则2
         #首先筛选涨跌停的情况，即Ask/Bid可能为0
@@ -219,6 +257,7 @@ class OutputSchemaEnforcer(FilterBase):
                       'TradingDay': 'trading_date',
                       'calendar_timestamp': 'calendar_timestamp', 
                       'LastPrice': 'last',
+                      'Volume': 'volume',
                       'BidPrice1': 'bid', 'AskPrice1': 'ask', 
                       'BidVolume1': 'bid_volume', 'AskVolume1': 'ask_volume', 
                       'OpenInterest': 'open_interest',
@@ -229,7 +268,7 @@ class OutputSchemaEnforcer(FilterBase):
 
         # 确保数据类型符合 ContractTick 的定义
         clean_df['contract'] = clean_df['contract'].astype(str)
-        clean_df['trading_date'] = pd.to_datetime(clean_df['trading_date']).dt.date
+        clean_df['trading_date'] = pd.to_datetime(clean_df['trading_date'].astype(str), format='%Y%m%d').dt.date
         clean_df['calendar_timestamp'] = pd.to_datetime(clean_df['calendar_timestamp'])
         for col in ['last', 'bid', 'ask', 'open_interest']:
             clean_df[col] = clean_df[col].astype(float)
@@ -238,7 +277,8 @@ class OutputSchemaEnforcer(FilterBase):
         for col in ['is_limit_up', 'is_limit_down']:
             clean_df[col] = clean_df[col].astype(bool)
         
-        return clean_df
+        re_cols = [name for orig_name, name in rename_map.items()]
+        return clean_df[re_cols]
 
 #清洗流水线容器
 class CleaningPipeline:
@@ -269,8 +309,6 @@ class CleaningPipeline:
 # ==========================================
 # 本地验证测试
 # ==========================================
-
-    
 if __name__ == "__main__":
     print("🚀 启动清洗流水线全流程测试...")
     

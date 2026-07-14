@@ -168,7 +168,7 @@ class TickLoaderFactory:
 
 if __name__ == "__main__":
 
-    filepath = '../RAW_DATA/TICK/TICK_Parquet/a2601_compressed.parquet'
+    filepath = r"D:\量化策略\CTA策略\RAW_DATA\TICK\2026\20260109\rr2605.csv"
     
     if os.path.exists(filepath):
         

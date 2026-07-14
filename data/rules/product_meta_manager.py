@@ -2,7 +2,7 @@
 期货信息数据库 Tier1 
 品种规则配置管家
 """
-from typing import Any
+from typing import Any, Literal
 import yaml
 from pathlib import Path
 from datetime import date
@@ -186,6 +186,40 @@ class ProductMetaManager:
             scheduled_dated_overrides=rule.get('scheduled_dated_overrides',[]),
             realized_session_events=rule.get('realized_session_events',[])
         )
+    
+    def get_product_universe(self, return_type: Literal['dict', 'list'] = 'list') -> list[str] | dict[str, dict[str, str]]:
+        """
+        获取全市场期货品种列表。
+
+        Parameters
+        ----------
+        return_type : {'list', 'dict'}, default='list'
+            返回格式：'list' 返回品种代码列表，'dict' 返回 {品种: {exchange, name}}。
+
+        Returns
+        -------
+        list | dict[str, dict[str, str]]
+            'list' 返回 list[str]；'dict' 返回 {品种: {'exchange': 交易所, 'name': 名称}}。
+
+        Raises
+        ------
+        ValueError
+            参数不是 'list' 或 'dict' 时抛出。
+        """
+        if return_type == 'list':
+            return [path.stem for path in self._meta_dir.glob('*.yaml')]
+        elif return_type == 'dict':
+            products: dict[str, dict[str, str]] = {}
+            paths = self._meta_dir.glob('*.yaml')
+            for path in paths:
+                product = path.stem
+                sm = self.get_static_meta(product)
+                exchange, name = sm.exchange, sm.name
+                products[product] = {'exchange': exchange, 'name': name}
+            return products
+        else:
+            raise ValueError(f"return_type 参数仅接受 'dict', 'list'，现在为 {return_type} 。")
+        
 
 # ================================
 # simple test

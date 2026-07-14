@@ -52,6 +52,7 @@ class ExchangeCalendarManager:
     def get_trading_date(self, exchange: str, calendar_timestamp: pd.Timestamp) -> date:
         """
         对某交易所而言，返回日历交易时间戳归属的交易日(Trading Date)，夜盘时间戳归属于下一个交易日。
+        该方法仅处理（也仅应该处理）合法的交易时间戳。也就是说，该方法本身不判断“时间戳”是否属于该交易所的合法交易时段。
         """
         calendar_date = calendar_timestamp.date()
         # 过了下午 17:00，一定是下一个交易日的夜盘
