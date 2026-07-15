@@ -1,4 +1,5 @@
 from __future__ import annotations
+import calendar
 from typing import TYPE_CHECKING, Iterable, Literal
 import pandas as pd
 import numpy as np
@@ -6,6 +7,7 @@ from pathlib import Path
 from datetime import date, time, timedelta
 import warnings
 from data.rules.models import TradingSessions
+from functools import lru_cache
 
 if TYPE_CHECKING:
     from data.calendar.exchange_calendar_manager import ExchangeCalendarManager
@@ -147,6 +149,14 @@ class ProductCalendar:
         rule_service = self._require_trading_rule_service()
         return rule_service.get_trading_sessions(instrument, trading_date, view=view)
     
+    @lru_cache(maxsize=500)
+    def _get_trading_sessions_cached(
+            self, instrument: str, 
+            trading_date: date, 
+            view: Literal['scheduled', 'realized']='scheduled'
+            ) -> TradingSessions:
+        return self._get_trading_sessions(instrument, trading_date, view)
+
     @staticmethod
     def _time_in_interval(t: time, start_t: time, end_t: time) -> bool:
         """左闭右开判断，兼容跨零点区间。"""
@@ -217,7 +227,7 @@ class ProductCalendar:
         
         """
         trading_date = self.get_trading_date(calendar_timestamp)
-        trading_session = self._get_trading_sessions(instrument, trading_date, view=view)
+        trading_session = self._get_trading_sessions_cached(instrument, trading_date, view=view)
         t = calendar_timestamp.time()
 
         for session_id, intervals in (
@@ -270,7 +280,7 @@ class ProductCalendar:
         # 1. 首先获取所在交易小节
         sid = self.get_session_id(instrument, calendar_timestamp, view=view) # 获取交易小节
         trading_date = self.get_trading_date(calendar_timestamp) # 首先获取该时间戳所对应的“交易日”
-        session = self._get_trading_sessions(instrument, trading_date, view=view)
+        session = self._get_trading_sessions_cached(instrument, trading_date, view=view)
         session_group, intervals = self._get_session_intervals_by_id(session, sid)
         interval_timestamps = self._session_interval_timestamps(session_group, intervals, trading_date)
 
@@ -312,7 +322,8 @@ class ProductCalendar:
         """
         返回日历交易时间戳归属的交易日(Trading Date), 夜盘时间戳归属于下一个交易日。
 
-        内部调用 `get_trading_date` 方法。
+        向量化实现：使用 numpy searchsorted 一次性批量处理所有时间戳，
+        避免逐行 Python 循环调用标量版本。
 
         Parameters
         ------
@@ -322,13 +333,42 @@ class ProductCalendar:
         Returns
         ------
         np.ndarray
-            时间戳所归属的交易日，夜盘归属下一个交易日。
+            时间戳所归属的交易日，元素类型为 datetime.date。夜盘归属下一个交易日。
         
         """
-        return np.array([
-            self.get_trading_date(ts) for ts in calendar_timestamps
-        ])
-    
+        if len(calendar_timestamps) == 0:
+            return np.array([], dtype=object)
+
+        trading_dates_arr = self.exchange_trading_dates  # pd.DatetimeIndex，该品种所属交易所的全部交易日
+
+        # Step 1: 向量化判断夜盘（时间严格大于 17:00:00）
+        minutes_of_day = calendar_timestamps.hour * 60 + calendar_timestamps.minute
+        is_night = minutes_of_day > 17 * 60
+
+        # Step 2: 获取日历日期（去掉时分秒，保留为 pd.DatetimeIndex）
+        calendar_dates = calendar_timestamps.normalize()
+
+        # Step 3: searchsorted 找到每个日历日期在交易日列表中的插入位置
+        # side='left': 返回第一个 trading_dates_arr[i] >= calendar_date 的 i
+        idx = trading_dates_arr.searchsorted(calendar_dates, side='left')
+
+        # Step 4: 判断哪些日历日期本身是交易日（精确匹配）
+        # safe_idx 用 clip 防止 idx 越界，但即使越界（idx=len），等式也不可能为 True
+        # 因为 calendar_date > 最后一个交易日，而 safe_idx 指向的正是最后一个交易日
+        safe_idx = np.clip(idx, 0, len(trading_dates_arr) - 1)
+        exact_match = trading_dates_arr[safe_idx] == calendar_dates
+
+        # Step 5: 核心逻辑
+        #   - 非夜盘 + 精确匹配 → idx 就是当天（交易日）
+        #   - 非夜盘 + 非精确匹配 → idx 是 calendar_date 之后的第一个交易日 ✓
+        #   - 夜盘 + 精确匹配 → 需要下一个交易日，即 idx + 1
+        #   - 夜盘 + 非精确匹配 → idx 已经是 calendar_date 之后的第一个交易日 ✓
+        idx[is_night & exact_match] += 1
+
+        # Step 6: 从交易日数组中取出结果
+        result = trading_dates_arr[idx]
+        return result.date  # array of datetime.date
+
     def get_session_ids(
         self,
         instruments: Iterable[str],
@@ -354,6 +394,48 @@ class ProductCalendar:
             self.get_session_id(instrument, ts, view=view)
             for instrument, ts in zip(instruments, calendar_timestamps)
         ])
+        # """
+        # 判断时间戳落在哪一个交易小节。向量化版本。
+        # """
+        # def get_trading_sessions_arr(instruments: Iterable[str], 
+        #                              trading_dates_arr: Iterable[date]) -> list[TradingSessions]:
+        #     return  [self._get_trading_sessions_cached(instrument, trading_date, view)
+        #         for instrument, trading_date in zip(instruments, trading_dates_arr)]
+            
+        # trading_dates_arr = self.get_trading_dates(calendar_timestamps)
+        # trading_sessions_list = get_trading_sessions_arr(instruments, trading_dates_arr)
+        
+        # # find all unique (time, TradingSessions) pairs
+        # unique_time_trading_sessions_paris: list[tuple[time, TradingSessions]] = []
+        # n = 0
+        # indices: list[int] = []
+        # for (ts, trading_sessions) in zip(calendar_timestamps, trading_sessions_list):
+        #     t = ts.time()
+        #     if (t, trading_sessions) not in unique_time_trading_sessions_paris:
+        #         unique_time_trading_sessions_paris.append((t, trading_sessions))
+        #         indices.append(n)
+        #         n += 1
+        #     else:
+        #         indices.append(n)
+
+        # # calculate the session id of unique (time, TradingSessions) pairs
+        # session_ids: list[int] = []
+        # for t, trading_sessions in unique_time_trading_sessions_paris:
+        #     for id, intervals in (
+        #     (0, trading_sessions.night_sessions),
+        #     (1, trading_sessions.morning_sessions),
+        #     (2, trading_sessions.afternoon_sessions)):
+        #         for start_str, end_str in intervals:
+        #             start_t = pd.Timestamp(start_str).time()
+        #             end_t = pd.Timestamp(end_str).time()
+        #             if self._time_in_interval(t, start_t, end_t):
+        #                 session_ids.append(id)
+        # return np.array([
+        #     session_ids[i] for i in indices
+        # ])
+    
+                        
+                
 
     def get_minute_offsets(
         self,
@@ -428,7 +510,7 @@ class ProductCalendar:
         if minute_offset < 0:
             raise ValueError(f'【ProductCalendar】分钟偏移量不能为负数，实际为 {minute_offset}。')
 
-        session = self._get_trading_sessions(instrument, trading_date, view=view)
+        session = self._get_trading_sessions_cached(instrument, trading_date, view=view)
         session_group, intervals = self._get_session_intervals_by_id(session, session_id)
         interval_timestamps = self._session_interval_timestamps(session_group, intervals, trading_date)
 
@@ -517,7 +599,7 @@ class ProductCalendar:
         standard_timestamps = []
 
         for trading_date in trading_dates:
-            session = self._get_trading_sessions(instrument, trading_date, view=view)
+            session = self._get_trading_sessions_cached(instrument, trading_date, view=view)
             
             for session_group, intervals in (
                 ('morning', session.morning_sessions),
@@ -562,7 +644,7 @@ class ProductCalendar:
             日历交易时间戳。
         
         """
-        session = self._get_trading_sessions(instrument, trading_date, view=view)
+        session = self._get_trading_sessions_cached(instrument, trading_date, view=view)
 
         for session_group, intervals in (
             ('night', session.night_sessions),
