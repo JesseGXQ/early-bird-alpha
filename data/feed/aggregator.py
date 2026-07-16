@@ -53,7 +53,8 @@ class BarAggregator:
 
     def aggregate(self, 
                   raw_df: pd.DataFrame, 
-                  freq: str) -> pd.DataFrame:
+                  freq: str,
+                  add_trading_date_col: bool = False) -> pd.DataFrame:
         """
         降频采样运算。
 
@@ -65,6 +66,8 @@ class BarAggregator:
             输出数据的频率，支持分钟级，小时级。
             格式同 Pandas Offset aliases 保持一致。
             例: 1min, 5min, 15min, 30min, 1h, 2h, 4h。
+        add_trading_date_col: bool, default False.
+            是否保留 'trading_date' 列。
         
         Returns
         ------
@@ -90,17 +93,13 @@ class BarAggregator:
         
         minutes = self._parse_freq_to_minutes(freq=freq)
 
-        # 分配组号 (group_id)和交易小节(session_id)，后续将根据 trading_date,session_id 和 group_id 为 key 做聚合运算
-        # 向 calendar 索要该品种的每个 calendar_timestamp 所对应的交易小节
-        df['session_id'] = self.calendar.get_session_ids(
+        # 分配交易小节(session_id)和组号(group_id)，后续将根据 trading_date, session_id 和 group_id 为 key 做聚合运算
+        session_ids, minute_offsets = self.calendar.get_session_ids_and_minute_offsets(
             instruments=df['Dominant_Contract'],
             calendar_timestamps=df_index,
         )
-        # 向 calendar 索要相对交易小节(session)开始时点的偏移分钟数(三个 session 分别为夜盘、早盘、午盘)
-        df['minute_offset'] = self.calendar.get_minute_offsets(
-            instruments=df['Dominant_Contract'],
-            calendar_timestamps=df_index,
-        )
+        df['session_id'] = session_ids
+        df['minute_offset'] = minute_offsets
         df['group_id'] = df['minute_offset'] // minutes
       
         # 定义聚合字典并做聚合运算
@@ -147,6 +146,9 @@ class BarAggregator:
 
         # 剔除辅助列
         resampled_df = resampled_df.drop(columns=['session_id','group_id','calendar_time'])
+
+        if not add_trading_date_col:
+            resampled_df = resampled_df.drop(columns=['trading_date'])
 
         # 将索引格式 explictly 设置为 pd.DatetimeIndex
         resampled_df.index = pd.DatetimeIndex(resampled_df.index)

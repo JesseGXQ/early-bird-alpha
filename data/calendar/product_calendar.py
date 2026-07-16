@@ -390,10 +390,12 @@ class ProductCalendar:
         np.ndarray
             时间戳所属交易小节。0(夜盘), 1(早盘), 2(午盘)。
         """
-        return np.array([
-            self.get_session_id(instrument, ts, view=view)
-            for instrument, ts in zip(instruments, calendar_timestamps)
-        ])
+        session_ids, _ = self.get_session_ids_and_minute_offsets(
+            instruments=instruments,
+            calendar_timestamps=calendar_timestamps,
+            view=view,
+        )
+        return session_ids
         # """
         # 判断时间戳落在哪一个交易小节。向量化版本。
         # """
@@ -458,10 +460,106 @@ class ProductCalendar:
         np.ndarray
             时间戳距离其所属交易小节起点的分钟数。
         """
-        return np.array([
-            self.get_minute_offset(instrument, ts, view=view)
-            for instrument, ts in zip(instruments, calendar_timestamps)
-        ])
+        _, minute_offsets = self.get_session_ids_and_minute_offsets(
+            instruments=instruments,
+            calendar_timestamps=calendar_timestamps,
+            view=view,
+        )
+        return minute_offsets
+
+    def get_session_ids_and_minute_offsets(
+        self,
+        instruments: Iterable[str],
+        calendar_timestamps: pd.DatetimeIndex,
+        view: Literal['scheduled', 'realized'] = 'scheduled',
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        批量获取 session_id 和 minute_offset。
+
+        按 (instrument, trading_date) 分组，只为每个组合读取一次交易时段规则，
+        再用区间掩码批量填充结果，避免逐行调用 get_session_id/get_minute_offset。
+        """
+        timestamps = pd.DatetimeIndex(calendar_timestamps)
+        n = len(timestamps)
+        if n == 0:
+            return np.array([], dtype=np.int64), np.array([], dtype=np.int64)
+
+        instruments_arr = np.asarray(list(instruments), dtype=object)
+        if len(instruments_arr) != n:
+            raise ValueError(
+                f'【ProductCalendar】instruments 长度 {len(instruments_arr)} 与 '
+                f'calendar_timestamps 长度 {n} 不一致。'
+            )
+
+        trading_dates_arr = self.get_trading_dates(timestamps)
+        session_ids = np.full(n, -1, dtype=np.int64)
+        minute_offsets = np.full(n, -1, dtype=np.int64)
+
+        key_df = pd.DataFrame({
+            'instrument': instruments_arr,
+            'trading_date': trading_dates_arr,
+        })
+
+        for (instrument, trading_date), positions_index in key_df.groupby(
+            ['instrument', 'trading_date'],
+            sort=False,
+        ).groups.items():
+            positions = positions_index.to_numpy(dtype=np.int64)
+            ts_group = timestamps.take(positions) # 获取合约-交易日的所有时间戳作为一组
+            session = self._get_trading_sessions_cached( # 获取合约-交易日的交易时段
+                instrument,
+                trading_date,
+                view=view,
+            )
+            # 对于（合约-交易日），计算相应的 session_id 和 minute_offset
+            for session_id, session_group, intervals in (
+                (0, 'night', session.night_sessions),
+                (1, 'morning', session.morning_sessions),
+                (2, 'afternoon', session.afternoon_sessions),
+            ):
+                minutes_passed = 0
+                for start_ts, end_ts in self._session_interval_timestamps(
+                    session_group,
+                    intervals,
+                    trading_date,
+                ):
+                    in_interval = (ts_group >= start_ts) & (ts_group < end_ts) # 一组时间戳是否在该 interval 以内
+                    if in_interval.any():
+                        matched_positions = positions[in_interval]
+                        matched_timestamps = ts_group[in_interval]
+                        session_ids[matched_positions] = session_id
+                        minute_offsets[matched_positions] = (
+                            minutes_passed
+                            + (
+                                (matched_timestamps - start_ts)
+                                / pd.Timedelta(minutes=1)
+                            ).astype(np.int64)
+                        )
+                    interval_minutes = int((end_ts - start_ts).total_seconds() / 60)
+                    minutes_passed += interval_minutes
+
+        invalid = np.where((session_ids < 0) | (minute_offsets < 0))[0]
+        invalid_session_id_count = (session_ids == -1).sum()
+        invalid_minute_offset_count = (minute_offsets == -1).sum()
+        if len(invalid) > 0:
+            idx = int(invalid[0])
+            instrument = instruments_arr[idx]
+            ts = timestamps[idx]
+            trading_date = trading_dates_arr[idx]
+            trading_session = self._get_trading_sessions_cached(
+                instrument,
+                trading_date,
+                view=view,
+            )
+            raise ValueError(f'''【ProductCalendar】：存在非合法的时间戳。
+                             1. 无法计算 session_id 的共 {invalid_session_id_count} 个。
+                             2. 无法计算 minute_offset 的共 {invalid_minute_offset_count} 个。
+                             例：{ts} 不属于 {instrument} 的交易时段，
+                         合约 {instrument} 在交易日 {trading_date} 的合法交易时段如下：
+                         {trading_session}
+                         ''')
+
+        return session_ids, minute_offsets
     
     def _get_prev_trading_date(self, trading_date: date) -> date:
         """获取输入交易日的前一个交易日"""

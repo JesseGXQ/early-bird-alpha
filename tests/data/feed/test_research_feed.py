@@ -50,18 +50,18 @@ def test_research_feed(meta_manager, exchange_calendar_manager,
     # 3. 测试 `get_historical_vector` 方法
     
     # ----------------------- 1d --------------------------
-    freq = '1d'
-    start_date = date(2015, 5, 13)
-    end_date = date(2025, 5, 16)
-    df = feed.get_historical_vector(start_date=start_date, end_date=end_date, freq=freq)
-    print(f'\n 从 {start_date} 至 {end_date}, freq={freq}，复权主力合约连续价格dataframe为：\n', df)
-    print(f'Columns are {df.columns}')
-    print(f'Times of rollover is: {df['is_roll'].sum()}')
+    # freq = '1d'
+    # start_date = date(2015, 5, 13)
+    # end_date = date(2025, 5, 16)
+    # df = feed.get_historical_vector(start_date=start_date, end_date=end_date, freq=freq)
+    # print(f'\n 从 {start_date} 至 {end_date}, freq={freq}，复权主力合约连续价格dataframe为：\n', df)
+    # print(f'Columns are {df.columns}')
+    # print(f'Times of rollover is: {df['is_roll'].sum()}')
 
     # ----------------------- 5min --------------------------
     freq = '5min'
     start_date = date(2015, 5, 13)
-    end_date = date(2015, 7, 16)
+    end_date = date(2025, 5, 16)
     df = feed.get_historical_vector(start_date=start_date, end_date=end_date, freq=freq)
     print(f'\n 从 {start_date} 至 {end_date}, freq={freq}，复权主力合约连续价格dataframe为：\n', df)
     # # ----------------------- 30min --------------------------

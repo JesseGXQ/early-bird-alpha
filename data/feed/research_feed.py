@@ -132,7 +132,11 @@ class ResearchFeed:
         else:
             raw_continuous = self._collect_raw_1min_data(contract_dates_mapping=contract_dates_mapping)
             # 聚合
-            resampled_df = self.bar_aggregator.aggregate(raw_df=raw_continuous, freq=freq)
+            resampled_df = self.bar_aggregator.aggregate(
+                raw_df=raw_continuous,
+                freq=freq,
+                add_trading_date_col=True,
+            )
             # 复权
             re_df = self._adjust_price(resampled_df, master_df=master_df_query)
             # 计算 True Return
