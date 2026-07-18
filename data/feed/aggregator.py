@@ -95,7 +95,7 @@ class BarAggregator:
 
         # 分配交易小节(session_id)和组号(group_id)，后续将根据 trading_date, session_id 和 group_id 为 key 做聚合运算
         session_ids, minute_offsets = self.calendar.get_session_ids_and_minute_offsets(
-            instruments=df['Dominant_Contract'],
+            instruments=df['Dominant_Contract'].values,
             calendar_timestamps=df_index,
         )
         df['session_id'] = session_ids

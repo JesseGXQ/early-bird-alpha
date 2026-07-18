@@ -3,7 +3,7 @@ import pandas as pd
 from unittest.mock import MagicMock
 
 # 导入被测试的清洗组件
-from data.cleaning.cleaning import (
+from data.cleaning.cleaning_tick import (
     OutlierFilter,
     PriceLimitFilter,
     InstrumentCodeTranslator,

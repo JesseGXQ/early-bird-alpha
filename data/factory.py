@@ -1,7 +1,7 @@
 """
 工厂函数：负责构造和组装对象
 """
-from data.cleaning.cleaning import *
+from data.cleaning.cleaning_tick import *
 
 from data.stitching.stitching import ContinuousContractManager
 

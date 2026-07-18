@@ -72,7 +72,6 @@ class BarLoader:
         
         # 1. 若命中缓存
         if file_path in self._cache:
-            print(f'{file_path} 已读取过并有缓存，直接返回。')
             self._cache.move_to_end(file_path)
             return self._cache[file_path].copy() #返回副本，防止外部修改
         

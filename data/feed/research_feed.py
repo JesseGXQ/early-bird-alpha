@@ -7,6 +7,7 @@ from datetime import date
 from utils.validation_utils import check_df_columns_exist
 
 if TYPE_CHECKING:
+    from data.cleaning.cleaning_tick import CleaningPipeline
     from data.stitching.stitching import ContinuousContractManager
     from data.rules.product_meta_manager import ProductMetaManager
     from data.storage.daily_snapshot_manager import DailySnapshotManager
@@ -58,6 +59,7 @@ class ResearchFeed:
             calendar: ProductCalendar, 
             file_locator: FileLocator, 
             bar_loader: BarLoader, 
+            cleaning_pipeline: CleaningPipeline,
             bar_aggregator: BarAggregator,
             adj_config: AdjustmentConfig):
 
@@ -68,6 +70,7 @@ class ResearchFeed:
         self.calendar: ProductCalendar = calendar
         self.file_locator: FileLocator = file_locator
         self.bar_loader: BarLoader = bar_loader
+        self.cleaning_pipeline: CleaningPipeline = cleaning_pipeline
         self.bar_aggregator: BarAggregator = bar_aggregator
         self.adj_config: AdjustmentConfig = adj_config
 
@@ -131,9 +134,11 @@ class ResearchFeed:
             return re_df
         else:
             raw_continuous = self._collect_raw_1min_data(contract_dates_mapping=contract_dates_mapping)
+            # 清洗
+            cleaned_continuous = self.cleaning_pipeline.process(raw_continuous)
             # 聚合
             resampled_df = self.bar_aggregator.aggregate(
-                raw_df=raw_continuous,
+                raw_df=cleaned_continuous,
                 freq=freq,
                 add_trading_date_col=True,
             )

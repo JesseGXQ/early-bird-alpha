@@ -1,15 +1,17 @@
 from datetime import date
 
 import pytest
+from trio import open_file
 
 from data.calendar.product_calendar import ProductCalendar
 from data.feed.aggregator import BarAggregator
 from data.feed.research_feed import ResearchFeed
 from data.stitching.stitching import ContinuousContractManager
 from data.config import RolloverConfig, SamplingConfig, AdjustmentConfig
-from data.storage import daily_snapshot_manager
 from data.storage.bar_loader import BarLoader
 from data.storage.file_locator import FileLocator
+from data.cleaning.cleaning_bar_1min import DelayedNightOpenFixer
+from data.cleaning.cleaning_tick import CleaningPipeline
 
 master_table_dir = r'db\derived\master_tables'
 data_dir = r'D:\量化策略\CTA策略\RAW_DATA\1min'
@@ -35,6 +37,13 @@ def test_research_feed(meta_manager, exchange_calendar_manager,
     # K线聚合器
     bar_aggregator = BarAggregator(calendar, sample_config)
     
+    # 数据清洗管道
+    clean_pipeline = CleaningPipeline()
+    exchange = meta_manager.get_static_meta(product).exchange
+    if exchange not in ['GFEX', 'CFFEX']:
+        open_fixer = DelayedNightOpenFixer()
+        clean_pipeline.add_filter(open_fixer)
+
     # 2. 构造 ResearchFeed 实例
     feed = ResearchFeed(
         product=product, 
@@ -45,6 +54,7 @@ def test_research_feed(meta_manager, exchange_calendar_manager,
         bar_loader=bar_loader, 
         bar_aggregator=bar_aggregator, 
         adj_config=adj_config,
+        cleaning_pipeline=clean_pipeline,
         daily_snapshot_manager=daily_snapshot_manager)
 
     # 3. 测试 `get_historical_vector` 方法
@@ -64,6 +74,8 @@ def test_research_feed(meta_manager, exchange_calendar_manager,
     end_date = date(2025, 5, 16)
     df = feed.get_historical_vector(start_date=start_date, end_date=end_date, freq=freq)
     print(f'\n 从 {start_date} 至 {end_date}, freq={freq}，复权主力合约连续价格dataframe为：\n', df)
+    print(f'\n === LRU Cache Info ===')
+    print(f'ProductCalendar._get_trading_sessions_cached.cache_info(): {ProductCalendar._get_trading_sessions_cached.cache_info()}')
     # # ----------------------- 30min --------------------------
     # freq = '30min'
     # df = feed.get_historical_vector(start_date=start_date, end_date=end_date, freq=freq)

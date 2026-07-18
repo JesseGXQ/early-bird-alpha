@@ -11,7 +11,7 @@ from data.feed.models import ContractTick, MarketSnapshot
 
 if TYPE_CHECKING:
     from data.stitching.stitching import ContinuousContractManager
-    from data.cleaning.cleaning import CleaningPipeline
+    from data.cleaning.cleaning_tick import CleaningPipeline
     from data.calendar.product_calendar import ProductCalendar
     from data.storage.file_locator import FileLocator
 

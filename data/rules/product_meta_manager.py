@@ -10,6 +10,7 @@ from data.rules.models import (
     StaticMeta, PriceTickRule,  
     BaseSessions, SessionOverrideRules
 )
+from functools import lru_cache
 
 class ProductMetaManager:
     #Note: 对象的职责边界与实例化粒度（Object Responsibility & Instantiation Granularity）问题。 
@@ -170,6 +171,7 @@ class ProductMetaManager:
             rule: dict[str, Any] = yaml.safe_load(fh)
         return rule
     
+    @lru_cache(maxsize=1)
     def get_session_override_rules(self) -> SessionOverrideRules:
         """
         返回交易时段规则特殊安排。

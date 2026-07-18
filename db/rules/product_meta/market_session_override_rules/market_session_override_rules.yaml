@@ -150,7 +150,7 @@ scheduled_dated_overrides:
       - operation: apply_exception_interval
         session_group: morning
         start: '10:00'
-        end: '10:03'
+        end: '10:02'
         market_state: halted
     sources:
       - url: https://www.mfa.gov.cn/web//wjb_673085/zzjg_673183/gjjjs_674249/gjzzyhygk_674253/dmgh_674605/xgxw_674611/202212/t20221206_10985889.shtml

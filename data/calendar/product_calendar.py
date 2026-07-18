@@ -145,11 +145,11 @@ class ProductCalendar:
         instrument: str,
         trading_date: date,
         view: Literal['scheduled', 'realized'] = 'scheduled',
-    ):
+    ) -> TradingSessions:
         rule_service = self._require_trading_rule_service()
         return rule_service.get_trading_sessions(instrument, trading_date, view=view)
     
-    @lru_cache(maxsize=500)
+    @lru_cache(maxsize=None)
     def _get_trading_sessions_cached(
             self, instrument: str, 
             trading_date: date, 
@@ -378,12 +378,14 @@ class ProductCalendar:
         """
         判断每个时间戳落在哪一个交易小节。
 
-        内部调用 `get_session_id` 方法。
+        内部调用 `get_session_ids_and_minute_offsets` 方法。
 
         parameters
         ------
+        instruments: Iterable[str]
+            合约代码序列。
         calendar_timestamps: pd.DatetimeIndex
-            (日历)交易时间戳。
+            (日历)交易时间戳序列。
         
         Returns
         ------
@@ -395,49 +397,7 @@ class ProductCalendar:
             calendar_timestamps=calendar_timestamps,
             view=view,
         )
-        return session_ids
-        # """
-        # 判断时间戳落在哪一个交易小节。向量化版本。
-        # """
-        # def get_trading_sessions_arr(instruments: Iterable[str], 
-        #                              trading_dates_arr: Iterable[date]) -> list[TradingSessions]:
-        #     return  [self._get_trading_sessions_cached(instrument, trading_date, view)
-        #         for instrument, trading_date in zip(instruments, trading_dates_arr)]
-            
-        # trading_dates_arr = self.get_trading_dates(calendar_timestamps)
-        # trading_sessions_list = get_trading_sessions_arr(instruments, trading_dates_arr)
-        
-        # # find all unique (time, TradingSessions) pairs
-        # unique_time_trading_sessions_paris: list[tuple[time, TradingSessions]] = []
-        # n = 0
-        # indices: list[int] = []
-        # for (ts, trading_sessions) in zip(calendar_timestamps, trading_sessions_list):
-        #     t = ts.time()
-        #     if (t, trading_sessions) not in unique_time_trading_sessions_paris:
-        #         unique_time_trading_sessions_paris.append((t, trading_sessions))
-        #         indices.append(n)
-        #         n += 1
-        #     else:
-        #         indices.append(n)
-
-        # # calculate the session id of unique (time, TradingSessions) pairs
-        # session_ids: list[int] = []
-        # for t, trading_sessions in unique_time_trading_sessions_paris:
-        #     for id, intervals in (
-        #     (0, trading_sessions.night_sessions),
-        #     (1, trading_sessions.morning_sessions),
-        #     (2, trading_sessions.afternoon_sessions)):
-        #         for start_str, end_str in intervals:
-        #             start_t = pd.Timestamp(start_str).time()
-        #             end_t = pd.Timestamp(end_str).time()
-        #             if self._time_in_interval(t, start_t, end_t):
-        #                 session_ids.append(id)
-        # return np.array([
-        #     session_ids[i] for i in indices
-        # ])
-    
-                        
-                
+        return session_ids 
 
     def get_minute_offsets(
         self,
@@ -448,12 +408,14 @@ class ProductCalendar:
         """
         计算时间戳距离其所属交易小节起点的分钟数。交易小节分为早盘、午盘和夜盘。可正确处理盘中休息时段。  
         
-        内部调用 `get_minute_offset` 方法。
+        内部调用 `get_session_ids_and_minute_offsets` 方法。
 
         Parameters
         ------
+        instruments: Iterable[str]
+            合约代码序列。
         calendar_timestamps: pd.DatetimeIndex
-            (日历)交易时间戳。
+            (日历)交易时间戳序列。
         
         Returns
         ------
@@ -478,6 +440,22 @@ class ProductCalendar:
 
         按 (instrument, trading_date) 分组，只为每个组合读取一次交易时段规则，
         再用区间掩码批量填充结果，避免逐行调用 get_session_id/get_minute_offset。
+
+        Parameters
+        ----------
+        instruments : Iterable[str]
+            合约代码序列，长度需与 calendar_timestamps 一致。
+        calendar_timestamps : pd.DatetimeIndex
+            (日历)交易时间戳序列。
+        view : Literal['scheduled', 'realized'], default 'scheduled'
+            指定使用计划时段还是实际时段。
+
+        Returns
+        -------
+        session_ids : np.ndarray
+            每个时间戳所属交易小节编号（0=夜盘,1=早盘,2=午盘），无效时间戳为 -1。
+        minute_offsets : np.ndarray
+            每个时间戳距其所属交易小节起点的分钟数，无效时间戳为 -1。
         """
         timestamps = pd.DatetimeIndex(calendar_timestamps)
         n = len(timestamps)
