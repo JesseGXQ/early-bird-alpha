@@ -1,6 +1,7 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 import pandas as pd
+from sklearn.utils import resample
 
 if TYPE_CHECKING:
     from data.config import SamplingConfig
@@ -54,7 +55,7 @@ class BarAggregator:
     def aggregate(self, 
                   raw_df: pd.DataFrame, 
                   freq: str,
-                  add_trading_date_col: bool = False) -> pd.DataFrame:
+                  view: Literal['scheduled', 'realized']='scheduled') -> pd.DataFrame:
         """
         降频采样运算。
 
@@ -66,8 +67,6 @@ class BarAggregator:
             输出数据的频率，支持分钟级，小时级。
             格式同 Pandas Offset aliases 保持一致。
             例: 1min, 5min, 15min, 30min, 1h, 2h, 4h。
-        add_trading_date_col: bool, default False.
-            是否保留 'trading_date' 列。
         
         Returns
         ------
@@ -118,41 +117,43 @@ class BarAggregator:
             calendar_time = ('calendar_time', 'first')
             )
         
-        # 由于原始数据时间轴存在可能的缺失 bar， 因此 'first' of calendar_time 可能会使出现 M5 下出现 14:22 这类时间戳标签。应当对其进行标准化，改为 14:20(区间左侧)。
-        # 只要用 group_id * minutes 计算出小节内的分钟偏移量，就可以联同交易日期(trading_date)，交易小节(session_id) 一起传给 calendar 的一个反向翻译器，得到标准化后的 calendar_time。
-        resampled_df.reset_index(inplace=True) 
-        normalized_calendar_times = self.calendar.get_calendar_timestamps_from_date_session_offset(
-            instruments=resampled_df['Dominant_Contract'],
-            trading_dates=resampled_df['trading_date'],
-            session_ids=resampled_df['session_id'],
-            minute_offsets=resampled_df['group_id'] * minutes
-        )
-        resampled_df['normalized_calendar_time'] = normalized_calendar_times
+        # 利用 calendar 计算频率为 freq 的标准交易时间轴 dataframe
+        instrument_trading_date_pairs = resampled_df.reset_index()[['Dominant_Contract','trading_date']].drop_duplicates().to_records(index=False)
+        ts_dfs: list[pd.DataFrame] = []
+        for instrument, trading_date in instrument_trading_date_pairs:
+            _df = self.calendar.get_normalized_timestamp_df(instrument, trading_date, freq, view) # _df 包含 normalized_calendar_timestamp, session_id, group_id列
+            _df['instrument'] = instrument
+            _df['trading_date'] = trading_date
+            ts_dfs.append(_df)
+        normalized_timestamp_df = pd.concat(ts_dfs, axis=0)
 
-        #设置索引、命名和排序
-        resampled_df.set_index('normalized_calendar_time', inplace=True)
+        # 将包含标准交易时间轴的dataframe merge到聚合运算后的 resampled_df 中
+        if self.sample_config.alignment == 'strict':    
+            merge_how = 'right'
+        elif self.sample_config.alignment == 'lazy':
+            merge_how = 'left'
+        else:
+            raise ValueError(f'SamplingConfig.alignment 只能为 strict/lazy， 现在为 {self.sample_config.alignment}')
+        resampled_df = pd.merge(resampled_df.reset_index(), normalized_timestamp_df, 
+                                left_on=['Dominant_Contract','trading_date','session_id','group_id'],
+                                right_on=['instrument','trading_date','session_id','group_id'],
+                                how=merge_how
+                                )
+        assert 'normalized_calendar_timestamp' in resampled_df
+        resampled_df.set_index('normalized_calendar_timestamp', inplace=True)
+        resampled_df.index = pd.DatetimeIndex(resampled_df.index)
 
         # 处理夜盘开关
         if not self.sample_config.include_night_session:
             resampled_df = resampled_df[resampled_df['session_id'] != 0]
-        
-        # 进行对齐(alignment)和缺失值处理(imputation_method)
-        # alignment 是指挖出空缺的 K 线。例如原始数据在 ..13:55, 13:56 后面直接跟着 14:22，那么从 14:00 - 14:15 的 4 根 K 线将完全缺失，alignment = 'strict' 需要将其挖出进行补全。
-        # 缺失值处理中，imputation_method == 'ffill'，则是将挖出的缺失 K 线数据缺失值进行填充。
-        if self.sample_config.alignment == 'strict': # if 'lazy', do nothing
-            resampled_df = self.align_to_standard_timestamps(resampled_df, freq)
-            if self.sample_config.imputation_method == 'ffill': # if 'drop' do nothing
-                resampled_df = self.impute_missing_bars(resampled_df)
-
+        # 处理空值填充选项
+        if self.sample_config.imputation_method == 'ffill': # if 'drop' do nothing
+            resampled_df = self.impute_missing_bars(resampled_df)
         # 剔除辅助列
         resampled_df = resampled_df.drop(columns=['session_id','group_id','calendar_time'])
-
-        if not add_trading_date_col:
-            resampled_df = resampled_df.drop(columns=['trading_date'])
-
-        # 将索引格式 explictly 设置为 pd.DatetimeIndex
-        resampled_df.index = pd.DatetimeIndex(resampled_df.index)
-
+        # 做一次explicit sorting by index
+        resampled_df.sort_index(inplace=True)
+        
         return resampled_df
     
     def align_to_standard_timestamps(self, df: pd.DataFrame, freq: str) -> pd.DataFrame:

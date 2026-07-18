@@ -251,11 +251,12 @@ class ContinuousContractManager:
             包含物理合约（名称）的列表。非换月期输出[主力]，换月期间输出[旧主力，新主力]。
 
         """
-        if trading_date not in self.master_table.index:
+        ts = pd.Timestamp(trading_date)
+        if ts not in self.master_table.index:
             raise ValueError(f'【ContinuousContractManager】在已有数据中找不到所查询的日期 {trading_date} 。')
         
-        current_idx = self.dates_list.index(trading_date)
-        curr_dominant = self.master_table.at[trading_date, 'Dominant_Contract']
+        current_idx = self.dates_list.index(ts)
+        curr_dominant = self.master_table.at[ts, 'Dominant_Contract']
         # ensure string type (pandas may return bytes/Scalar)
         curr_dominant = str(curr_dominant)
 

@@ -151,7 +151,8 @@ class ProductCalendar:
     
     @lru_cache(maxsize=None)
     def _get_trading_sessions_cached(
-            self, instrument: str, 
+            self, 
+            instrument: str, 
             trading_date: date, 
             view: Literal['scheduled', 'realized']='scheduled'
             ) -> TradingSessions:
@@ -654,6 +655,8 @@ class ProductCalendar:
 
         Parameters
         ------
+        instrument: str
+            合约代码。
         start_date: datetime.date
             起始日期（交易日）。
         end_date: datetime.date
@@ -691,6 +694,42 @@ class ProductCalendar:
                     ).tolist())
 
         return np.array(standard_timestamps)
+    
+    def get_normalized_timestamp_df(self, instrument: str, trading_date: date, 
+                                 freq: str, 
+                                 view: Literal['scheduled', 'realized']='scheduled') -> pd.DataFrame:
+        """
+        生成针对合约-交易日，特定频率的标准交易时间戳的 pandas DataFrame。
+        
+        包含  normalized_calendar_timestamp, session_id, group_id列
+        """
+        session_ids: list[int] = []
+        group_ids : list[int] = []
+        normalized_calendar_timestamps: Iterable[pd.Timestamp] = []
+
+        sessions = self._get_trading_sessions_cached(instrument, trading_date, view)
+        for session_group, sid, intervals in (
+                ('morning', 1,sessions.morning_sessions),
+                ('afternoon', 2, sessions.afternoon_sessions),
+                ('night', 0, sessions.night_sessions),
+            ):
+            n_timestamps_in_session_group = 0
+            for start_ts, end_ts in self._session_interval_timestamps(session_group, intervals, trading_date):
+                timestamps = pd.date_range(start=start_ts,end=end_ts,freq=freq,inclusive='left').tolist()
+                n_timestamps_in_session_group += len(timestamps)
+                normalized_calendar_timestamps.extend(timestamps)
+            # 将 session_id 并进来
+            session_ids.extend([sid] * n_timestamps_in_session_group )
+            # 将 group_id 并进来
+            group_ids.extend(range(n_timestamps_in_session_group))
+        
+        return pd.DataFrame(
+            {
+                'normalized_calendar_timestamp': normalized_calendar_timestamps,
+                'session_id': session_ids,
+                'group_id': group_ids
+            }
+        )
 
     def get_calendar_timestamp_from_trading_date_and_time(
         self,

@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from numpy import isin
 import pandas as pd
 from abc import ABC, abstractmethod
-from datetime import time
+from datetime import date, time
 
 from data.rules.trading_rule_service import TradingRuleService
+from db.rules_ingestion.script.product_meta.ingest_trading_sessions import clean_cell
 from utils.validation_utils import check_df_columns_exist
 
 if TYPE_CHECKING:
     from data.storage.daily_snapshot_manager import DailySnapshotManager
+    from data.rules.product_meta_manager import ProductMetaManager
     from data.rules.instrument_registry_manager import InstrumentRegistryManager
     from data.calendar.product_calendar import ProductCalendar
 
@@ -30,29 +33,36 @@ class InstrumentCodeTranslator(FilterBase):
     
     应该作为数据从外部到内部的清洗流程第一步。
     """
-    def __init__(self, registry_manager: InstrumentRegistryManager):
+    def __init__(self, meta_manager: ProductMetaManager,
+                 registry_manager: InstrumentRegistryManager, product: str):
+        self.meta_manager: ProductMetaManager = meta_manager
         self.registry_manager: InstrumentRegistryManager = registry_manager
+        self.product: str = product
 
     def apply(self, df: pd.DataFrame) -> pd.DataFrame:
+        exchange = self.meta_manager.get_static_meta(self.product).exchange
+
+        if exchange != 'CZCE': 
+            df['InstrumentID'] = df['InstrumentID'].str.strip().str.upper() # 若不为 CZCE，直接把代码转换为英文大写即可
+            return df
         
+        # 若为CZCE，需要翻译
         cleaned_df = df.copy()
-
-        if 'InstrumentID' not in cleaned_df:
-            raise ValueError(f'未能在数据中找到合约代码列 "InstrumentID"。请检查原始数据。')
-        if 'TradingDay' not in cleaned_df:
-            raise ValueError(f'未能在数据中找到交易日期列 "TradingDay"。请检查原始数据。')
         
-        trading_dates = pd.to_datetime(cleaned_df['TradingDay'], format='%Y%m%d').dt.date.tolist()
-        codes= cleaned_df['InstrumentID'].tolist()
+        # 根据交易所代码和年份，交给 InstrumentRegistryManager 的一个翻译器，翻译出郑商所内部合约代码
+        unique_InstrumentID_TradingDay_pairs = cleaned_df[['InstrumentID', 'TradingDay']].dropna().drop_duplicates().to_records(index=False)
+        _data = []
+        for instrument_id, trading_day in unique_InstrumentID_TradingDay_pairs:
+            trading_date = pd.to_datetime(trading_day).date()
+            assert isinstance(trading_date, date)
+            internal_code = self.registry_manager.translate_code('exchange_to_internal', instrument_id, trading_date)
+            _data.append((internal_code, trading_day, instrument_id))
+        code_df = pd.DataFrame(_data, columns=['internal_code','TradingDay','InstrumentID'])
+        cleaned_df = pd.merge(cleaned_df, code_df, on=['InstrumentID','TradingDay'], how='inner')
 
-        instruments = [
-            self.registry_manager.translate_code('exchange_to_internal', code, trading_date) 
-            for code, trading_date in zip(codes, trading_dates)
-        ]
-        cleaned_df['InstrumentID'] = instruments
-        
+        cleaned_df = cleaned_df.drop(columns=['InstrumentID']).rename(columns={'internal_code': 'InstrumentID'})
+
         return cleaned_df
-
 
 class DataEnricherPriceLimit(FilterBase):
     """

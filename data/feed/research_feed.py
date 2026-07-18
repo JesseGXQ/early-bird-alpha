@@ -1,7 +1,7 @@
 from __future__ import annotations
 import pandas as pd
 import warnings
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from datetime import date
 
 from utils.validation_utils import check_df_columns_exist
@@ -77,7 +77,8 @@ class ResearchFeed:
     def get_historical_vector(self, 
                               start_date: date, 
                               end_date: date,
-                              freq: str = '1d') -> pd.DataFrame:
+                              freq: str = '1d',
+                              view: Literal['scheduled', 'realized'] = 'scheduled') -> pd.DataFrame:
         """
         返回指定日期范围内，特定频率的历史复权主力合约价格。
 
@@ -92,6 +93,8 @@ class ResearchFeed:
             K 线频率，格式同 Pandas Offset aliases 保持一致。
             例: 1min, 5min, 15min, 30min, 1h, 2h, 4h, 1d。
             默认1d ，即日频 。
+        view: Literal['scheduled, 'realized'], 默认 'scheduled'。
+            计划或实际视图。默认为计划视图。
 
         Returns
         -------
@@ -133,32 +136,34 @@ class ResearchFeed:
             re_df = self._calculate_true_return_daily(re_df)
             return re_df
         else:
+            print('读取原始1min数据...')
             raw_continuous = self._collect_raw_1min_data(contract_dates_mapping=contract_dates_mapping)
             # 清洗
+            print('数据清洗...')
             cleaned_continuous = self.cleaning_pipeline.process(raw_continuous)
             # 聚合
+            print('聚合运算...')
             resampled_df = self.bar_aggregator.aggregate(
                 raw_df=cleaned_continuous,
                 freq=freq,
-                add_trading_date_col=True,
+                view=view
             )
             # 复权
+            print('复权操作...')
             re_df = self._adjust_price(resampled_df, master_df=master_df_query)
             # 计算 True Return
+            print('计算 True Return 序列...')
             re_df = self._calculate_true_return_intraday(re_df)
             return re_df
 
     def _query_master_table(self, start_date: date, end_date: date) -> pd.DataFrame:
         """返回指定日期范围的物理合约映射表"""
-        try:
-            master_df_query = self.contract_manager.master_table.loc[start_date:end_date].copy()
-        except KeyError:
-            master_table_dates = self.contract_manager.master_table.index.sort_values()
-            master_table_start_date = master_table_dates[0]
-            master_table_end_date = master_table_dates[-1]
-            raise ValueError(f'请求日期区间 {start_date} - {end_date} 超出了换月总表范围。目前支持 {master_table_start_date} - {master_table_end_date}。')
-        else:
-            return master_df_query
+        master_table_dates = self.contract_manager.master_table.index
+        if pd.Timestamp(start_date) < master_table_dates[0] or pd.Timestamp(end_date) > master_table_dates[-1]:
+            raise ValueError(f'请求日期区间 {start_date} - {end_date} 超出了换月总表范围。'
+                             f'品种 {self.product} 支持 {master_table_dates[0].strftime('%Y-%m-%d')} - {master_table_dates[-1].strftime('%Y-%m-%d')}。')
+        master_df_query = self.contract_manager.master_table.loc[start_date:end_date].copy()
+        return master_df_query
 
     def _get_contract_dates_mapping(self, master_df_query: pd.DataFrame) -> dict[str, list[date]]:
         """获取每个 dominant contract 和其对应交易日的字典。"""

@@ -36,6 +36,10 @@ def calendar_dir():
 def daily_snapshot_dir():
     return r'db\market\daily_snapshots\bar_1d\bar_1d_tushare\cleaned'
 
+@pytest.fixture(scope='session')
+def tick_data_dir():
+    return r'D:\量化策略\CTA策略\RAW_DATA\TICK'
+
 # ----------------------------------------------------------------
 # 各业务数据管理器 Fixtures (设置为 session 级别，避免重复读取硬盘数据)
 # ----------------------------------------------------------------

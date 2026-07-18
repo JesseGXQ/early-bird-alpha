@@ -2,6 +2,7 @@
 交易时段规则解释器
 """
 from __future__ import annotations
+from functools import lru_cache
 
 import pandas as pd
 import numpy as np
@@ -33,7 +34,7 @@ class SessionRuleResolver:
 
         # 设定解析器版本
         self.version: int = 1
-
+    
     def resolve_rules(
         self, 
         contract: str,

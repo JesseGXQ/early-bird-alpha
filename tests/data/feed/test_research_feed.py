@@ -16,7 +16,7 @@ from data.cleaning.cleaning_tick import CleaningPipeline
 master_table_dir = r'db\derived\master_tables'
 data_dir = r'D:\量化策略\CTA策略\RAW_DATA\1min'
 
-product = 'rb'
+product = 'ag'
 
 rollover_config = RolloverConfig()
 sample_config = SamplingConfig()
@@ -69,10 +69,10 @@ def test_research_feed(meta_manager, exchange_calendar_manager,
     # print(f'Times of rollover is: {df['is_roll'].sum()}')
 
     # ----------------------- 5min --------------------------
-    freq = '5min'
-    start_date = date(2015, 5, 13)
-    end_date = date(2025, 5, 16)
-    df = feed.get_historical_vector(start_date=start_date, end_date=end_date, freq=freq)
+    freq = '1h'
+    start_date = date(2012, 5, 10)
+    end_date = date(2026, 6, 25)
+    df = feed.get_historical_vector(start_date=start_date, end_date=end_date, freq=freq, view='realized')
     print(f'\n 从 {start_date} 至 {end_date}, freq={freq}，复权主力合约连续价格dataframe为：\n', df)
     print(f'\n === LRU Cache Info ===')
     print(f'ProductCalendar._get_trading_sessions_cached.cache_info(): {ProductCalendar._get_trading_sessions_cached.cache_info()}')
