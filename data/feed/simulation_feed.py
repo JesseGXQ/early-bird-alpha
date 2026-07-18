@@ -119,6 +119,11 @@ class SimulationFeed:
             (self.calendar.exchange_trading_dates >= pd.Timestamp(start_date) ) & 
             (self.calendar.exchange_trading_dates <= pd.Timestamp(end_date) )
         )
+        if not mask.any(): # 如果输入的日期范围完全在交易日历之外
+            raise ValueError(f'''输入的 start_date {start_date} 和 end_date {end_date} 完全落于交易日历之外。
+                             目前 {self.product} 的交易日历最早为 {self.calendar.exchange_trading_dates[0].date()}，
+                             最晚为 {self.calendar.exchange_trading_dates[-1].date()}
+                             ''')
         trading_dates = self.calendar.exchange_trading_dates[mask].date
 
         for trading_date in trading_dates:

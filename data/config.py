@@ -68,7 +68,7 @@ class SamplingConfig:
         时间轴对齐模式。'strict' 强制对齐为标准交易时间戳以避免因提前收盘导致的时间错位；
         'lazy' 则更宽松（默认：'strict'）。
     include_night_session : bool, optional
-        是否包含夜盘数据（默认：True）。
+        是否包含夜盘数据(默认: True)。
 
     """
     imputation_method: Literal['ffill','drop'] = 'ffill' # 缺失值处理，如果某一根 15min K线全市场无成交（涨跌停时常见），是填补上一根收盘价 (ffill)，还是直接丢弃这行 (drop))
@@ -88,6 +88,8 @@ class EnvironmentConfig:
         规则数据库tier2——合约注册层数据的目录路径。
     daily_status_dir: str, optional
         规则数据库tier3——日频动态状态层数据的目录路径。
+    exchange_holiday_dir: str, optional
+        交易所节假日安排数据的路径。
     
     data_dir_1min : str, optional
         存放 1 分钟 K 线数据的目录路径。
@@ -107,18 +109,19 @@ class EnvironmentConfig:
     """
     # ── 三层期货交易规则数据库路径 ──────────────────────────────
     # tier1
-    product_meta_dir: str = './db/reference/product_meta'
+    product_meta_dir: str = './db/rules/product_meta'
     # tier2
-    instrument_registry_dir: str = './db/reference/instrument_registry'
+    instrument_registry_dir: str = './db/rules/instrument_registry'
     # tier3 
-    daily_status_dir: str = './db/reference/instrument_daily_status'
+    daily_status_dir: str = './db/rules/instrument_daily_status'
     # exchange-level holiday/no-night arrangements
-    exchange_holiday_dir: str = './db/reference/exchange_holiday'
+    exchange_holiday_dir: str = './db/rules/exchange_holiday'
+
 
     # ── 行情数据路径 ──────────────────────────────────────────
-    data_dir_1min: str = './db/market/bar_1min'              # 1min 数据储存路径
-    data_dir_tick: str = './db/market/tick'                  # TICK 数据储存路径
-    daily_snapshot_dir: str = './db/market/daily_snapshots' # 日频快照数据储存位置
+    data_dir_1min: str = r'D:\量化策略\CTA策略\RAW_DATA\1min'              # 1min 数据储存路径
+    data_dir_tick: str = r'D:\量化策略\CTA策略\RAW_DATA\TICK'                  # TICK 数据储存路径
+    daily_snapshot_dir: str = 'db/market/daily_snapshots/bar_1d/bar_1d_tushare/cleaned' # 日频快照数据储存位置
     
     # ── 其他数据路径 ──────────────────────────────────────────
     master_table_dir: str = './db/derived/master_tables'     # 换月总表储存位置

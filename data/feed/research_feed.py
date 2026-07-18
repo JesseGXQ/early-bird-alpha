@@ -4,6 +4,8 @@ import warnings
 from typing import TYPE_CHECKING, Literal
 from datetime import date
 
+from tqdm import tqdm
+
 from utils.validation_utils import check_df_columns_exist
 
 if TYPE_CHECKING:
@@ -136,24 +138,30 @@ class ResearchFeed:
             re_df = self._calculate_true_return_daily(re_df)
             return re_df
         else:
-            print('读取原始1min数据...')
-            raw_continuous = self._collect_raw_1min_data(contract_dates_mapping=contract_dates_mapping)
-            # 清洗
-            print('数据清洗...')
-            cleaned_continuous = self.cleaning_pipeline.process(raw_continuous)
-            # 聚合
-            print('聚合运算...')
-            resampled_df = self.bar_aggregator.aggregate(
-                raw_df=cleaned_continuous,
-                freq=freq,
-                view=view
-            )
-            # 复权
-            print('复权操作...')
-            re_df = self._adjust_price(resampled_df, master_df=master_df_query)
-            # 计算 True Return
-            print('计算 True Return 序列...')
-            re_df = self._calculate_true_return_intraday(re_df)
+            with tqdm(total=5, desc=f'{self.product} 主连复权', unit='step', ncols=80) as pbar:
+                pbar.set_postfix_str('读取原始1min数据')
+                raw_continuous = self._collect_raw_1min_data(contract_dates_mapping=contract_dates_mapping)
+                pbar.update(1)
+
+                pbar.set_postfix_str('数据清洗')
+                cleaned_continuous = self.cleaning_pipeline.process(raw_continuous)
+                pbar.update(1)
+
+                pbar.set_postfix_str('聚合运算')
+                resampled_df = self.bar_aggregator.aggregate(
+                    raw_df=cleaned_continuous,
+                    freq=freq,
+                    view=view
+                )
+                pbar.update(1)
+
+                pbar.set_postfix_str('复权操作')
+                re_df = self._adjust_price(resampled_df, master_df=master_df_query)
+                pbar.update(1)
+
+                pbar.set_postfix_str('计算 True Return')
+                re_df = self._calculate_true_return_intraday(re_df)
+                pbar.update(1)
             return re_df
 
     def _query_master_table(self, start_date: date, end_date: date) -> pd.DataFrame:
