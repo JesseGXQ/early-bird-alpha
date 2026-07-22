@@ -36,8 +36,8 @@ class DataFacade:
         获取 ResearchFeed 实例。
     get_simulation_feed(product)
         获取 SimulationFeed 实例。
-    get_historical_vector(product, start_date, end_date, freq)
-        获取复权主连历史价格向量。
+    get_historical_vector(product, start_date, end_date, freq, view)
+        获取复权主连历史价格 DataFrame 。
     get_snapshot_stream(product, start_date, end_date)
         获取逐笔市场快照数据流。
     
