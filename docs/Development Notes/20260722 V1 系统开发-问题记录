@@ -1,7 +1,0 @@
-
-## Questions
-
-1. 如果研究的是日频的策略，例如20日趋势跟踪策略，那么成交手续费和滑点是不是不太可能对策略表现构成显著的实质性影响？
-2. `account.multiplier.RegistryMultiplierProvider`是一个临时构造的特定交易规则查询类。我是不是应该在数据引擎中额外建立一个对外的交易规则服务门面？
-* 我还有一个 `data.rules.trading_rule_service.TradingRuleService`，应该让这个类对其他模块暴露吗？还是说把对外查询功能统一放到`Facade`中，然后让`Facade`在内部调用`TradingRuleService`？
-

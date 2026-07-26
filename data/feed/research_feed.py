@@ -296,7 +296,7 @@ class ResearchFeed:
                 contract=new_dominant_contract, trading_date=pre_date).close
             # 计算换月日正确的 True Return
             true_return_roll = p_new_new_dominant / p_old_new_dominant - 1
-            df.at[pre_date, 'True_Return'] = true_return_roll
+            df.at[roll_date, 'True_Return'] = true_return_roll
         
         return df
     

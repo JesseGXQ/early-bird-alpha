@@ -173,15 +173,15 @@ if __name__ == '__main__':
     print(f'product = {product}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df2.head())
 
     # -------------------------SimulationFeed------------------------
-    product = 'TF'
-    start_date = date(2026, 1, 5)
-    end_date = date(2026, 1, 9)
-    stream = facade.get_snapshot_stream(product, start_date, end_date)
-    for i, snapshot in enumerate(stream):
-        if i<=10:
-            print(snapshot)
-        else:
-            break
+    # product = 'TF'
+    # start_date = date(2026, 1, 5)
+    # end_date = date(2026, 1, 9)
+    # stream = facade.get_snapshot_stream(product, start_date, end_date)
+    # for i, snapshot in enumerate(stream):
+    #     if i<=10:
+    #         print(snapshot)
+    #     else:
+    #         break
     
     print('\n\n Test of ResearchFeed and SimulationFeed: ALL DONE :) !')
 
