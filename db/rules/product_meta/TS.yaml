@@ -5,6 +5,7 @@ name: 债二
 position_date_type: undistinguished
 max_margin_side_algorithm: true
 combination_type: 0
+list_date: 2018-08-17
 
 # -------------------- price tick rule --------------------
 price_tick_history:

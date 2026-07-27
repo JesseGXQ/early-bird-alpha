@@ -5,6 +5,7 @@ name: 苹果
 position_date_type: undistinguished
 max_margin_side_algorithm: false
 combination_type: 0
+list_date: 2017-12-22
 
 # -------------------- price tick rule --------------------
 price_tick_history:

@@ -5,6 +5,7 @@ name: 聚氯乙烯月均价
 position_date_type: undistinguished
 max_margin_side_algorithm: false
 combination_type: 0
+list_date: 2025-10-28
 
 # -------------------- price tick rule --------------------
 price_tick_history:

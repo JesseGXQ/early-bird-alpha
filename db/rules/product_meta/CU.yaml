@@ -5,6 +5,7 @@ name: 沪铜
 position_date_type: distinguish_today_yesterday
 max_margin_side_algorithm: true
 combination_type: 0
+list_date: 1993-03-01
 
 # -------------------- price tick rule --------------------
 price_tick_history:

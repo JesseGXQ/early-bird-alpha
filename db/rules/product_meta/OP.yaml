@@ -5,6 +5,7 @@ name: 胶版印刷纸
 position_date_type: distinguish_today_yesterday
 max_margin_side_algorithm: true
 combination_type: 0
+list_date: 2025-09-10
 
 # -------------------- price tick rule --------------------
 price_tick_history:

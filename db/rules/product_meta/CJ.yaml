@@ -5,6 +5,7 @@ name: 红枣
 position_date_type: undistinguished
 max_margin_side_algorithm: false
 combination_type: 0
+list_date: 2019-04-30
 
 # -------------------- price tick rule --------------------
 price_tick_history:

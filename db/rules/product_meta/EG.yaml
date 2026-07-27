@@ -5,6 +5,7 @@ name: 乙二醇
 position_date_type: undistinguished
 max_margin_side_algorithm: false
 combination_type: 0
+list_date: 2018-12-10
 
 # -------------------- price tick rule --------------------
 price_tick_history:

@@ -5,6 +5,7 @@ name: 豆粕
 position_date_type: undistinguished
 max_margin_side_algorithm: false
 combination_type: 0
+list_date: 2000-07-17
 
 # -------------------- price tick rule --------------------
 price_tick_history:

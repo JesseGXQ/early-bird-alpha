@@ -106,6 +106,7 @@ class ProductMetaManager:
             position_date_type=raw['position_date_type'],
             max_margin_side_algorithm=bool(raw['max_margin_side_algorithm']),
             combination_type=int(raw['combination_type']),
+            list_date=date.fromisoformat(str(raw['list_date'])),
         )
 
     def get_price_tick(self, product: str, trading_date: date) -> PriceTickRule:

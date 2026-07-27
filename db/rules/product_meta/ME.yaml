@@ -7,6 +7,7 @@ max_margin_side_algorithm: false
 combination_type: 0
 last_contract_deliv_YYYYMM: '201505'
 successor: MA
+list_date: 2011-10-28
 
 # -------------------- price tick rule --------------------
 price_tick_history:

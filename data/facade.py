@@ -166,11 +166,11 @@ if __name__ == '__main__':
     facade = DataFacade()
     df1 = facade.get_historical_vector(product,start_date, end_date, freq='1d')
     print(f'product = {product}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df1.head())
-    
+    print(f'数据集的列为: {df1.columns.tolist()}')
     # freq='5min'
-    freq='5min'
-    df2 = facade.get_historical_vector(product, start_date, end_date, freq='5min')
-    print(f'product = {product}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df2.head())
+    # freq='5min'
+    # df2 = facade.get_historical_vector(product, start_date, end_date, freq='5min')
+    # print(f'product = {product}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df2.head())
 
     # -------------------------SimulationFeed------------------------
     # product = 'TF'

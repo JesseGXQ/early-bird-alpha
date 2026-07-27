@@ -5,6 +5,7 @@ name: 5年期国债
 position_date_type: undistinguished
 max_margin_side_algorithm: true
 combination_type: 0
+list_date: 2013-09-06
 
 # -------------------- price tick rule --------------------
 price_tick_history:

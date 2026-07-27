@@ -5,6 +5,7 @@ name: 花生
 position_date_type: undistinguished
 max_margin_side_algorithm: false
 combination_type: 0
+list_date: 2021-02-01
 
 # -------------------- price tick rule --------------------
 price_tick_history:

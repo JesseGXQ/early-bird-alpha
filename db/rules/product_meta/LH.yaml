@@ -5,6 +5,7 @@ name: 生猪
 position_date_type: undistinguished
 max_margin_side_algorithm: false
 combination_type: 0
+list_date: 2021-01-08
 
 # -------------------- price tick rule --------------------
 price_tick_history:

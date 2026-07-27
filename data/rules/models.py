@@ -24,8 +24,10 @@ class StaticMeta:
         持仓日期类型——是否区分今仓和昨仓。
     max_margin_side_algorithm: bool
         是否使用大额单边保证金算法。
-    combination_type: int。
+    combination_type: int
         组合类型。
+    list_date: datetime.date
+        品种上市日期。
     
     """
     product: str
@@ -36,6 +38,7 @@ class StaticMeta:
     # 以下两个字段目前过粗，真实的业务逻辑更复杂，日后有需要要完善。
     max_margin_side_algorithm: bool
     combination_type: int
+    list_date: date
 
 @dataclass(frozen=True)
 class PriceTickRule:

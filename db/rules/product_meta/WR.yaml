@@ -5,6 +5,7 @@ name: 线材
 position_date_type: distinguish_today_yesterday
 max_margin_side_algorithm: true
 combination_type: 0
+list_date: 2009-03-27
 
 # -------------------- price tick rule --------------------
 price_tick_history:

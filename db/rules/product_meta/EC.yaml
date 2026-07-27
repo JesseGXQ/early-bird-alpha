@@ -5,6 +5,7 @@ name: 集运欧指
 position_date_type: distinguish_today_yesterday
 max_margin_side_algorithm: false
 combination_type: 0
+list_date: 2023-08-18
 
 # -------------------- price tick rule --------------------
 price_tick_history:
