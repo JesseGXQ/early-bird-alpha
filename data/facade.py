@@ -6,6 +6,7 @@ from data.config import (
     RolloverConfig, SamplingConfig
 )
 from data.factory import create_research_feed, create_simulation_feed
+from data.query_service import RuleQueryService
 
 if TYPE_CHECKING:
     from data.feed.research_feed import ResearchFeed 
@@ -54,6 +55,8 @@ class DataFacade:
         self._adj_config = adj_config
         self._sample_config = sample_config
         self._env_config = env_config
+
+        self.rule_query = RuleQueryService(env_config=self._env_config)
 
         self._research_feeds: dict[str, ResearchFeed] = {} # 内部懒加载的 ResearchFeed 实例缓存
         self._simulation_feeds: dict[str, SimulationFeed] = {} # 内部懒加载的 SimulationFeed 实例缓存
@@ -155,6 +158,14 @@ class DataFacade:
 # inline testing
 # ==================================
 if __name__ == '__main__':
+
+    facade = DataFacade()
+
+    # ------------------------ query rule -----------------------------
+    product = 'AP'
+    print(f'品种 {product} 的上市日期为 {facade.rule_query.get_list_date_product(product)}。')
+
+
     # -------------------------ResearchFeed------------------------
     # rb
     # freq=1d
@@ -163,7 +174,6 @@ if __name__ == '__main__':
     freq='1d'
     start_date = date(2009, 7, 20)
     end_date = date(2025, 10, 18)
-    facade = DataFacade()
     df1 = facade.get_historical_vector(product,start_date, end_date, freq='1d')
     print(f'product = {product}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df1.head())
     print(f'数据集的列为: {df1.columns.tolist()}')
@@ -171,6 +181,7 @@ if __name__ == '__main__':
     # freq='5min'
     # df2 = facade.get_historical_vector(product, start_date, end_date, freq='5min')
     # print(f'product = {product}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df2.head())
+
 
     # -------------------------SimulationFeed------------------------
     # product = 'TF'
@@ -183,7 +194,7 @@ if __name__ == '__main__':
     #     else:
     #         break
     
-    print('\n\n Test of ResearchFeed and SimulationFeed: ALL DONE :) !')
+    #print('\n\n Test of DataFacade: ALL DONE :) !')
 
 
 
