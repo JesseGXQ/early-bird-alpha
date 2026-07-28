@@ -183,7 +183,7 @@ class DataFacade:
         -------
         pd.DataFrame
             期限结构长表，MultiIndex[trading_date, contract]。
-            列: product, dominant, Settle, last_trade_date, OpenInterest, Volume 。
+            列: product, is_dominant, Settle, last_trade_date, OpenInterest, Volume 。
         """
         if product not in self._term_structure_feeds:
             self._term_structure_feeds[product] = create_term_structure_feed(

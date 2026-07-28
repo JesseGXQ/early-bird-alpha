@@ -5,9 +5,10 @@
 供因子研究模块进行近月/远月合约识别和展期收益率计算。
 """
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterable
 from datetime import date
 import pandas as pd
+
 
 if TYPE_CHECKING:
     from data.storage.daily_snapshot_manager import DailySnapshotManager
@@ -136,17 +137,17 @@ class TermStructureFeed:
         return dominant_s
 
     def _build_last_trade_date_map(
-        self, contracts: pd.Index
-    ) -> dict[str, date | None]:
+        self, contracts: Iterable[str]
+    ) -> dict[str, date]:
         """
         通过 InstrumentRegistryManager 为每个合约查询 last_trade_date。
         """
-        ltd_map: dict[str, date | None] = {}
+        ltd_map: dict[str, date] = {}
         for c in contracts:
             try:
                 registry = self.instrument_registry_manager.get_instrument_registry(c)
                 ltd_map[c] = registry.last_trade_date
-            except KeyError as err: #不要静默返回None，直接把合约注册表发现的未找到错误抛出来
+            except KeyError as err: # 不要静默返回None，直接把合约注册表发现的未找到错误抛出来
                 raise ValueError(f'[TermstructureFeed] 在合约注册表中无法找到合约 {c}') from err
         return ltd_map
 
