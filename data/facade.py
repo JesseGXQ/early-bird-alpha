@@ -5,12 +5,13 @@ from data.config import (
     AdjustmentConfig, EnvironmentConfig, 
     RolloverConfig, SamplingConfig
 )
-from data.factory import create_research_feed, create_simulation_feed
+from data.factory import create_research_feed, create_simulation_feed, create_term_structure_feed
 from data.query_service import RuleQueryService
 
 if TYPE_CHECKING:
     from data.feed.research_feed import ResearchFeed 
     from data.feed.simulation_feed import SimulationFeed
+    from data.feed.term_structure_feed import TermStructureFeed
     from data.feed.models import MarketSnapshot
     from datetime import date
     import pandas as pd
@@ -41,6 +42,8 @@ class DataFacade:
         获取复权主连历史价格 DataFrame 。
     get_snapshot_stream(product, start_date, end_date)
         获取逐笔市场快照数据流。
+    get_term_structure_data(product, start_date, end_date)
+        获取指定品种的期限结构长表 DataFrame 。
     
     """
 
@@ -60,6 +63,7 @@ class DataFacade:
 
         self._research_feeds: dict[str, ResearchFeed] = {} # 内部懒加载的 ResearchFeed 实例缓存
         self._simulation_feeds: dict[str, SimulationFeed] = {} # 内部懒加载的 SimulationFeed 实例缓存
+        self._term_structure_feeds: dict[str, TermStructureFeed] = {} # 内部懒加载的 TermStructureFeed 实例缓存
 
     def get_research_feed(self, product: str) -> ResearchFeed: 
         """
@@ -153,6 +157,45 @@ class DataFacade:
             start_date=start_date,
             end_date=end_date
         )
+    
+    def get_term_structure_data(
+            self,
+            product: str,
+            start_date: date,
+            end_date: date,
+    ) -> pd.DataFrame:
+        """
+        针对某品种，获取指定日期范围内的期限结构长表数据。
+
+        返回全部上市合约的每日结算价、成交量、持仓量，
+        并标注主力合约标识和合约最后交易日。
+
+        Parameters
+        ------
+        product: str
+            品种代码，例如 'RB'。
+        start_date: datetime.date
+            起始交易日。
+        end_date: datetime.date
+            结束交易日。
+
+        Returns
+        -------
+        pd.DataFrame
+            期限结构长表，MultiIndex[trading_date, contract]。
+            列: product, dominant, Settle, last_trade_date, OpenInterest, Volume 。
+        """
+        if product not in self._term_structure_feeds:
+            self._term_structure_feeds[product] = create_term_structure_feed(
+                product=product,
+                rollover_config=self._rollover_config,
+                env_config=self._env_config,
+            )
+        ts_feed = self._term_structure_feeds[product]
+        return ts_feed.get_term_structure_data(
+            start_date=start_date,
+            end_date=end_date,
+        )
 
 # ==================================
 # inline testing
@@ -195,6 +238,19 @@ if __name__ == '__main__':
     #         break
     
     #print('\n\n Test of DataFacade: ALL DONE :) !')
+
+
+    # -------------------------TermStructureFeed------------------------
+    from datetime import date as dt_date
+    product_ts = 'AP'
+    start_ts = dt_date(2021, 8, 1)
+    end_ts = dt_date(2021, 8, 10)
+    df_ts = facade.get_term_structure_data(product_ts, start_ts, end_ts)
+    print(f'\n=== TermStructureFeed: {product_ts}, {start_ts} ~ {end_ts} ===')
+    print(df_ts.to_string())
+    print(f'\n索引名称: {df_ts.index.names}')
+    print(f'列: {df_ts.columns.tolist()}')
+    print(f'行数: {len(df_ts)}')
 
 
 

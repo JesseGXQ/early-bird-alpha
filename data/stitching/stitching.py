@@ -205,6 +205,9 @@ class ContinuousContractManager:
                  master_table_dir: str,
                  rollover_config: RolloverConfig
                  ):
+
+        self.product = product
+
         # 读取本地持久化的 master_table （换月日历）。文件名如 RB_b3_r110_t1.parquet
         file_name = f'{product}_{rollover_config.signature}.parquet'
         file_path = Path(master_table_dir) / file_name
@@ -301,7 +304,7 @@ class ContinuousContractManager:
         """
         
         if trading_date not in self.dates_list:
-            return {'dominant': None, 'price_gap': 0.0}
+            raise KeyError(f'无法在 {self.product} 的 master table 中找到交易日 {trading_date}。')
         
         curr_dominant = self.master_table.at[trading_date, 'Dominant_Contract']
         price_gap = self.master_table.at[trading_date, 'Price_Gap']

@@ -1,6 +1,8 @@
 """
 工厂函数：负责构造和组装 ResearchFeed 和 SimulationFeed。
 """
+from functools import lru_cache
+
 from data.cleaning.cleaning_tick import *
 from data.cleaning.cleaning_bar_1min import DelayedNightOpenFixer
 
@@ -23,10 +25,12 @@ from data.calendar.exchange_calendar_manager import ExchangeCalendarManager
 from data.feed.aggregator import BarAggregator
 from data.feed.research_feed import ResearchFeed
 from data.feed.simulation_feed import SimulationFeed
+from data.feed.term_structure_feed import TermStructureFeed
 
 from data.config import RolloverConfig, AdjustmentConfig, SamplingConfig, EnvironmentConfig
 
 
+@lru_cache(maxsize=1)
 def _create_trading_rule_components(env_config: EnvironmentConfig) -> tuple[
     ProductMetaManager,
     InstrumentRegistryManager,
@@ -209,4 +213,40 @@ def create_simulation_feed(
         contract_manager=contract_manager
     )
 
+
+def create_term_structure_feed(
+    product: str,
+    rollover_config: RolloverConfig,
+    env_config: EnvironmentConfig,
+) -> TermStructureFeed:
+    """
+    根据换月配置和环境配置，组装并返回一个 TermStructureFeed 实例。
+
+    TermStructureFeed 提供某品种全部上市合约的日频快照期限结构数据。
+    """
+    (meta_manager, registry_manager,
+     _holiday_manager, _exchange_calendar_manager,
+     _daily_status_manager, _trading_rule_service) = _create_trading_rule_components(env_config)
+
+    daily_snapshot_loader = DailySnapshotLoader(
+        daily_snapshot_dir=env_config.daily_snapshot_dir,
+        meta_manager=meta_manager,
+    )
+    daily_snapshot_manager = DailySnapshotManager(
+        daily_snapshot_loader=daily_snapshot_loader,
+        registry_manager=registry_manager,
+    )
+
+    contract_manager = ContinuousContractManager(
+        product=product,
+        rollover_config=rollover_config,
+        master_table_dir=env_config.master_table_dir,
+    )
+
+    return TermStructureFeed(
+        product=product,
+        daily_snapshot_manager=daily_snapshot_manager,
+        registry_manager=registry_manager,
+        contract_manager=contract_manager,
+    )
 
