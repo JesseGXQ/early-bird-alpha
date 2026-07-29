@@ -208,18 +208,22 @@ if __name__ == '__main__':
     product = 'AP'
     print(f'品种 {product} 的上市日期为 {facade.rule_query.get_list_date_product(product)}。')
 
+    # 测试 rule_query.classification
+    print('品种分类 DataFrame 为: \n ', facade.rule_query.classification.get_classification())
+    print('品种按 sector 分组 的 dummy variable DataFrame: \n ',facade.rule_query.classification.get_dummy_matrix(level='sector'))
+
 
     # -------------------------ResearchFeed------------------------
     # rb
     # freq=1d
-    from datetime import date
-    product = 'rb'
-    freq='1d'
-    start_date = date(2009, 7, 20)
-    end_date = date(2025, 10, 18)
-    df1 = facade.get_historical_vector(product,start_date, end_date, freq='1d')
-    print(f'product = {product}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df1.head())
-    print(f'数据集的列为: {df1.columns.tolist()}')
+    # from datetime import date
+    # product = 'rb'
+    # freq='1d'
+    # start_date = date(2009, 7, 20)
+    # end_date = date(2025, 10, 18)
+    # df1 = facade.get_historical_vector(product,start_date, end_date, freq='1d')
+    # print(f'product = {product}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df1.head())
+    # print(f'数据集的列为: {df1.columns.tolist()}')
     # freq='5min'
     # freq='5min'
     # df2 = facade.get_historical_vector(product, start_date, end_date, freq='5min')
@@ -241,16 +245,16 @@ if __name__ == '__main__':
 
 
     # -------------------------TermStructureFeed------------------------
-    from datetime import date as dt_date
-    product_ts = 'AP'
-    start_ts = dt_date(2021, 8, 1)
-    end_ts = dt_date(2021, 8, 10)
-    df_ts = facade.get_term_structure_data(product_ts, start_ts, end_ts)
-    print(f'\n=== TermStructureFeed: {product_ts}, {start_ts} ~ {end_ts} ===')
-    print(df_ts.to_string())
-    print(f'\n索引名称: {df_ts.index.names}')
-    print(f'列: {df_ts.columns.tolist()}')
-    print(f'行数: {len(df_ts)}')
+    # from datetime import date as dt_date
+    # product_ts = 'AP'
+    # start_ts = dt_date(2021, 8, 1)
+    # end_ts = dt_date(2021, 8, 10)
+    # df_ts = facade.get_term_structure_data(product_ts, start_ts, end_ts)
+    # print(f'\n=== TermStructureFeed: {product_ts}, {start_ts} ~ {end_ts} ===')
+    # print(df_ts.to_string())
+    # print(f'\n索引名称: {df_ts.index.names}')
+    # print(f'列: {df_ts.columns.tolist()}')
+    # print(f'行数: {len(df_ts)}')
 
 
 

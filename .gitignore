@@ -49,7 +49,9 @@ __pycache__/
 # =============================
 # repomix related files
 # =============================
-repomix-output.xml
+.repomixignore
+repomix-output.json
+repomix.config.json
 
 
 # ==========================================

@@ -116,8 +116,9 @@ class EnvironmentConfig:
     daily_status_dir: str = './db/rules/instrument_daily_status'
     # exchange-level holiday/no-night arrangements
     exchange_holiday_dir: str = './db/rules/exchange_holiday'
-
-
+    # product classification
+    product_classification_dir: str = './db/rules/product_classification'
+    
     # ── 行情数据路径 ──────────────────────────────────────────
     data_dir_1min: str = r'D:\量化策略\CTA策略\RAW_DATA\1min'              # 1min 数据储存路径
     data_dir_tick: str = r'D:\量化策略\CTA策略\RAW_DATA\TICK'                  # TICK 数据储存路径

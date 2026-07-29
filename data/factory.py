@@ -9,6 +9,7 @@ from data.cleaning.cleaning_bar_1min import DelayedNightOpenFixer
 from data.stitching.stitching import ContinuousContractManager
 
 from data.rules.product_meta_manager import ProductMetaManager
+from data.rules.product_classification_manager import ProductClassificationManager
 from data.rules.instrument_registry_manager import InstrumentRegistryManager
 from data.rules.exchange_holiday_manager import ExchangeHolidayManager
 from data.rules.instrument_daily_status_manager import InstrumentDailyStatusManager
@@ -38,6 +39,7 @@ def _create_trading_rule_components(env_config: EnvironmentConfig) -> tuple[
     ExchangeCalendarManager,
     InstrumentDailyStatusManager,
     TradingRuleService,
+    ProductClassificationManager,
 ]:
     """统一组装交易规则相关组件。"""
     meta_manager = ProductMetaManager(
@@ -62,6 +64,9 @@ def _create_trading_rule_components(env_config: EnvironmentConfig) -> tuple[
         daily_status_manager=daily_status_manager,
         exchange_calendar_manager=exchange_calendar_manager
     )
+    classification_manager = ProductClassificationManager(
+        classification_dir=env_config.product_classification_dir
+    )
     return (
         meta_manager,
         registry_manager,
@@ -69,6 +74,7 @@ def _create_trading_rule_components(env_config: EnvironmentConfig) -> tuple[
         exchange_calendar_manager,
         daily_status_manager,
         trading_rule_service,
+        classification_manager,
     )
 
 
@@ -88,7 +94,8 @@ def create_research_feed(
     #1. 解析环境
     (meta_manager, registry_manager, 
      holiday_manager, exchange_calendar_manager, 
-     daily_status_manager, trading_rule_service) = _create_trading_rule_components(env_config)
+     daily_status_manager, trading_rule_service,
+     _classification_manager) = _create_trading_rule_components(env_config)
     calendar = ProductCalendar(
         product=product, 
         meta_manager=meta_manager, 
@@ -147,7 +154,8 @@ def create_simulation_feed(
     """
     (meta_manager, registry_manager, 
      holiday_manager, exchange_calendar_manager, 
-     daily_status_manager, trading_rule_service) = _create_trading_rule_components(env_config)
+     daily_status_manager, trading_rule_service,
+     _classification_manager) = _create_trading_rule_components(env_config)
     calendar = ProductCalendar(
         product=product,
         meta_manager=meta_manager,
@@ -222,11 +230,12 @@ def create_term_structure_feed(
     """
     根据换月配置和环境配置，组装并返回一个 TermStructureFeed 实例。
 
-    TermStructureFeed 提供某品种全部上市合约的日频快照期限结构数据。
+    TermStructureFeed 提供某品种全部上市合约的日频期限结构数据。
     """
     (meta_manager, registry_manager,
      _holiday_manager, _exchange_calendar_manager,
-     _daily_status_manager, _trading_rule_service) = _create_trading_rule_components(env_config)
+     _daily_status_manager, _trading_rule_service,
+     _classification_manager) = _create_trading_rule_components(env_config)
 
     daily_snapshot_loader = DailySnapshotLoader(
         daily_snapshot_dir=env_config.daily_snapshot_dir,
