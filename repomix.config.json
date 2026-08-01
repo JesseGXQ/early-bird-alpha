@@ -4,8 +4,8 @@
     "maxFileSize": 52428800
   },
   "output": {
-    "filePath": "repomix-output.json",
-    "style": "json",
+    "filePath": "repomix-output.xml",
+    "style": "xml",
     "filePathStyle": "target-relative",
     "parsableStyle": false,
     "fileSummary": true,
@@ -33,7 +33,7 @@
     "useGitignore": true,
     "useDotIgnore": true,
     "useDefaultPatterns": true,
-    "customPatterns": []
+    "customPatterns": ["db/**", "docs/**"]
   },
   "security": {
     "enableSecurityCheck": true

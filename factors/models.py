@@ -17,7 +17,6 @@ V1 定义因子研究全链路所需的不可变数据模型，包括：
 
 from __future__ import annotations
 
-import typing
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Any, Literal, Mapping
@@ -148,8 +147,8 @@ class DataQualitySummary:
         整体校验是否通过。
     total_rows : int
         研究面板总行数。
-    product_sample_counts : dict[str, int]
-        每个品种的有效行数（按产品代码分组计数）。
+    product_sample_counts : dict[str, int] or None
+        每个品种的样本数（按产品代码分组计数）。
     missing_rate_by_column : dict[str, float]
         每列的缺失比例（0 ~ 1）。
     warnings : tuple of str
@@ -161,7 +160,7 @@ class DataQualitySummary:
 
     is_valid: bool
     total_rows: int
-    product_sample_counts: Mapping[str, int]
+    product_sample_counts: Mapping[str, int] | None
     missing_rate_by_column: Mapping[str, float]
     warnings: tuple[str, ...]
     errors: tuple[str, ...]
@@ -195,10 +194,10 @@ class ResearchDataset:
 
     """
 
-    df: 'pd.DataFrame' = field(repr=False)
+    df: pd.DataFrame = field(repr=False)
     spec: DatasetSpec
     quality: DataQualitySummary
-    universe: 'pd.DataFrame' = field(repr=False)
+    universe: pd.Series = field(repr=False)
 
 
 # ============================================================
@@ -420,7 +419,7 @@ class LabelResult:
 
     """
 
-    labels: 'pd.DataFrame' = field(repr=False)
+    labels: pd.DataFrame = field(repr=False)
     specs: tuple['LabelSpec', ...]
     metadata: Mapping[str, Any] | None = None
 
@@ -511,14 +510,14 @@ class FactorEvaluationResult:
     """
 
     factor_name: str
-    label_spec: 'LabelSpec'
+    label_spec: LabelSpec
     config: EvaluationConfig
-    coverage: 'pd.DataFrame | None' = None
-    ic_detail: 'pd.DataFrame | None' = None
+    coverage: pd.DataFrame | None = None
+    ic_detail: pd.DataFrame | None = None
     ic_summary: dict[str, Any] | None = None
-    grouped_returns: 'pd.DataFrame | None' = None
-    turnover: 'pd.DataFrame | None' = None
-    attribution: 'pd.DataFrame | None' = None
+    grouped_returns: pd.DataFrame | None = None
+    turnover: pd.DataFrame | None = None
+    attribution: pd.DataFrame | None = None
     robustness: dict[str, Any] | None = None
     redundancy: dict[str, Any] | None = None
     warnings: tuple[str, ...] = ()
@@ -556,10 +555,10 @@ class DecayResult:
     """
 
     factor_name: str
-    label_specs: tuple['LabelSpec', ...]
-    ic_summary_by_horizon: 'pd.DataFrame | None' = None
-    rank_ic_summary_by_horizon: 'pd.DataFrame | None' = None
-    long_short_by_horizon: 'pd.DataFrame | None' = None
+    label_specs: tuple[LabelSpec, ...]
+    ic_summary_by_horizon: pd.DataFrame | None = None
+    rank_ic_summary_by_horizon: pd.DataFrame | None = None
+    long_short_by_horizon: pd.DataFrame | None = None
 
 
 # ============================================================
