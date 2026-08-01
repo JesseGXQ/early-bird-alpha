@@ -34,6 +34,10 @@ class RuleQueryService:
         """获取品种上市日期"""
         return self._meta_manager.get_static_meta(product).list_date
 
+    def get_product_universe(self, return_type: Literal['list', 'dict'] = 'list'):
+        """获取全市场期货品种。"""
+        return self._meta_manager.get_product_universe(return_type=return_type)
+
     # def get_product_classification(self) -> pd.DataFrame:
     #     """
     #     获取全市场品种分类元数据。

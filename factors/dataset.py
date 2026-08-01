@@ -1,13 +1,6 @@
 """
-
 数据集构建与校验。
-负责从 DataFacade 构建统一的多品种日频研究面板并执行完整 schema 校验。
-
-架构不变量：
-    - 输入面板不得被原地修改。
-    - 缺失值必须保留为面板事实，不能任意前向填充。
-    - 不同品种不要求每个时间戳都有数据。
-
+负责从 DataFacade 构建供研究的面板数据并做 schema 校验。
 """
 
 from __future__ import annotations
@@ -35,25 +28,7 @@ if TYPE_CHECKING:
 
 
 def _normalize_product_code(product: str) -> str:
-    """
-    规范化品种代码：去掉两端空白并转为大写。
-
-    Parameters
-    ----------
-    product : str
-        原始品种代码。
-
-    Returns
-    -------
-    str
-        规范化后的大写品种代码。
-
-    Raises
-    ------
-    ValueError
-        若规范化后为空字符串（即输入只含空白字符）。
-
-    """
+    """规范化品种代码：去掉两端空白并转为大写。"""
     code = product.strip().upper()
     if not code:
         raise ValueError(f"品种代码为空或只含空白字符: '{product}'")
@@ -64,26 +39,7 @@ def _check_single_product_result(
     df: pd.DataFrame,
     product: str,
 ) -> None:
-    """
-    校验 DataFacade 返回的单品种 DataFrame 基本完整性。
-
-    校验内容：非空、索引唯一，必须列存在。
-
-    校验失败直接报错。
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        DataFacade.get_historical_vector() 的单品种输出。
-    product : str
-        品种代码（仅用于错误信息）。
-
-    Raises
-    ------
-    ValueError
-        若数据为空、索引非唯一或缺少必需字段。
-
-    """
+    """校验内容：非空、索引唯一，必须列存在。"""
     if df.empty:
         raise ValueError(
             f"品种 {product} 返回空数据，请检查。"
@@ -215,9 +171,6 @@ class ResearchDatasetBuilder:
     5. 运行 validate_research_frame 生成质量摘要。
     6. 创建全 True 的 universe 占位符（后续由 DynamicUniverse 替换）。
 
-    V1 不在 Builder 中重建复权、主力合约逻辑或前向填充缺失价格；
-    这些能力属于数据引擎的职责范围。
-
     Parameters
     ----------
     facade : DataFacade
@@ -256,15 +209,6 @@ class ResearchDatasetBuilder:
         # ── 前置校验 ─────────────────────────────────────────────
         if not spec.products:
             raise ValueError("DatasetSpec.products 不能为空，请指定至少一个品种代码。")
-
-        if spec.start_date is None:
-            raise ValueError(
-                "DatasetSpec.start_date 不能为 None，请指定数据起始日期。"
-            )
-        if spec.end_date is None:
-            raise ValueError(
-                "DatasetSpec.end_date 不能为 None，请指定数据结束日期。"
-            )
 
         # 规范化所有品种代码（去空白 + 转大写）
         products = tuple(_normalize_product_code(p) for p in spec.products)

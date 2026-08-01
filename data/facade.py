@@ -38,12 +38,12 @@ class DataFacade:
         获取 ResearchFeed 实例。
     get_simulation_feed(product)
         获取 SimulationFeed 实例。
-    get_historical_vector(product, start_date, end_date, freq, view)
-        获取复权主连历史价格 DataFrame 。
+     get_historical_vector(product, start_date=None, end_date=None, freq, view)
+         获取复权主连历史价格 DataFrame 。
     get_snapshot_stream(product, start_date, end_date)
         获取逐笔市场快照数据流。
-    get_term_structure_data(product, start_date, end_date)
-        获取指定品种的期限结构长表 DataFrame 。
+     get_term_structure_data(product, start_date=None, end_date=None)
+         获取指定品种的期限结构长表 DataFrame 。
     
     """
 
@@ -94,21 +94,21 @@ class DataFacade:
     def get_historical_vector(
             self,
             product: str,
-            start_date: date,
-            end_date: date,
+            start_date: date | None = None,
+            end_date: date | None = None,
             freq: str = '1d',
             view: Literal['scheduled', 'realized']='scheduled') -> pd.DataFrame:
         """
-        针对某品种，获取指定日期范围内，特定频率的历史复权主力合约价格。
+        针对某品种，获取指定日期范围内，特定频率的复权主力合约历史价格。
 
         Parameters
         ------
         product: str
             品种代码，例如'RB'。
-        start_date: datetime.date
-            起始日期（交易日）
-        end_date: datetime.date
-            结束日期（交易日）
+        start_date: datetime.date, optional
+            起始日期（交易日），默认None表示最早可用日期。
+        end_date: datetime.date, optional
+            结束日期（交易日），默认None表示最晚可用日期。
         freq: str, default "1d"
             K 线频率，格式同 Pandas Offset aliases 保持一致。
             例: 1min, 5min, 15min, 30min, 1h, 2h, 4h, 1d。
@@ -122,6 +122,26 @@ class DataFacade:
             复权后主力合约(连续)价格的 pandas DataFrame ，每一行对应一根 K 线 。
         """
         r_feed = self.get_research_feed(product)
+        master_dates = r_feed.contract_manager.master_table.index
+        earliest = master_dates[0].date()
+        latest = master_dates[-1].date()
+
+        if start_date is None:
+            start_date = earliest
+        elif start_date < earliest:
+            raise ValueError(
+                f'start_date {start_date} 早于品种 {product} 最早可用日期。'
+                f'支持范围: {earliest} ~ {latest}。'
+            )
+
+        if end_date is None:
+            end_date = latest
+        elif end_date > latest:
+            raise ValueError(
+                f'end_date {end_date} 晚于品种 {product} 最晚可用日期。'
+                f'支持范围: {earliest} ~ {latest}。'
+            )
+
         return r_feed.get_historical_vector(
             start_date=start_date,
             end_date=end_date,
@@ -161,8 +181,8 @@ class DataFacade:
     def get_term_structure_data(
             self,
             product: str,
-            start_date: date,
-            end_date: date,
+            start_date: date | None = None,
+            end_date: date | None = None,
     ) -> pd.DataFrame:
         """
         针对某品种，获取指定日期范围内的期限结构长表数据。
@@ -174,10 +194,10 @@ class DataFacade:
         ------
         product: str
             品种代码，例如 'RB'。
-        start_date: datetime.date
-            起始交易日。
-        end_date: datetime.date
-            结束交易日。
+        start_date: datetime.date, optional
+            起始交易日，默认None表示最早可用日期。
+        end_date: datetime.date, optional
+            结束交易日，默认None表示最晚可用日期。
 
         Returns
         -------
@@ -192,6 +212,27 @@ class DataFacade:
                 env_config=self._env_config,
             )
         ts_feed = self._term_structure_feeds[product]
+
+        master_dates = ts_feed.contract_manager.master_table.index
+        earliest = master_dates[0].date()
+        latest = master_dates[-1].date()
+
+        if start_date is None:
+            start_date = earliest
+        elif start_date < earliest:
+            raise ValueError(
+                f'start_date {start_date} 早于品种 {product} 最早可用日期。'
+                f'支持范围: {earliest} ~ {latest}。'
+            )
+
+        if end_date is None:
+            end_date = latest
+        elif end_date > latest:
+            raise ValueError(
+                f'end_date {end_date} 晚于品种 {product} 最晚可用日期。'
+                f'支持范围: {earliest} ~ {latest}。'
+            )
+
         return ts_feed.get_term_structure_data(
             start_date=start_date,
             end_date=end_date,

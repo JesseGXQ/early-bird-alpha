@@ -99,10 +99,10 @@ class DatasetSpec:
     Parameters
     ----------
     products : tuple of str
-        品种代码（大写），例如 ('RB', 'MA', 'FG')。
-    start_date : date, optional
+        品种代码，例如 ('RB', 'MA', 'FG')。
+    start_date : date or None, optional, default None
         数据起始日期（闭区间），None 表示最早可用。
-    end_date : date, optional
+    end_date : date or None, optional, default None
         数据结束日期（闭区间），None 表示最近可用。
     freq : Literal['1d']
         K 线频率。V1 仅支持日频，其他频率直接报错。
@@ -188,9 +188,9 @@ class ResearchDataset:
         构建该数据集时使用的数据请求规格。
     quality : DataQualitySummary
         数据质量校验结果。
-    universe : pd.DataFrame
+    universe : pd.Series
         与 df 同索引的布尔准入表，True 表示该行品种在该时点可研究。
-        初始可以为空 DataFrame，在 DynamicUniverse.build() 后注入。
+        初始可以为空 ，在 DynamicUniverse.build() 后注入。
 
     """
 

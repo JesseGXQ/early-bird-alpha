@@ -31,6 +31,8 @@ db/**/*.sqlite
 # Python/IDE 常用忽略规则
 # ==========================================
 __pycache__/
+*.pyc
+*.pyo
 *.py[cod]
 *$py.class
 .pytest_cache/
