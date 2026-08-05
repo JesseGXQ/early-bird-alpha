@@ -1,5 +1,8 @@
 from __future__ import annotations
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Literal
+
+import pandas as pd
 
 from data.config import (
     AdjustmentConfig, EnvironmentConfig, 
@@ -105,9 +108,9 @@ class DataFacade:
         ------
         product: str
             品种代码，例如'RB'。
-        start_date: datetime.date, optional
+        start_date: datetime.date or None, optional
             起始日期（交易日），默认None表示最早可用日期。
-        end_date: datetime.date, optional
+        end_date: datetime.date or None, optional
             结束日期（交易日），默认None表示最晚可用日期。
         freq: str, default "1d"
             K 线频率，格式同 Pandas Offset aliases 保持一致。
@@ -122,26 +125,6 @@ class DataFacade:
             复权后主力合约(连续)价格的 pandas DataFrame ，每一行对应一根 K 线 。
         """
         r_feed = self.get_research_feed(product)
-        master_dates = r_feed.contract_manager.master_table.index
-        earliest = master_dates[0].date()
-        latest = master_dates[-1].date()
-
-        if start_date is None:
-            start_date = earliest
-        elif start_date < earliest:
-            raise ValueError(
-                f'start_date {start_date} 早于品种 {product} 最早可用日期。'
-                f'支持范围: {earliest} ~ {latest}。'
-            )
-
-        if end_date is None:
-            end_date = latest
-        elif end_date > latest:
-            raise ValueError(
-                f'end_date {end_date} 晚于品种 {product} 最晚可用日期。'
-                f'支持范围: {earliest} ~ {latest}。'
-            )
-
         return r_feed.get_historical_vector(
             start_date=start_date,
             end_date=end_date,
@@ -194,9 +177,9 @@ class DataFacade:
         ------
         product: str
             品种代码，例如 'RB'。
-        start_date: datetime.date, optional
+        start_date: datetime.date or None, default None
             起始交易日，默认None表示最早可用日期。
-        end_date: datetime.date, optional
+        end_date: datetime.date or None, default None
             结束交易日，默认None表示最晚可用日期。
 
         Returns
@@ -212,31 +195,145 @@ class DataFacade:
                 env_config=self._env_config,
             )
         ts_feed = self._term_structure_feeds[product]
-
-        master_dates = ts_feed.contract_manager.master_table.index
-        earliest = master_dates[0].date()
-        latest = master_dates[-1].date()
-
-        if start_date is None:
-            start_date = earliest
-        elif start_date < earliest:
-            raise ValueError(
-                f'start_date {start_date} 早于品种 {product} 最早可用日期。'
-                f'支持范围: {earliest} ~ {latest}。'
-            )
-
-        if end_date is None:
-            end_date = latest
-        elif end_date > latest:
-            raise ValueError(
-                f'end_date {end_date} 晚于品种 {product} 最晚可用日期。'
-                f'支持范围: {earliest} ~ {latest}。'
-            )
-
         return ts_feed.get_term_structure_data(
             start_date=start_date,
             end_date=end_date,
         )
+
+    def get_term_structure_data_multiple_products(
+            self,
+            products: list[str],
+            start_date: date | None = None,
+            end_date: date | None = None,
+            max_workers: int | None = None,
+    ) -> pd.DataFrame:
+        """
+        多品种并行获取期限结构长表数据。
+
+        Parameters
+        ------
+        products : list[str]
+            品种代码列表，例如 ['RB', 'TA']。
+        start_date : datetime.date or None, default None
+            起始交易日。默认为 None，各品种最早可用交易日。
+        end_date : datetime.date or None, default None
+            结束交易日。默认为 None，各品种最新可用交易日。
+        max_workers : int, optional
+            最大线程数，默认 None 即使用 ThreadPoolExecutor 自身默认值。
+
+        Returns
+        ------
+        pd.DataFrame
+            MultiIndex[trading_date, contract, product] 的长表面板，
+            列: is_dominant, Settle, last_trade_date, OpenInterest, Volume。
+        """
+        if not products:
+            raise ValueError('products 列表不能为空。')
+
+        results: dict[str, pd.DataFrame] = {}
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_product = {
+                executor.submit(
+                    self.get_term_structure_data,
+                    product=product,
+                    start_date=start_date,
+                    end_date=end_date,
+                ): product
+                for product in products
+            }
+
+            for future in as_completed(future_to_product):
+                product = future_to_product[future]
+                try:
+                    df_product = future.result()
+                except Exception as e:
+                    raise RuntimeError(f'品种 {product} 获取数据失败。') from e
+                results[product] = df_product
+
+        dfs: list[pd.DataFrame] = []
+        for product, df in results.items():
+            df = df.copy()
+            dfs.append(df)
+
+        df = pd.concat(dfs, axis=0)
+        df.sort_index(inplace=True)
+
+        return df
+
+    def get_historical_vector_multiple_products(
+            self,
+            products: list[str],
+            start_date: date | None = None,
+            end_date: date | None = None,
+            freq: str = '1d',
+            view: Literal['scheduled', 'realized'] = 'scheduled',
+            max_workers: int | None = None,
+    ) -> pd.DataFrame:
+        """
+        多品种并行获取复权主力合约历史价格数据。
+
+        内部复用 `get_historical_vector`，使用线程池并行调度各品种的
+        数据加载、聚合、复权计算，最后拼接为统一的长表面板。
+
+        Parameters
+        ------
+        products : list[str]
+            品种代码列表，例如 ['RB', 'TA', 'MA']。
+        start_date : datetime.date, optional
+            起始交易日，默认 None 为各品种最早可用日期。
+        end_date : datetime.date, optional
+            结束交易日，默认 None 为各品种最晚可用日期。
+        freq : str, default '1d'
+            K 线频率，同 Pandas Offset aliases。
+        view : Literal['scheduled', 'realized'], default 'scheduled'
+            计划或实际视图。
+        max_workers : int, optional
+            最大线程数，默认 None 即使用 ThreadPoolExecutor 自身默认值。
+
+        Returns
+        ------
+        pd.DataFrame
+            MultiIndex[calendar_time, product] 的长表面板，
+            列与 `get_historical_vector` 输出一致。
+        """
+        if not products:
+            raise ValueError('products 列表不能为空。')
+
+        results: dict[str, pd.DataFrame] = {}
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_product = {
+                executor.submit(
+                    self.get_historical_vector,
+                    product=product,
+                    start_date=start_date,
+                    end_date=end_date,
+                    freq=freq,
+                    view=view,
+                ): product
+                for product in products
+            }
+
+            for future in as_completed(future_to_product):
+                product = future_to_product[future]
+                try:
+                    df_product = future.result()
+                except Exception as e:
+                    raise RuntimeError(f'品种 {product} 获取数据失败。') from e
+                results[product] = df_product
+
+        dfs: list[pd.DataFrame] = []
+        for product, df in results.items():
+            df = df.copy()
+            df['product'] = product
+            dfs.append(df)
+
+        df = pd.concat(dfs, axis=0)
+        df.set_index('product', append=True, inplace=True)
+        df.sort_index(inplace=True)
+
+        return df
 
 # ==================================
 # inline testing
@@ -249,10 +346,21 @@ if __name__ == '__main__':
     product = 'AP'
     print(f'品种 {product} 的上市日期为 {facade.rule_query.get_list_date_product(product)}。')
 
-    # 测试 rule_query.classification
-    print('品种分类 DataFrame 为: \n ', facade.rule_query.classification.get_classification())
-    print('品种按 sector 分组 的 dummy variable DataFrame: \n ',facade.rule_query.classification.get_dummy_matrix(level='sector'))
+    # # 测试 rule_query.classification
+    # print('品种分类 DataFrame 为: \n ', facade.rule_query.classification.get_classification())
+    # print('品种按 sector 分组 的 dummy variable DataFrame: \n ',facade.rule_query.classification.get_dummy_matrix(level='sector'))
 
+    # -------------------------ResearchFeed（错误排查）------------------------
+    # rb
+    from datetime import date
+    product = 'AD'
+    freq='1d'
+    start_date = None
+    end_date = None
+    df1 = facade.get_historical_vector(product,start_date, end_date, freq='1d')
+    print(f'product = {product}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df1.head())
+    print(f'数据集的列为: {df1.columns.tolist()}')
+    
 
     # -------------------------ResearchFeed------------------------
     # rb
@@ -296,6 +404,62 @@ if __name__ == '__main__':
     # print(f'\n索引名称: {df_ts.index.names}')
     # print(f'列: {df_ts.columns.tolist()}')
     # print(f'行数: {len(df_ts)}')
+
+    # ----------------- get_historical_vector_multiple_products ------------------
+    from datetime import date as dt_date
+
+    print('\n' + '=' * 60)
+    print('多品种并行复权主连测试')
+    print('=' * 60)
+
+    test_products = ['AP', 'RB', 'FG']
+    test_start = None
+    test_end = dt_date(2021, 12, 31)
+
+    df_multi = facade.get_historical_vector_multiple_products(
+        products=test_products,
+        start_date=test_start,
+        end_date=test_end,
+        freq='1d',
+    )
+
+    print(f'\n多品种面板: {len(df_multi)} 行')
+    print(f'索引层级: {df_multi.index.names}')
+    print(f'各品种样本数:')
+    for p in test_products:
+        count = len(df_multi.xs(p, level='product')) if p in df_multi.index.get_level_values('product') else 0
+        print(f'  {p}: {count}')
+    print(f'\n前 10 行:')
+    print(df_multi.head(10).to_string())
+    print(f'\n列名: {df_multi.columns.tolist()}')
+    print("MultiIndex level 0 (trading_date), first element type is:", type(df_multi.index.get_level_values(0)[0]))
+
+    # ----------------- get_term_structure_data_multiple_products ------------------
+    print('\n' + '=' * 60)
+    print('多品种并行期限结构测试')
+    print('=' * 60)
+
+    ts_products = ['AP', 'RB']
+    ts_start = dt_date(2021, 8, 1)
+    ts_end = dt_date(2021, 8, 10)
+
+    df_ts_multi = facade.get_term_structure_data_multiple_products(
+        products=ts_products,
+        start_date=ts_start,
+        end_date=ts_end,
+    )
+
+    print(f'\n多品种期限结构面板: {len(df_ts_multi)} 行')
+    print(f'索引层级: {df_ts_multi.index.names}')
+    print(f'列名: {df_ts_multi.columns.tolist()}')
+    print(f'各品种样本数:')
+    for p in ts_products:
+        mask = df_ts_multi['product'] == p
+        print(f'  {p}: {mask.sum()}')
+    print(f'\n前 10 行:')
+    print(df_ts_multi.head(10).to_string())
+    print("MultiIndex level 0 (trading_date), first element type is:", type(df_ts_multi.index.get_level_values(0)[0]))
+
 
 
 

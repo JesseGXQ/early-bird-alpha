@@ -30,15 +30,6 @@ FakeDataFacade.get_historical_vector 返回如下格式的单品种 DataFrame：
     - 输入 '  ' → 抛出 ValueError
     预期: 全部通过
 
-=== 2. test_check_single_product_result ===
-    测试单品种结果校验
-    用例:
-    - 空 DataFrame → ValueError("品种 X 返回空数据...")
-    - 索引存在重复值 → ValueError("品种 X 的索引存在重复值")
-    - 缺少 REQUIRED_COLUMNS 中的列（如缺少 Volume） → ValueError
-    - 完整有效帧 → 不抛出异常
-    预期: 全部通过
-
 === 3. test_validate_research_frame_success ===
     合法面板校验
     输入: 两个品种、交易日不完全重叠、MultiIndex[timestamp, product]

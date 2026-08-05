@@ -743,6 +743,8 @@ from typing import TYPE_CHECKING, Iterable
 from datetime import date
 import pandas as pd
 
+from data.feed.research_feed import validate_start_end_dates
+
 
 if TYPE_CHECKING:
     from data.storage.daily_snapshot_manager import DailySnapshotManager
@@ -788,18 +790,18 @@ class TermStructureFeed:
 
     def get_term_structure_data(
         self,
-        start_date: date,
-        end_date: date,
+        start_date: date | None,
+        end_date: date | None,
     ) -> pd.DataFrame:
         """
         返回指定日期范围内，该品种所有上市合约的期限结构长表。
 
         Parameters
         ------
-        start_date: datetime.date
-            起始交易日。
-        end_date: datetime.date
-            结束交易日。
+        start_date: datetime.date or None, default None
+            起始交易日。默认为 None ，即最早可用。
+        end_date: datetime.date or None, default None
+            结束交易日。默认为 None ，即最晚可用。
 
         Returns
         -------
@@ -826,6 +828,18 @@ class TermStructureFeed:
         )
 
         product_df["trading_date"] = pd.to_datetime(product_df["Datetime"])
+
+        # 处理 start_date 和 end_date 逻辑
+        earliest = product_df['trading_date'].min()
+        assert isinstance(earliest, date)
+        latest = product_df['trading_date'].max()
+        assert isinstance(latest, date)
+        if start_date is None:
+            start_date = earliest
+        if end_date is None:
+            end_date = latest
+        validate_start_end_dates(start_date, end_date, earliest, latest)
+
         start_ts = pd.Timestamp(start_date)
         end_ts = pd.Timestamp(end_date)
         product_df = product_df[
@@ -941,55 +955,6 @@ if __name__ == "__main__":
 
 <file path="data/__init__.py">
 """数据引擎"""
-</file>
-
-<file path="data/query_service.py">
-from __future__ import annotations
-from typing import Literal, TYPE_CHECKING
-
-from data.factory import _create_trading_rule_components
-from data.config import EnvironmentConfig
-from datetime import date
-
-if TYPE_CHECKING:
-    from data.rules.models import TradingSessions
-    import pandas as pd
-
-
-class RuleQueryService:
-    """面向业务的查询接口，用于查询期货交易规则类数据"""
-
-    def __init__(self, env_config: EnvironmentConfig):
-        (self._meta_manager, 
-        self._registry_manager,
-        self._holiday_manager, 
-        self._exchange_calendar_manager,
-        self._daily_status_manager,
-        self._trading_rule_service,
-        self._classification_manager
-        )=_create_trading_rule_components(env_config=env_config)
-
-        self.classification = self._classification_manager # 挂上品种分类管家，暴露给下游
-
-    def get_multiplier(self, contract: str) -> int:
-        """获取合约乘数。"""
-        # 直接委托给 registry_manager
-        return self._registry_manager.get_instrument_registry(contract).multiplier
-
-    def get_list_date_product(self, product: str) -> date:
-        """获取品种上市日期"""
-        return self._meta_manager.get_static_meta(product).list_date
-
-    # def get_product_classification(self) -> pd.DataFrame:
-    #     """
-    #     获取全市场品种分类元数据。
-
-    #     Returns
-    #     -------
-    #     pd.DataFrame
-    #         列: product, exchange, product_name, asset_class, sector, subsector, supply_chain
-    #     """
-    #     return self._classification_manager.get_classification()
 </file>
 
 <file path="data/feed/models.py">
@@ -1570,6 +1535,59 @@ if __name__ == "__main__":
         print(first_batch.head(2))
     else:
         print(f'No such file as {filepath}')
+</file>
+
+<file path="data/query_service.py">
+from __future__ import annotations
+from typing import Literal, TYPE_CHECKING
+
+from data.factory import _create_trading_rule_components
+from data.config import EnvironmentConfig
+from datetime import date
+
+if TYPE_CHECKING:
+    from data.rules.models import TradingSessions
+    import pandas as pd
+
+
+class RuleQueryService:
+    """面向业务的查询接口，用于查询期货交易规则类数据"""
+
+    def __init__(self, env_config: EnvironmentConfig):
+        (self._meta_manager, 
+        self._registry_manager,
+        self._holiday_manager, 
+        self._exchange_calendar_manager,
+        self._daily_status_manager,
+        self._trading_rule_service,
+        self._classification_manager
+        )=_create_trading_rule_components(env_config=env_config)
+
+        self.classification = self._classification_manager # 挂上品种分类管家，暴露给下游
+
+    def get_multiplier(self, contract: str) -> int:
+        """获取合约乘数。"""
+        # 直接委托给 registry_manager
+        return self._registry_manager.get_instrument_registry(contract).multiplier
+
+    def get_list_date_product(self, product: str) -> date:
+        """获取品种上市日期"""
+        return self._meta_manager.get_static_meta(product).list_date
+
+    def get_product_universe(self, return_type: Literal['list', 'dict'] = 'list'):
+        """获取全市场期货品种。"""
+        return self._meta_manager.get_product_universe(return_type=return_type)
+
+    # def get_product_classification(self) -> pd.DataFrame:
+    #     """
+    #     获取全市场品种分类元数据。
+
+    #     Returns
+    #     -------
+    #     pd.DataFrame
+    #         列: product, exchange, product_name, asset_class, sector, subsector, supply_chain
+    #     """
+    #     return self._classification_manager.get_classification()
 </file>
 
 <file path="data/rules/instrument_daily_status_manager.py">
@@ -4818,7 +4836,8 @@ class ContinuousContractManager:
         self.transition_days = rollover_config.transition_days
 
         # 提取所有交易日序列
-        self.dates_list = self.master_table.index.tolist()
+        self.dates_list: list[pd.Timestamp] = self.master_table.index.tolist()
+        assert isinstance(self.dates_list[0], pd.Timestamp)
 
     def get_active_physical_contracts(self, trading_date: date) -> list[str]:
         """
@@ -5280,7 +5299,10 @@ class FileLocator:
 
 <file path="data/facade.py">
 from __future__ import annotations
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Literal
+
+import pandas as pd
 
 from data.config import (
     AdjustmentConfig, EnvironmentConfig, 
@@ -5319,12 +5341,12 @@ class DataFacade:
         获取 ResearchFeed 实例。
     get_simulation_feed(product)
         获取 SimulationFeed 实例。
-    get_historical_vector(product, start_date, end_date, freq, view)
-        获取复权主连历史价格 DataFrame 。
+     get_historical_vector(product, start_date=None, end_date=None, freq, view)
+         获取复权主连历史价格 DataFrame 。
     get_snapshot_stream(product, start_date, end_date)
         获取逐笔市场快照数据流。
-    get_term_structure_data(product, start_date, end_date)
-        获取指定品种的期限结构长表 DataFrame 。
+     get_term_structure_data(product, start_date=None, end_date=None)
+         获取指定品种的期限结构长表 DataFrame 。
     
     """
 
@@ -5375,21 +5397,21 @@ class DataFacade:
     def get_historical_vector(
             self,
             product: str,
-            start_date: date,
-            end_date: date,
+            start_date: date | None = None,
+            end_date: date | None = None,
             freq: str = '1d',
             view: Literal['scheduled', 'realized']='scheduled') -> pd.DataFrame:
         """
-        针对某品种，获取指定日期范围内，特定频率的历史复权主力合约价格。
+        针对某品种，获取指定日期范围内，特定频率的复权主力合约历史价格。
 
         Parameters
         ------
         product: str
             品种代码，例如'RB'。
-        start_date: datetime.date
-            起始日期（交易日）
-        end_date: datetime.date
-            结束日期（交易日）
+        start_date: datetime.date or None, optional
+            起始日期（交易日），默认None表示最早可用日期。
+        end_date: datetime.date or None, optional
+            结束日期（交易日），默认None表示最晚可用日期。
         freq: str, default "1d"
             K 线频率，格式同 Pandas Offset aliases 保持一致。
             例: 1min, 5min, 15min, 30min, 1h, 2h, 4h, 1d。
@@ -5442,8 +5464,8 @@ class DataFacade:
     def get_term_structure_data(
             self,
             product: str,
-            start_date: date,
-            end_date: date,
+            start_date: date | None = None,
+            end_date: date | None = None,
     ) -> pd.DataFrame:
         """
         针对某品种，获取指定日期范围内的期限结构长表数据。
@@ -5455,10 +5477,10 @@ class DataFacade:
         ------
         product: str
             品种代码，例如 'RB'。
-        start_date: datetime.date
-            起始交易日。
-        end_date: datetime.date
-            结束交易日。
+        start_date: datetime.date, optional
+            起始交易日，默认None表示最早可用日期。
+        end_date: datetime.date, optional
+            结束交易日，默认None表示最晚可用日期。
 
         Returns
         -------
@@ -5478,6 +5500,80 @@ class DataFacade:
             end_date=end_date,
         )
 
+    def get_historical_vector_multiple_products(
+            self,
+            products: list[str],
+            start_date: date | None = None,
+            end_date: date | None = None,
+            freq: str = '1d',
+            view: Literal['scheduled', 'realized'] = 'scheduled',
+            max_workers: int | None = None,
+    ) -> pd.DataFrame:
+        """
+        多品种并行获取复权主力合约历史价格数据。
+
+        内部复用 `get_historical_vector`，使用线程池并行调度各品种的
+        数据加载、聚合、复权计算，最后拼接为统一的长表面板。
+
+        Parameters
+        ------
+        products : list[str]
+            品种代码列表，例如 ['RB', 'TA', 'MA']。
+        start_date : datetime.date, optional
+            起始交易日，默认 None 为各品种最早可用日期。
+        end_date : datetime.date, optional
+            结束交易日，默认 None 为各品种最晚可用日期。
+        freq : str, default '1d'
+            K 线频率，同 Pandas Offset aliases。
+        view : Literal['scheduled', 'realized'], default 'scheduled'
+            计划或实际视图。
+        max_workers : int, optional
+            最大线程数，默认 None 即使用 ThreadPoolExecutor 自身默认值。
+
+        Returns
+        ------
+        pd.DataFrame
+            MultiIndex[calendar_time, product] 的长表面板，
+            列与 `get_historical_vector` 输出一致。
+        """
+        if not products:
+            raise ValueError('products 列表不能为空。')
+
+        results: dict[str, pd.DataFrame] = {}
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_product = {
+                executor.submit(
+                    self.get_historical_vector,
+                    product=product,
+                    start_date=start_date,
+                    end_date=end_date,
+                    freq=freq,
+                    view=view,
+                ): product
+                for product in products
+            }
+
+            for future in as_completed(future_to_product):
+                product = future_to_product[future]
+                try:
+                    df_product = future.result()
+                except Exception as e:
+                    raise RuntimeError(f'品种 {product} 获取数据失败。') from e
+                results[product] = df_product
+
+        dfs: list[pd.DataFrame] = []
+        for product, df in results.items():
+            df = df.copy()
+            df['product'] = product
+            dfs.append(df)
+
+        df = pd.concat(dfs, axis=0)
+        df.set_index('product', append=True, inplace=True)
+        df.sort_index(inplace=True)
+
+        return df
+
 # ==================================
 # inline testing
 # ==================================
@@ -5486,13 +5582,24 @@ if __name__ == '__main__':
     facade = DataFacade()
 
     # ------------------------ query rule -----------------------------
-    product = 'AP'
-    print(f'品种 {product} 的上市日期为 {facade.rule_query.get_list_date_product(product)}。')
+    # product = 'AP'
+    # print(f'品种 {product} 的上市日期为 {facade.rule_query.get_list_date_product(product)}。')
 
-    # 测试 rule_query.classification
-    print('品种分类 DataFrame 为: \n ', facade.rule_query.classification.get_classification())
-    print('品种按 sector 分组 的 dummy variable DataFrame: \n ',facade.rule_query.classification.get_dummy_matrix(level='sector'))
+    # # 测试 rule_query.classification
+    # print('品种分类 DataFrame 为: \n ', facade.rule_query.classification.get_classification())
+    # print('品种按 sector 分组 的 dummy variable DataFrame: \n ',facade.rule_query.classification.get_dummy_matrix(level='sector'))
 
+    # -------------------------ResearchFeed（错误排查）------------------------
+    # rb
+    from datetime import date
+    product = 'AD'
+    freq='1d'
+    start_date = None
+    end_date = None
+    df1 = facade.get_historical_vector(product,start_date, end_date, freq='1d')
+    print(f'product = {product}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df1.head())
+    print(f'数据集的列为: {df1.columns.tolist()}')
+    
 
     # -------------------------ResearchFeed------------------------
     # rb
@@ -5536,6 +5643,34 @@ if __name__ == '__main__':
     # print(f'\n索引名称: {df_ts.index.names}')
     # print(f'列: {df_ts.columns.tolist()}')
     # print(f'行数: {len(df_ts)}')
+
+    # ----------------- get_historical_vector_multiple_products ------------------
+    from datetime import date as dt_date
+
+    print('\n' + '=' * 60)
+    print('多品种并行复权主连测试')
+    print('=' * 60)
+
+    test_products = ['AP', 'RB', 'FG','AD','BZ']
+    test_start = None
+    test_end = dt_date(2021, 12, 31)
+
+    df_multi = facade.get_historical_vector_multiple_products(
+        products=test_products,
+        start_date=test_start,
+        end_date=test_end,
+        freq='1d',
+    )
+
+    print(f'\n多品种面板: {len(df_multi)} 行')
+    print(f'索引层级: {df_multi.index.names}')
+    print(f'各品种样本数:')
+    for p in test_products:
+        count = len(df_multi.xs(p, level='product')) if p in df_multi.index.get_level_values('product') else 0
+        print(f'  {p}: {count}')
+    print(f'\n前 10 行:')
+    print(df_multi.head(10).to_string())
+    print(f'\n列名: {df_multi.columns.tolist()}')
 </file>
 
 <file path="data/feed/research_feed.py">
@@ -5559,6 +5694,13 @@ if TYPE_CHECKING:
     from data.storage.file_locator import FileLocator
     from data.storage.bar_loader import BarLoader
     from data.config import AdjustmentConfig
+
+def validate_start_end_dates(start_date: date, end_date: date, 
+                    earliest: date, latest: date):
+    """进行日期校验：开始小于等于结束；开始大于等于最早可用；结束小于等于最新可用。"""
+    assert start_date <= end_date, f'起始交易日 {start_date} 应早于或等于结束交易日 {end_date}。'
+    assert start_date >= earliest, f'起始交易日 {start_date} 应晚于或等于最早可用交易日 {earliest}。'
+    assert end_date   <= latest,   f'结束交易日 {end_date}   应早于或等于最晚可用交易日 {latest}。'
 
 class ResearchFeed:
     """
@@ -5618,8 +5760,8 @@ class ResearchFeed:
         self.adj_config: AdjustmentConfig = adj_config
 
     def get_historical_vector(self, 
-                              start_date: date, 
-                              end_date: date,
+                              start_date: date | None, 
+                              end_date: date | None,
                               freq: str = '1d',
                               view: Literal['scheduled', 'realized'] = 'scheduled') -> pd.DataFrame:
         """
@@ -5627,11 +5769,13 @@ class ResearchFeed:
 
         Parameters
         ------
-        start_date : datetime.date or str
+        start_date : datetime.date or None
             起始交易日，含义为该交易日完整 Session 的开始，
             即包含前一日历日夜盘。例如传入 2026-04-23 ，实际数据从 2026-04-22 21:00 开始。
-        end_date : datetime.date or str
+            当为 None 时，意为最早可用日期。
+        end_date : datetime.date or None
             结束交易日，数据截止至该交易日日盘收盘 15:00。
+            当为 None 时，意为最晚可用日期。
         freq : str, default "1d"
             K 线频率，格式同 Pandas Offset aliases 保持一致。
             例: 1min, 5min, 15min, 30min, 1h, 2h, 4h, 1d。
@@ -5666,6 +5810,15 @@ class ResearchFeed:
                 是否为换月时点
     
         """
+        # 先处理 start_date 和 end_date 参数逻辑
+        earliest = self.contract_manager.dates_list[0].date()
+        latest   = self.contract_manager.dates_list[-1].date()
+        if start_date is None:
+            start_date = earliest
+        if end_date is None:
+            end_date = latest
+        validate_start_end_dates(start_date, end_date, earliest, latest)
+
         # 1. 找连续合约大管家索要指定日期范围的物理合约映射表
         master_df_query = self._query_master_table(start_date=start_date, end_date=end_date)
         # 2. Dominant Contracts的原始行情数据收集
@@ -5707,10 +5860,6 @@ class ResearchFeed:
 
     def _query_master_table(self, start_date: date, end_date: date) -> pd.DataFrame:
         """返回指定日期范围的物理合约映射表"""
-        master_table_dates = self.contract_manager.master_table.index
-        if pd.Timestamp(start_date) < master_table_dates[0] or pd.Timestamp(end_date) > master_table_dates[-1]:
-            raise ValueError(f'请求日期区间 {start_date} - {end_date} 超出了换月总表范围。'
-                             f'品种 {self.product} 支持 {master_table_dates[0].strftime('%Y-%m-%d')} - {master_table_dates[-1].strftime('%Y-%m-%d')}。')
         master_df_query = self.contract_manager.master_table.loc[start_date:end_date].copy()
         return master_df_query
 

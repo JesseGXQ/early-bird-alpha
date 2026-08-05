@@ -25,7 +25,6 @@ from factors.models import (
     # 模块常量
     INDEX_NAMES,
     REQUIRED_COLUMNS,
-    OPTIONAL_COLUMNS,
     # 数据集模型
     UniverseSpec,
     DatasetSpec,
@@ -50,7 +49,6 @@ from factors.models import (
 __all__ = [
     'INDEX_NAMES',
     'REQUIRED_COLUMNS',
-    'OPTIONAL_COLUMNS',
     'UniverseSpec',
     'DatasetSpec',
     'DataQualitySummary',

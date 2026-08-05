@@ -7,7 +7,10 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Iterable
 from datetime import date
+from unittest import result
 import pandas as pd
+
+from data.feed.research_feed import validate_start_end_dates
 
 
 if TYPE_CHECKING:
@@ -54,18 +57,18 @@ class TermStructureFeed:
 
     def get_term_structure_data(
         self,
-        start_date: date,
-        end_date: date,
+        start_date: date | None,
+        end_date: date | None,
     ) -> pd.DataFrame:
         """
         返回指定日期范围内，该品种所有上市合约的期限结构长表。
 
         Parameters
         ------
-        start_date: datetime.date
-            起始交易日。
-        end_date: datetime.date
-            结束交易日。
+        start_date: datetime.date or None, default None
+            起始交易日。默认为 None ，即最早可用。
+        end_date: datetime.date or None, default None
+            结束交易日。默认为 None ，即最晚可用。
 
         Returns
         -------
@@ -92,6 +95,16 @@ class TermStructureFeed:
         )
 
         product_df["trading_date"] = pd.to_datetime(product_df["Datetime"])
+
+        # 处理 start_date 和 end_date 逻辑
+        earliest: date = product_df['trading_date'].min().date()
+        latest: date = product_df['trading_date'].max().date()
+        if start_date is None:
+            start_date = earliest
+        if end_date is None:
+            end_date = latest
+        validate_start_end_dates(start_date, end_date, earliest, latest)
+
         start_ts = pd.Timestamp(start_date)
         end_ts = pd.Timestamp(end_date)
         product_df = product_df[
@@ -112,6 +125,7 @@ class TermStructureFeed:
 
         result_df["product"] = self.product
 
+        # 设置 MultiIndex 为索引
         result_df = result_df.set_index(["trading_date", "contract"])
         result_df = result_df.sort_index()
 

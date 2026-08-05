@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 # 研究面板 MultiIndex 的两个层级名称（架构文档 §5.1）
 INDEX_NAMES: tuple[str, str] = ('timestamp', 'product')
 
-# 研究面板必需字段（架构文档 §5.1）
+# 研究主面板必需字段（架构文档 §5.1）
 REQUIRED_COLUMNS: tuple[str, ...] = (
     'trading_date',
     'Dominant_Contract',
@@ -43,13 +43,6 @@ REQUIRED_COLUMNS: tuple[str, ...] = (
     'True_Return',
     'is_roll',
 )
-
-# 可选期限结构字段（架构文档 §5.1）
-OPTIONAL_COLUMNS: tuple[str, ...] = (
-    'Near_Contract', 'Near_Price', 'Near_DaysToExpiry',
-    'Far_Contract',   'Far_Price',   'Far_DaysToExpiry',
-)
-
 
 # ============================================================
 # 1. 数据集模型（DatasetSpec / UniverseSpec / DataQualitySummary / ResearchDataset）
@@ -87,19 +80,23 @@ class UniverseSpec:
     min_open_interest: int = 0
     min_data_coverage: float = 0.5
 
+@dataclass(frozen=True)
+class DataRequirement:
+    """数据需求类，包含数据源（名称）以及所需的列名。"""
+    source: str # 例如 'main_panel', 'term_structure'
+    columns: tuple[str, ...] | None = None # 所需列的名称，例如对于 source='term_structure' 可为 ('Settle', 'Volume', 'last_trade_date')；为 None 表示不做任何裁剪，保留数据引擎服务门面对该数据源返回的原始数据所有列
 
 @dataclass(frozen=True)
 class DatasetSpec:
     """
     研究数据请求的完整描述。
 
-    聚合了品种列表、日期范围、频率、视图模式和品种池准入条件，
-    是一个实验的"数据配置"单件。
-
     Parameters
     ----------
     products : tuple of str
         品种代码，例如 ('RB', 'MA', 'FG')。
+    data_requirements: tuple[DataRequirement, ...]
+        一系列数据需求，每个数据需求包含数据源+列名。
     start_date : date or None, optional, default None
         数据起始日期（闭区间），None 表示最早可用。
     end_date : date or None, optional, default None
@@ -108,9 +105,8 @@ class DatasetSpec:
         K 线频率。V1 仅支持日频，其他频率直接报错。
     view : {'scheduled', 'realized'}
         计划视图 or 实际视图。
-    universe : UniverseSpec
+    universe : UniverseSpec 
         动态品种池准入条件。
-
     Raises
     ------
     ValueError
@@ -119,11 +115,13 @@ class DatasetSpec:
     """
 
     products: tuple[str, ...]
+    data_requirements: tuple[DataRequirement, ...]
     start_date: date | None = None
     end_date: date | None = None
     freq: Literal['1d'] = '1d'
     view: Literal['scheduled', 'realized'] = 'scheduled'
     universe: UniverseSpec = field(default_factory=UniverseSpec)
+    
 
     def __post_init__(self):
         if self.freq != '1d':
@@ -136,7 +134,7 @@ class DatasetSpec:
 @dataclass(frozen=True)
 class DataQualitySummary:
     """
-    数据集校验后的质量摘要。
+    主面板数据校验质量摘要。
 
     不包含原始数据，只保存校验指标、警告和错误列表。
     is_valid=False 时 errors 非空，说明数据不可用于因子研究。
@@ -169,35 +167,30 @@ class DataQualitySummary:
 @dataclass(frozen=True)
 class ResearchDataset:
     """
-    统一的多品种日频研究面板。
-
-    这是因子研究链路的唯一数据入口。包含：
-    - 长表格式的行情与收益数据（MultiIndex[timestamp, product]）
-    - 请求时的数据规格
-    - 数据质量摘要
-    - 逐时点品种准入掩码（由 DynamicUniverse 生成，之后注入）
-
-    DataFrame 本身可变，但组件必须以"不原地修改输入"为契约。
+    因子研究统一数据集。
 
     Parameters
     ----------
-    df : pd.DataFrame
-        长表格式研究面板，索引为 MultiIndex[timestamp, product]。
-        必需列参见 REQUIRED_COLUMNS。
     spec : DatasetSpec
-        构建该数据集时使用的数据请求规格。
-    quality : DataQualitySummary
-        数据质量校验结果。
-    universe : pd.Series
+        构建时使用的数据请求规格。
+    main_panel : pd.DataFrame or None
+        长表格式主面板（即市场行情），索引为 MultiIndex[timestamp, product]。
+    quality : DataQualitySummary or None
+        主面板数据质量校验结果。
+    universe : pd.Series or None
         与 df 同索引的布尔准入表，True 表示该行品种在该时点可研究。
         初始可以为空 ，在 DynamicUniverse.build() 后注入。
+    auxiliary: Mapping[str, pd.DataFrame] or None
+    一系列附属数据集， key 为数据源（名称），例如 'term_structure'。
 
     """
 
-    df: pd.DataFrame = field(repr=False)
     spec: DatasetSpec
+    main_panel: pd.DataFrame = field(repr=False)
     quality: DataQualitySummary
     universe: pd.Series = field(repr=False)
+    auxiliary: Mapping[str, pd.DataFrame] | None = field(default=None, repr=False)
+
 
 
 # ============================================================
@@ -300,7 +293,7 @@ class IncrementalFactorResult:
 
     """
 
-    values: 'pd.Series' = field(repr=False)
+    values: pd.Series = field(repr=False)
     state: FactorState
     timestamp: Any
 
@@ -321,10 +314,10 @@ class FactorResult:
         因子值，索引与输入面板完全一致，Index: MultiIndex[timestamp, product]。
     parameters : Mapping[str, Any]
         本次计算的参数快照（如 lookback=20）。
-    required_columns : tuple of str
-        因子声明的必需输入列。
-    min_history : int
-        因子计算所需的最短历史窗口（期数）。
+    data_requirements: tuple[DataRequirement, ...]
+        一系列数据需求。
+    min_history : int or None
+        因子计算所需的最短非空历史窗口（期数）。为 None 表示不适用。
     compute_time_seconds : float
         计算耗时（秒）。
     coverage_rate : float
@@ -339,10 +332,10 @@ class FactorResult:
     """
 
     name: str
-    values: 'pd.Series' = field(repr=False)
+    values: pd.Series = field(repr=False)
     parameters: Mapping[str, Any]
-    required_columns: tuple[str, ...]
-    min_history: int
+    data_requirements: tuple[DataRequirement, ...]
+    min_history: int | None
     compute_time_seconds: float
     coverage_rate: float
     effective_start: Any = None
@@ -420,7 +413,7 @@ class LabelResult:
     """
 
     labels: pd.DataFrame = field(repr=False)
-    specs: tuple['LabelSpec', ...]
+    specs: tuple[LabelSpec, ...]
     metadata: Mapping[str, Any] | None = None
 
 

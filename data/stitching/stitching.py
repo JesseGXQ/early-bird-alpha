@@ -236,7 +236,8 @@ class ContinuousContractManager:
         self.transition_days = rollover_config.transition_days
 
         # 提取所有交易日序列
-        self.dates_list = self.master_table.index.tolist()
+        self.dates_list: list[pd.Timestamp] = self.master_table.index.tolist()
+        assert isinstance(self.dates_list[0], pd.Timestamp)
 
     def get_active_physical_contracts(self, trading_date: date) -> list[str]:
         """

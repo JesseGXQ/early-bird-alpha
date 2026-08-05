@@ -19,6 +19,13 @@ if TYPE_CHECKING:
     from data.storage.bar_loader import BarLoader
     from data.config import AdjustmentConfig
 
+def validate_start_end_dates(start_date: date, end_date: date, 
+                    earliest: date, latest: date):
+    """进行日期校验：开始小于等于结束；开始大于等于最早可用；结束小于等于最新可用。"""
+    assert start_date <= end_date, f'起始交易日 {start_date} 应早于或等于结束交易日 {end_date}。'
+    assert start_date >= earliest, f'起始交易日 {start_date} 应晚于或等于最早可用交易日 {earliest}。'
+    assert end_date   <= latest,   f'结束交易日 {end_date}   应早于或等于最晚可用交易日 {latest}。'
+
 class ResearchFeed:
     """
     投研价格向量提取器(The "Vector Extractor")
@@ -77,8 +84,8 @@ class ResearchFeed:
         self.adj_config: AdjustmentConfig = adj_config
 
     def get_historical_vector(self, 
-                              start_date: date, 
-                              end_date: date,
+                              start_date: date | None, 
+                              end_date: date | None,
                               freq: str = '1d',
                               view: Literal['scheduled', 'realized'] = 'scheduled') -> pd.DataFrame:
         """
@@ -86,11 +93,13 @@ class ResearchFeed:
 
         Parameters
         ------
-        start_date : datetime.date or str
+        start_date : datetime.date or None
             起始交易日，含义为该交易日完整 Session 的开始，
             即包含前一日历日夜盘。例如传入 2026-04-23 ，实际数据从 2026-04-22 21:00 开始。
-        end_date : datetime.date or str
+            当为 None 时，意为最早可用日期。
+        end_date : datetime.date or None
             结束交易日，数据截止至该交易日日盘收盘 15:00。
+            当为 None 时，意为最晚可用日期。
         freq : str, default "1d"
             K 线频率，格式同 Pandas Offset aliases 保持一致。
             例: 1min, 5min, 15min, 30min, 1h, 2h, 4h, 1d。
@@ -125,6 +134,15 @@ class ResearchFeed:
                 是否为换月时点
     
         """
+        # 先处理 start_date 和 end_date 参数逻辑
+        earliest = self.contract_manager.dates_list[0].date()
+        latest   = self.contract_manager.dates_list[-1].date()
+        if start_date is None:
+            start_date = earliest
+        if end_date is None:
+            end_date = latest
+        validate_start_end_dates(start_date, end_date, earliest, latest)
+
         # 1. 找连续合约大管家索要指定日期范围的物理合约映射表
         master_df_query = self._query_master_table(start_date=start_date, end_date=end_date)
         # 2. Dominant Contracts的原始行情数据收集
@@ -166,10 +184,6 @@ class ResearchFeed:
 
     def _query_master_table(self, start_date: date, end_date: date) -> pd.DataFrame:
         """返回指定日期范围的物理合约映射表"""
-        master_table_dates = self.contract_manager.master_table.index
-        if pd.Timestamp(start_date) < master_table_dates[0] or pd.Timestamp(end_date) > master_table_dates[-1]:
-            raise ValueError(f'请求日期区间 {start_date} - {end_date} 超出了换月总表范围。'
-                             f'品种 {self.product} 支持 {master_table_dates[0].strftime('%Y-%m-%d')} - {master_table_dates[-1].strftime('%Y-%m-%d')}。')
         master_df_query = self.contract_manager.master_table.loc[start_date:end_date].copy()
         return master_df_query
 
@@ -200,6 +214,13 @@ class ResearchFeed:
         assert isinstance(raw_continuous.index, pd.DatetimeIndex)
         raw_continuous['trading_date'] = raw_continuous.index.date # 添加一列交易日
         raw_continuous.rename(columns={'Contract': 'Dominant_Contract'}, inplace=True) 
+
+        if raw_continuous.empty:
+            raise ValueError(
+                f'【ResearchFeed】品种 {self.product} 日频原始数据为空。'
+                '根据业务逻辑该查询范围内不应缺失数据，'
+                '请检查数据源是否完整。'
+            )
         return raw_continuous
     
     def _collect_raw_1min_data(self, contract_dates_mapping: dict[str, list[date]]) -> pd.DataFrame:
@@ -222,6 +243,13 @@ class ResearchFeed:
             to_concat_datas.append(df)
 
         raw_continuous = pd.concat(to_concat_datas, axis=0)
+
+        if raw_continuous.empty:
+            raise ValueError(
+                f'【ResearchFeed】品种 {self.product} 1min 原始数据为空。'
+                '根据业务逻辑该查询范围内不应缺失数据，'
+                '请检查数据源是否完整。'
+            )
         return raw_continuous
     
     def _adjust_price(self, df: pd.DataFrame, master_df: pd.DataFrame) -> pd.DataFrame:
