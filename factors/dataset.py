@@ -192,7 +192,7 @@ class ResearchDatasetBuilder:
         # 3. 将数据需求从 spec 中整理出来为字典，key 为 source, value 为 columns
         data_requirements = {dr.source: dr.columns for dr in spec.data_requirements}
 
-        # 3. 加载主面板（统一走数据引擎的多线程并行接口）
+        # 3. -----------   加载主面板（统一走数据引擎的多线程并行接口）----------
         panel = self._facade.get_historical_vector_multiple_products(
             products=list(products),
             start_date=spec.start_date,
@@ -241,7 +241,7 @@ class ResearchDatasetBuilder:
                 universe=universe,
             )
 
-        # 4. 需要附属数据集，按需加载
+        # 4. ----------------   需要附属数据集，按需加载 -------------------------
         auxiliary: dict[str, pd.DataFrame] = {}
 
         if 'term_structure' in auxiliary_sources:

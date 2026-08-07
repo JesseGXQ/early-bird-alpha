@@ -180,8 +180,8 @@ class ResearchDataset:
     universe : pd.Series or None
         与 df 同索引的布尔准入表，True 表示该行品种在该时点可研究。
         初始可以为空 ，在 DynamicUniverse.build() 后注入。
-    auxiliary: Mapping[str, pd.DataFrame] or None
-    一系列附属数据集， key 为数据源（名称），例如 'term_structure'。
+    auxiliary: Mapping[str, Any] or None
+        一系列附属数据集， key 为数据源（名称），例如 'term_structure'。
 
     """
 
@@ -189,7 +189,7 @@ class ResearchDataset:
     main_panel: pd.DataFrame = field(repr=False)
     quality: DataQualitySummary
     universe: pd.Series = field(repr=False)
-    auxiliary: Mapping[str, pd.DataFrame] | None = field(default=None, repr=False)
+    auxiliary: Mapping[str, Any] | None = field(default=None, repr=False)
 
 
 
@@ -201,7 +201,7 @@ class FactorState:
     """
     因子增量计算的运行状态基类。
 
-    具体因子（如 TimeSeriesMomentumFactor）继承此类，保存滚动窗口缓存、
+    具体因子（如 MomentumFactor）继承此类，保存滚动窗口缓存、
     累计统计量等。状态必须支持重置（reset）和序列化（to_dict/from_dict），
     以便实验恢复和策略热启动。
 
@@ -212,7 +212,7 @@ class FactorState:
 
     Attributes
     ----------
-    _name : str
+    name : str
         所属因子名称，用于序列化后恢复归属。
 
     Methods
@@ -226,17 +226,17 @@ class FactorState:
 
     """
 
-    __slots__ = ('_name',)
+    __slots__ = ('name',)
 
     def __init__(self, name: str = ''):
-        self._name = name
+        self.name = name
 
     def reset(self) -> None:
         """
         将因子运行状态重置为初始值。
 
         子类必须覆盖此方法并清除所有滚动缓存和累计量。
-        基类只保留 _name。
+        基类只保留 name。
         """
         pass
 
@@ -250,10 +250,11 @@ class FactorState:
         dict[str, Any]
             包含 name 及所有子类状态的字典。
         """
-        return {'name': self._name}
+        return {'name': self.name}
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> 'FactorState':
+    
+    def from_dict(cls, d: dict[str, Any]) -> FactorState:
         """
         从序列化字典恢复状态。
 
@@ -316,8 +317,10 @@ class FactorResult:
         本次计算的参数快照（如 lookback=20）。
     data_requirements: tuple[DataRequirement, ...]
         一系列数据需求。
-    min_history : int or None
-        因子计算所需的最短非空历史窗口（期数）。为 None 表示不适用。
+    warmup_periods : int or None
+        下游应跳过的暖机期数：因子值虽已产出，但内部估计量尚未收敛至稳态
+        （如 EMA 初始化偏差、递归滤波的暂态过程），在此期间的值不得用于评价或交易。
+        为 None 表示该因子不存在暖机问题（如纯窗口类因子，首个有效值即已收敛）。
     compute_time_seconds : float
         计算耗时（秒）。
     coverage_rate : float
@@ -335,7 +338,7 @@ class FactorResult:
     values: pd.Series = field(repr=False)
     parameters: Mapping[str, Any]
     data_requirements: tuple[DataRequirement, ...]
-    min_history: int | None
+    warmup_periods: int | None
     compute_time_seconds: float
     coverage_rate: float
     effective_start: Any = None
@@ -604,14 +607,14 @@ class CandidateFactor:
     ----------
     name : str
         因子稳定名称。
-    factor_type : {'time_series', 'cross_sectional'}
-        因子计算模式。
+    validated_modes : tuple[Literal['time_series', 'cross_sectional'], ...]
+        因子评价/验证模式。
     parameters : Mapping[str, Any]
         因子参数的可序列化快照。
     required_columns : tuple of str
         因子声明依赖的输入字段。
-    min_history : int
-        因子计算所需的最短历史窗口（期数）。
+    warmup_periods : int
+        下游应跳过的暖机期数。
     research_evidence_ref : str or None
         支持该因子的研究证据引用（如实验 ID 或报告路径）。
     researcher_notes : str or None
@@ -627,10 +630,10 @@ class CandidateFactor:
     """
 
     name: str
-    factor_type: Literal['time_series', 'cross_sectional']
+    validated_modes: tuple[Literal['time_series', 'cross_sectional'], ...]
     parameters: Mapping[str, Any]
     required_columns: tuple[str, ...]
-    min_history: int
+    warmup_periods: int
     research_evidence_ref: str | None = None
     researcher_notes: str | None = None
     effective_scope: Mapping[str, Any] | None = None

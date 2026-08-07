@@ -11,7 +11,6 @@
 
 - 文档编辑指令不受上述约定控制。
 
-
 ## 运行环境
 
 - Conda `base` env（Anaconda，`C:\Users\Jesse\AppData\Local\anaconda3\python.exe`），Python 3.12。**仓库没有 requirements.txt / pyproject.toml，依赖只在 conda env 里**；不要擅自引入依赖清单。
@@ -45,3 +44,4 @@
 - `.pyc` 文件被历史提交进 git（12 个，`data/__pycache__/...`），改代码后 `git status` 会显示 pyc 改动——正常现象，不要主动删除或添加新的。
 - 详细设计记录按日期归档在 `docs/Development Notes/YYYYMMDD 主题.md`，按需参阅即可，注意，架构设计文档是代码写作方案的**原始参考**，最终代码架构决策可能偏离。当发现现有代码大幅偏离架构文档，需报告。
 - `db/rules_ingestion/supplements/API凭证.txt` 含 API 凭证，已被 gitignore，勿提交。
+- 为避免污染上下文，不要读取 `docs/Development Notes/*-log.md`, `docs\Development Notes\* 代码[重构|修改]笔记.md`。这类文档是开发日志，包含大量过时和遗弃设计。

@@ -351,15 +351,14 @@ if __name__ == '__main__':
     # print('品种按 sector 分组 的 dummy variable DataFrame: \n ',facade.rule_query.classification.get_dummy_matrix(level='sector'))
 
     # -------------------------ResearchFeed（错误排查）------------------------
-    # rb
-    from datetime import date
-    product = 'AD'
-    freq='1d'
-    start_date = None
-    end_date = None
-    df1 = facade.get_historical_vector(product,start_date, end_date, freq='1d')
-    print(f'product = {product}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df1.head())
-    print(f'数据集的列为: {df1.columns.tolist()}')
+    # from datetime import date
+    # product = 'AD'
+    # freq='1d'
+    # start_date = None
+    # end_date = None
+    # df1 = facade.get_historical_vector(product,start_date, end_date, freq='1d')
+    # print(f'product = {product}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df1.head())
+    # print(f'数据集的列为: {df1.columns.tolist()}')
     
 
     # -------------------------ResearchFeed------------------------
@@ -396,7 +395,7 @@ if __name__ == '__main__':
     # -------------------------TermStructureFeed------------------------
     # from datetime import date as dt_date
     # product_ts = 'AP'
-    # start_ts = dt_date(2021, 8, 1)
+    # start_ts = dt_date(2020, 8, 1)
     # end_ts = dt_date(2021, 8, 10)
     # df_ts = facade.get_term_structure_data(product_ts, start_ts, end_ts)
     # print(f'\n=== TermStructureFeed: {product_ts}, {start_ts} ~ {end_ts} ===')
@@ -406,42 +405,43 @@ if __name__ == '__main__':
     # print(f'行数: {len(df_ts)}')
 
     # ----------------- get_historical_vector_multiple_products ------------------
+    # from datetime import date as dt_date
+
+    # print('\n' + '=' * 60)
+    # print('多品种并行复权主连测试')
+    # print('=' * 60)
+
+    # test_products = ['AP', 'RB', 'FG']
+    # test_start = None
+    # test_end = dt_date(2021, 12, 31)
+
+    # df_multi = facade.get_historical_vector_multiple_products(
+    #     products=test_products,
+    #     start_date=test_start,
+    #     end_date=test_end,
+    #     freq='1d',
+    # )
+
+    # print(f'\n多品种面板: {len(df_multi)} 行')
+    # print(f'索引层级: {df_multi.index.names}')
+    # print(f'各品种样本数:')
+    # for p in test_products:
+    #     count = len(df_multi.xs(p, level='product')) if p in df_multi.index.get_level_values('product') else 0
+    #     print(f'  {p}: {count}')
+    # print(f'\n前 10 行:')
+    # print(df_multi.head(10).to_string())
+    # print(f'\n列名: {df_multi.columns.tolist()}')
+    # print("MultiIndex level 0 (trading_date), first element type is:", type(df_multi.index.get_level_values(0)[0]))
+
+    # # ----------------- get_term_structure_data_multiple_products ------------------
     from datetime import date as dt_date
-
-    print('\n' + '=' * 60)
-    print('多品种并行复权主连测试')
-    print('=' * 60)
-
-    test_products = ['AP', 'RB', 'FG']
-    test_start = None
-    test_end = dt_date(2021, 12, 31)
-
-    df_multi = facade.get_historical_vector_multiple_products(
-        products=test_products,
-        start_date=test_start,
-        end_date=test_end,
-        freq='1d',
-    )
-
-    print(f'\n多品种面板: {len(df_multi)} 行')
-    print(f'索引层级: {df_multi.index.names}')
-    print(f'各品种样本数:')
-    for p in test_products:
-        count = len(df_multi.xs(p, level='product')) if p in df_multi.index.get_level_values('product') else 0
-        print(f'  {p}: {count}')
-    print(f'\n前 10 行:')
-    print(df_multi.head(10).to_string())
-    print(f'\n列名: {df_multi.columns.tolist()}')
-    print("MultiIndex level 0 (trading_date), first element type is:", type(df_multi.index.get_level_values(0)[0]))
-
-    # ----------------- get_term_structure_data_multiple_products ------------------
     print('\n' + '=' * 60)
     print('多品种并行期限结构测试')
     print('=' * 60)
 
     ts_products = ['AP', 'RB']
-    ts_start = dt_date(2021, 8, 1)
-    ts_end = dt_date(2021, 8, 10)
+    ts_start = dt_date(2021, 7, 25)
+    ts_end = dt_date(2024, 8, 10)
 
     df_ts_multi = facade.get_term_structure_data_multiple_products(
         products=ts_products,
@@ -456,8 +456,14 @@ if __name__ == '__main__':
     for p in ts_products:
         mask = df_ts_multi['product'] == p
         print(f'  {p}: {mask.sum()}')
-    print(f'\n前 10 行:')
-    print(df_ts_multi.head(10).to_string())
+
+    idx_df = df_ts_multi.index.to_frame()
+    idx_df.insert(loc=1, column='product', value=df_ts_multi['product'])
+    idx_df.rename(columns={'trading_date':'timestamp'}, inplace=True)
+    df_ts_multi.index = pd.MultiIndex.from_frame(idx_df)
+
+    print(f'\n DataFrame 头部:')
+    print(df_ts_multi.head(50).to_string())
     print("MultiIndex level 0 (trading_date), first element type is:", type(df_ts_multi.index.get_level_values(0)[0]))
 
 
