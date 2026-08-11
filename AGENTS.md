@@ -11,6 +11,10 @@
 
 - 文档编辑指令不受上述约定控制。
 
+## 输出格式
+
+- 控制台打印数学公式：使用 KaTeX 兼容格式。
+
 ## 运行环境
 
 - Conda `base` env（Anaconda，`C:\Users\Jesse\AppData\Local\anaconda3\python.exe`），Python 3.12。**仓库没有 requirements.txt / pyproject.toml，依赖只在 conda env 里**；不要擅自引入依赖清单。

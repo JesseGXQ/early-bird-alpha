@@ -68,8 +68,9 @@ class UniverseSpec:
         回看窗口内滚动平均最低成交量（手）；为 0 则表示不启用。
     min_open_interest : int
         单日最低持仓量（手）；为 0 则表示不启用。
-     min_data_coverage : float
+    min_data_coverage : float
         品种有效数据最低覆盖率阈值，取值范围 [0, 1]。
+        这里的有效数据指 True_Return 列。
 
     """
 
