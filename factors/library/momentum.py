@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Mapping, Literal
 import numpy as np
 import pandas as pd
 
-from factors.base import Factor
+from factors.library.base import Factor
 from factors.models import DataRequirement, FactorState, IncrementalFactorResult
 
 class MomentumState(FactorState):

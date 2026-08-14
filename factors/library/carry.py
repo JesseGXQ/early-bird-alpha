@@ -6,12 +6,12 @@ from typing import TYPE_CHECKING, Any, Literal, Mapping
 import numpy as np
 import pandas as pd
 
-from factors.base import Factor
+from factors.library.base import Factor
 from factors.models import (DataRequirement, FactorState, 
                             IncrementalFactorResult, INDEX_NAMES)
 
 
-_RY_COMBO = Literal[
+type _RY_COMBO = Literal[
     'near_next',        # 近月 + 次近月
     'near_dominant',    # 近月 + 主力
     'near_farthest',    # 近月 + 最远月
@@ -50,10 +50,8 @@ class RollYieldFactor(Factor):
         return    (
             DataRequirement(
                 source='term_structure',
-                columns=(
-                    'Settle', 'last_trade_date',
-                    'is_dominant', 'OpenInterest', 'Volume',
-                ),
+                columns=('Settle', 'last_trade_date',
+                         'is_dominant', 'OpenInterest', 'Volume'),
             ),
         )
 

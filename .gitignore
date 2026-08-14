@@ -62,4 +62,8 @@ repomix.config.json
 docs/others/
 docs/talk with API/
 
+# ==========================================
+# opencode export files
+# ==========================================
 
+session-ses_*.md
