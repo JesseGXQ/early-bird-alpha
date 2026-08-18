@@ -98,7 +98,7 @@ class ProductClassificationManager:
             mask &= df["supply_chain"].str.contains(supply_chain, na=False)
         return df.loc[mask, "product"].tolist()
 
-    def get_dummy_matrix(self, level: Literal['asset_class', 'sector', 'subsector'] = "sector") -> pd.DataFrame:
+    def _get_dummy_matrix(self, level: Literal['asset_class', 'sector', 'subsector'] = "sector") -> pd.DataFrame:
         """
         返回指定分类层级的虚拟变量矩阵，用于中性化回归。
 
@@ -144,6 +144,7 @@ if __name__ == "__main__":
         r"D:\量化策略\CTA策略\Multi-factor Trend Following\db\rules\product_classification"
     )
     df = mgr.get_classification()
+    print(df.to_string())
     print(f"品种总数: {len(df)}")
     print(f"asset_classes: {mgr.asset_classes}")
     print(f"sectors: {mgr.sectors}")

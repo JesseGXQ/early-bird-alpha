@@ -184,6 +184,7 @@ class ResearchDataset:
     auxiliary: Mapping[str, Any] or None
         一系列附属数据集， key 为数据源（名称），例如 'term_structure'。
 
+        - 品种组分类数据，使用 key 名称： classification
     """
 
     spec: DatasetSpec
