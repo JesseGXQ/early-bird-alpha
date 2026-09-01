@@ -22,6 +22,12 @@ class DynamicUniverse:
         ------
         panel: pd.DataFrame
             研究主面板。 MultiIndex[timestamp, product]
+
+        Returns
+        ------
+        tuple[pd.Series, pd.Series]
+            - universe: 品种池准入布尔掩码，索引与 panel 一致。
+            - exclude_reason: 对应的排除原因，索引与 panel 一致。
         """
         panel = panel.copy()
 

@@ -357,19 +357,15 @@ class LabelSpec:
     """
     单条标签构造规格。
 
-    通过 method 区分标签类型，具体计算逻辑由 labels.py 中的
-    LabelBuilder 根据 method 分发。
-
     Parameters
     ----------
     name : str
         标签唯一名称，例如 'fwd_return_5d'。
-    method : {'forward_return', 'direction', 'future_volatility', 'residual_return', 'event'}
+    type : {'forward_return', 'direction', 'future_volatility', 'event'}
         标签类型：
         - 'forward_return'：未来 h 期复合收益。
         - 'direction'：未来收益方向（+1 / -1）。
         - 'future_volatility'：未来 h 期已实现波动率。
-        - 'residual_return'：基准或风险暴露调整后的残差收益。
         - 'event'：可配置阈值触发的事件标签（如涨跌停、换月等）。
     horizon : int
         预测期限（K 线期数），例如 5 表示未来 5 期。
@@ -377,15 +373,15 @@ class LabelSpec:
         用于构造标签的数据列，默认 'True_Return'。
     min_valid_obs : int
         构造标签需要的最少有效观测数。不足时该标签为 NaN。
-    additional_metadata : Mapping[str, Any] or None
-        标签类型专属的可选额外参数（为 None 表示不适用）：
-        - 'residual_return' 需提供基准列和拟合窗口。
+    additional_data_requirements : tuple[DataRequirement, ...] or None, default None
+        除了主面板外，标签构造的额外数据需求。例如：
         - 'event' 需提供触发条件表达式或阈值。
-
+    parameters: Mapping[str, Any] or None, default None
+        构造标签所需的（额外）参数。
     """
 
     name: str
-    method: Literal[
+    type: Literal[
         'forward_return',
         'direction',
         'future_volatility',
@@ -395,8 +391,10 @@ class LabelSpec:
     horizon: int
     source_column: str = 'True_Return'
     min_valid_obs: int = 1
-    additional_metadata: Mapping[str, Any] | None = None
-
+    additional_data_requirements: \
+        tuple[DataRequirement, ...] | None = None \
+        # （除了 main_panel 外，额外的数据需求）
+    parameters: Mapping[str, Any] | None = None
 
 @dataclass(frozen=True)
 class LabelResult:
@@ -422,8 +420,9 @@ class LabelResult:
     metadata: Mapping[str, Any] | None = None
 
 
+
 # ============================================================
-# 4. 评价模型（EvaluationConfig / FactorEvaluationResult）
+# 4. 评价模型（EvaluationConfig / FactorEvaluationResult / HarvestProfile）
 # ============================================================
 
 @dataclass(frozen=True)
@@ -466,7 +465,7 @@ class EvaluationConfig:
     min_observations: int = 10
     n_groups: int = 5
     grouping_direction: Literal['ascending', 'descending'] = 'ascending'
-    nan_policy: Literal['strict', 'drop'] = 'strict'
+    nan_policy: Literal['strict', 'drop'] = 'drop'
     annualization_factor: int | None = None
 
 
@@ -486,8 +485,8 @@ class FactorEvaluationResult:
         参与本次评价的标签规格，完整记录标签名称、方法、期限与构造参数。
     config : EvaluationConfig
         本次评价使用的配置。
-    coverage : pd.DataFrame or None
-        覆盖率明细（总体、分时点、分品种），此处的覆盖率指的是 "因子非空 ∩ 标签非空"。
+    coverage : dict[str, pd.DataFrame]
+        覆盖率相关统计量（总体、分时点、分品种）。
     ic_detail : pd.DataFrame or None
         IC / Rank IC 逐期明细。
     ic_summary : dict or None
@@ -510,7 +509,7 @@ class FactorEvaluationResult:
     factor_name: str
     label_spec: LabelSpec
     config: EvaluationConfig
-    coverage: pd.DataFrame | None = None
+    coverage: dict[str, pd.DataFrame]
     ic_detail: pd.DataFrame | None = None
     ic_summary: dict[str, Any] | None = None
     grouped_returns: pd.DataFrame | None = None
@@ -519,6 +518,64 @@ class FactorEvaluationResult:
     robustness: dict[str, Any] | None = None
     redundancy: dict[str, Any] | None = None
     warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class HarvestProfile:
+    """
+    组合收获范式配置（研究层声明式研究假设，非完整策略配置）。
+
+    描述"信号 → 权重 → 可收获收益"的研究假设：下游组合任务把信号
+    转换成权重的方式，决定了可收获收益方向与所需核心统计量（参见
+    《20260825 时序与截面因子评价》§3、§15.2）。同一因子可以在多个
+    收获范式下产生多组研究证据；本类是 EvaluationConfig.mode 的
+    正交补充，不承载 EvaluationConfig 已表达的聚合方向。
+
+    所有字段均为受限字面量枚举，保持纯粹配置形态，不加派生字段。
+
+    Parameters
+    ----------
+    name : str
+        实例唯一名称，如 'sector_neutral_inv_vol'。
+    strategy_family : {'time_series', 'cross_sectional'}
+        策略家族：逐品种独立预测的时序 CTA，或同一时点跨品种比较的
+        截面相对价值。
+    signal_mapping : {'continuous_score', 'rank', 'quantile_group', 'clip'}
+        信号到研究权重的映射形态：
+        - 'continuous_score'：连续去均值等线性映射。
+        - 'rank'：排序分数。
+        - 'quantile_group'：分组/头尾组合（非线性）。
+        - 'clip'：截断到 [-1, 1] 之类的区间。
+    risk_scaling : {'none', 'inverse_volatility', 'inverse_variance', 'covariance'}
+        风险缩放方式：无、逆波动率、逆方差或协方差感知缩放。
+    neutrality : {'none', 'market', 'sector', 'risk_factor'}
+        净暴露中性约束：市场、板块或风险因子中性；'none' 表示不中性化。
+    risk_allocation : {'equal_product', 'equal_sector', 'risk_contribution', 'optimization'}
+        品种/板块层面的风险预算分配方式。
+    portfolio_target : {'gross_one', 'target_volatility', 'utility'}
+        组合总目标：gross 归 1、目标波动率或优化效用。
+    position_limit : {'none', 'per_instrument', 'gross', 'per_instrument_and_gross'}
+        仓位和流动性限制类型。
+    cost_proxy : {'none', 'linear_turnover'}
+        简单成本代理。
+    uses_covariance : bool
+        是否使用协方差矩阵（用于组合波动率缩放或优化）。
+    description : str
+        研究假设的补充说明。
+
+    """
+
+    name: str
+    strategy_family: Literal['time_series', 'cross_sectional']
+    signal_mapping: Literal['continuous_score', 'rank', 'quantile_group', 'clip']
+    risk_scaling: Literal['none', 'inverse_volatility', 'inverse_variance', 'covariance']
+    neutrality: Literal['none', 'market', 'sector', 'risk_factor']
+    risk_allocation: Literal['equal_product', 'equal_sector', 'risk_contribution', 'optimization']
+    portfolio_target: Literal['gross_one', 'target_volatility', 'utility']
+    position_limit: Literal['none', 'per_instrument', 'gross', 'per_instrument_and_gross']
+    cost_proxy: Literal['none', 'linear_turnover'] = 'linear_turnover'
+    uses_covariance: bool = False
+    description: str = ''
 
 
 @dataclass(frozen=True)

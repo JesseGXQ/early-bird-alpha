@@ -41,9 +41,21 @@ from factors.models import (
     EvaluationConfig,
     FactorEvaluationResult,
     DecayResult,
+    HarvestProfile,
     # 实验模型
     ExperimentIdentity,
     CandidateFactor,
+)
+
+from factors.profiles import (
+    # 六个主流组合收获范式
+    market_rank_ls,
+    sector_neutral_rv,
+    sector_neutral_inv_vol,
+    constrained_alpha_opt,
+    ts_inv_vol_target_vol,
+    sector_risk_budget_cta,
+    MAINSTREAM_HARVEST_PROFILES,
 )
 
 __all__ = [
@@ -61,6 +73,16 @@ __all__ = [
     'EvaluationConfig',
     'FactorEvaluationResult',
     'DecayResult',
+    'HarvestProfile',
+    # 实验模型
     'ExperimentIdentity',
     'CandidateFactor',
+    # 主流组合收获范式
+    'market_rank_ls',
+    'sector_neutral_rv',
+    'sector_neutral_inv_vol',
+    'constrained_alpha_opt',
+    'ts_inv_vol_target_vol',
+    'sector_risk_budget_cta',
+    'MAINSTREAM_HARVEST_PROFILES',
 ]

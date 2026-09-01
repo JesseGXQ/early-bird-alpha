@@ -6,7 +6,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Mapping, TYPE_CHECKING
 
-from networkx import from_nested_tuple
 import pandas as pd
 
 if TYPE_CHECKING:
