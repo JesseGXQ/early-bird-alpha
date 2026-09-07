@@ -9,24 +9,8 @@ import numpy as np
 import statsmodels.api as sm
 from arch.bootstrap import \
     CircularBlockBootstrap as cb_bootstrap
-
-SELECTED_GROUP_INVALID_CODES = {
-    1: 'has_missing_nan_policy_strict',
-    9: 'empty_universe',
-    3: 'insufficient_valid_obs',
-    4: 'factor_single_value',
-    5: 'label_single_value',
-}
-
-@dataclass(frozen=True)
-class SelectedGroup:
-    nan_policy: Literal['strict', 'drop']
-    min_observations: int
-    data: pd.DataFrame | None
-    n_eligible: int # 品种池内样本数，未考虑是否合格（是否有缺失值）
-    n_valid: int | None 
-    n_dropped: int | None 
-    invalid_code: int | None
+from factors.evaluation.common import \
+    SelectedGroup, select_group_sample, group_to_series
 
 @dataclass(frozen=True)
 class ICSummary:
@@ -72,151 +56,7 @@ class TSICEvaluationResults:
     ic: pd.Series
     ic_summary: ICSummary
 
-def _group_to_series(
-        g: SelectedGroup
-    )-> pd.Series:
-    d = {
-        'n_eligible': g.n_eligible,
-        'n_valid': g.n_valid,
-        'n_dropped': g.n_dropped,
-        'invalid_code': g.invalid_code
-    }
-    return pd.Series(d)
 
-def _single_value(
-        values: pd.Series
-    ) -> bool:
-    if values.nunique(dropna=True) == 1:
-        return True
-    return False
-
-def _select_group_sample(
-        group: pd.DataFrame,
-        min_observations: int,
-        nan_policy: Literal['strict', 'drop'],
-) -> SelectedGroup:
-    # 首先根据品种池做筛选
-    eligible = group.loc[
-        group['universe'], ['factor', 'label']
-    ]
-    n_eligible = len(eligible)
-    if n_eligible == 0: # 空品种池
-        return SelectedGroup(
-            nan_policy = nan_policy,
-            min_observations = min_observations,
-            data = None,
-            n_eligible=0,
-            n_valid = None,
-            n_dropped = None,
-            invalid_code=9
-        )
-    
-    has_missing = eligible.isna().any(axis=None)
-
-    if nan_policy == 'strict' and has_missing:
-        return SelectedGroup(
-            nan_policy = nan_policy,
-            min_observations=min_observations,
-            data = None,
-            n_eligible=n_eligible,
-            n_valid=None,
-            n_dropped=None,
-            invalid_code=1
-        )
-    if nan_policy == 'strict' and not has_missing:
-        if n_eligible >= min_observations:
-            factor_single = _single_value(eligible['factor'])
-            label_single = _single_value(eligible['label'])
-            if factor_single:
-                return SelectedGroup(
-                    nan_policy=nan_policy,
-                    min_observations=min_observations,
-                    data=None,
-                    n_eligible=n_eligible,
-                    n_valid=n_eligible,
-                    n_dropped=None,
-                    invalid_code=4
-                )
-            elif label_single:
-                return SelectedGroup(
-                    nan_policy=nan_policy,
-                    min_observations=min_observations,
-                    data=None,
-                    n_eligible=n_eligible,
-                    n_valid=n_eligible,
-                    n_dropped=None,
-                    invalid_code=5
-                )
-            else: # factor not single, label not single
-                return SelectedGroup(
-                    nan_policy=nan_policy,
-                    min_observations=min_observations,
-                    data=eligible,
-                    n_eligible=n_eligible,
-                    n_valid=n_eligible,
-                    n_dropped=None,
-                    invalid_code=None
-                )
-        else: # n_eligible < min_observations
-            return SelectedGroup(
-                nan_policy=nan_policy,
-                min_observations=min_observations,
-                data=None,
-                n_eligible=n_eligible,
-                n_valid=n_eligible,
-                n_dropped=None,
-                invalid_code=3
-            )
-    else: # nan_policy = 'drop'
-        valid = eligible.dropna(
-        subset=['factor', 'label'],
-        how='any'
-    )
-        n_valid = len(valid)
-        n_dropped = n_eligible - n_valid
-        if n_valid >= min_observations:
-            factor_single = _single_value(valid['factor'])
-            label_single = _single_value(valid['label'])
-            if factor_single:
-                return SelectedGroup(
-                    nan_policy=nan_policy,
-                    min_observations=min_observations,
-                    data=None, 
-                    n_eligible=n_eligible,
-                    n_valid=n_valid,
-                    n_dropped=n_dropped,
-                    invalid_code=4
-                )
-            elif label_single:
-                return SelectedGroup(
-                    nan_policy=nan_policy,
-                    min_observations=min_observations,
-                    data=None,
-                    n_eligible=n_eligible,
-                    n_valid=n_valid,
-                    n_dropped=n_dropped,
-                    invalid_code=5
-                )
-            else: # factor not single, label not single
-                return SelectedGroup(
-                    nan_policy=nan_policy,
-                    min_observations=min_observations,
-                    data=valid,
-                    n_eligible=n_eligible,
-                    n_valid=n_valid,
-                    n_dropped=n_dropped,
-                    invalid_code=None
-                )
-        else:
-            return SelectedGroup(
-                nan_policy=nan_policy,
-                min_observations=min_observations,
-                data=None,
-                n_eligible=n_eligible,
-                n_valid=n_valid,
-                n_dropped=n_dropped,
-                invalid_code=3
-            )
 
 def _ic_valid_group(
         data: pd.DataFrame,
@@ -366,11 +206,11 @@ def _cs_ic_details(
     # 1. 根据 nan_policy 和 min_observations 挑选每组数据
     selected: pd.Series = \
         df.groupby(level='timestamp') \
-        .apply(_select_group_sample,
+        .apply(select_group_sample,  # pyright: ignore[reportArgumentType]
                min_observations=min_observations,
                nan_policy=nan_policy)  # type: ignore
     group_meta: pd.DataFrame = selected \
-        .apply(_group_to_series)
+        .apply(group_to_series)
 
     # 2. 计算 IC 或 RankIC
     ic = selected.transform(
@@ -453,11 +293,11 @@ def _ts_ic_details(
 ) -> TSICEvaluationResults:
     selected: pd.Series = \
         df.groupby(level='product') \
-        .apply(_select_group_sample,
+        .apply(select_group_sample,  # pyright: ignore[reportArgumentType]
                min_observations=min_observations,
                nan_policy=nan_policy)  # type: ignore
     group_meta = selected \
-        .apply(_group_to_series)
+        .apply(group_to_series)
 
     ic = selected.transform(
         _ic_group, rank=rank

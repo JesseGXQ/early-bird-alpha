@@ -32,7 +32,7 @@ def _coverage_stats_one_group(group: pd.DataFrame) -> pd.Series:
 
     def rate(count):
         """有效值覆盖比例。"""
-        if count == 0:
+        if eligible_count == 0:
             return np.nan
         return count/eligible_count
 
