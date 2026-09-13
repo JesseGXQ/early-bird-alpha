@@ -43,7 +43,7 @@ def select_group_sample(
         missing_drop_scope_mode_drop: Literal[
             'factor_and_label', 'factor'] = 'factor_and_label',
         single_value_handle_scope: Literal[
-            'factor_and_label', 'factor'] = 'factor_and_label',
+            'factor_and_label', 'factor'] | None = 'factor_and_label',
 ) -> SelectedGroup:
     """从单个评价单元（一个时间截面或一个品种的 factor/label 面板）中，
     依据品种池、缺失值策略与样本数门槛筛选合格样本。
@@ -74,10 +74,12 @@ def select_group_sample(
         drop 策略下剔除缺失样本的范围。'factor_and_label' 表示 factor 或
         label 任一缺失的行都剔除；'factor' 表示只剔除 factor 缺失的行。
         默认 'factor_and_label'。
-    single_value_handle_scope : {'factor_and_label', 'factor'}, optional
+    single_value_handle_scope : {'factor_and_label', 'factor'} or None, optional
         single value 检查的范围。'factor_and_label' 表示 factor 与 label
         都做常数检查（invalid_code=4/5）；'factor' 表示只检查 factor
-        （只可能返回 invalid_code=4，不会返回 5）。默认 'factor_and_label'。
+        （只可能返回 invalid_code=4，不会返回 5）；None 表示不做任何
+        single value 检查（不会返回 invalid_code=4 或 5）。
+        默认 'factor_and_label'。
 
     Returns
     -------
@@ -92,10 +94,14 @@ def select_group_sample(
         raise ValueError(
             f'非法的 missing_drop_scope_mode_drop: '
             f'{missing_drop_scope_mode_drop}。')
-    if single_value_handle_scope not in {'factor_and_label', 'factor'}:
+    if single_value_handle_scope not in {'factor_and_label', 'factor', None}:
         raise ValueError(
             f'非法的 single_value_handle_scope: '
             f'{single_value_handle_scope}。')
+    if not pd.api.types.is_bool_dtype(group["universe"].dtype):
+        raise TypeError("universe 必须是布尔列。")
+    if group["universe"].isna().any():
+        raise ValueError("universe 不能包含缺失值。")
 
     # 1. 首先根据品种池做筛选
     eligible = group.loc[
@@ -155,13 +161,17 @@ def select_group_sample(
             invalid_code = 3
         )
 
-    # 4. single value 检查
-    factor_single = _single_value(valid['factor'])
-    label_single = (
-        _single_value(valid['label'])
-        if single_value_handle_scope == 'factor_and_label'
-        else False
-    )
+    # 4. single value 检查（scope 为 None 时跳过）
+    if single_value_handle_scope is None:
+        factor_single = False
+        label_single = False
+    else:
+        factor_single = _single_value(valid['factor'])
+        label_single = (
+            _single_value(valid['label'])
+            if single_value_handle_scope == 'factor_and_label'
+            else False
+        )
     if factor_single:
         return SelectedGroup(
             nan_policy = nan_policy,
@@ -183,7 +193,7 @@ def select_group_sample(
             invalid_code = 5
         )
 
-    # factor 与 label 均非 single value
+    # factor_single 与 label_single 均 False
     return SelectedGroup(
         nan_policy = nan_policy,
         min_observations = min_observations,
