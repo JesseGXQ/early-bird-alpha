@@ -31,6 +31,7 @@ class Factor(ABC):
     @property
     @abstractmethod
     def warmup_periods(self) -> int | None:
+        """暖机窗口大小。"""
         ...
 
     @abstractmethod
