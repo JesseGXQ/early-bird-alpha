@@ -1,5 +1,5 @@
 """
-工厂函数：负责构造和组装 ResearchFeed 和 SimulationFeed。
+数据馈送器工厂：负责构造研究、仿真、期限结构和基本面馈送器。
 """
 from functools import lru_cache
 
@@ -19,6 +19,7 @@ from data.storage.file_locator import FileLocator
 from data.storage.bar_loader import BarLoader
 from data.storage.daily_snapshot_loader import DailySnapshotLoader
 from data.storage.daily_snapshot_manager import DailySnapshotManager
+from data.storage.warehouse_receipt_loader import WarehouseReceiptLoader
 
 from data.calendar.product_calendar import ProductCalendar
 from data.calendar.exchange_calendar_manager import ExchangeCalendarManager
@@ -27,6 +28,7 @@ from data.feed.aggregator import BarAggregator
 from data.feed.research_feed import ResearchFeed
 from data.feed.simulation_feed import SimulationFeed
 from data.feed.term_structure_feed import TermStructureFeed
+from data.feed.fundamental_feed import FundamentalFeed
 
 from data.config import RolloverConfig, AdjustmentConfig, SamplingConfig, EnvironmentConfig
 
@@ -257,5 +259,30 @@ def create_term_structure_feed(
         daily_snapshot_manager=daily_snapshot_manager,
         registry_manager=registry_manager,
         contract_manager=contract_manager,
+    )
+
+
+def create_fundamental_feed(
+    product: str,
+    env_config: EnvironmentConfig,
+) -> FundamentalFeed:
+    """组装并返回指定品种的 FundamentalFeed。"""
+    (
+        meta_manager,
+        _registry_manager,
+        _holiday_manager,
+        _exchange_calendar_manager,
+        _daily_status_manager,
+        _trading_rule_service,
+        _classification_manager,
+    ) = _create_trading_rule_components(env_config)
+
+    warehouse_receipt_loader = WarehouseReceiptLoader(
+        warehouse_receipt_dir=env_config.warehouse_receipt_dir,
+        meta_manager=meta_manager,
+    )
+    return FundamentalFeed(
+        product=product,
+        warehouse_receipt_loader=warehouse_receipt_loader,
     )
 

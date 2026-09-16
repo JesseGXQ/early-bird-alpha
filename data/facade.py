@@ -1,6 +1,6 @@
 from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Mapping
 
 import pandas as pd
 
@@ -8,13 +8,19 @@ from data.config import (
     AdjustmentConfig, EnvironmentConfig, 
     RolloverConfig, SamplingConfig
 )
-from data.factory import create_research_feed, create_simulation_feed, create_term_structure_feed
+from data.factory import (
+    create_fundamental_feed,
+    create_research_feed,
+    create_simulation_feed,
+    create_term_structure_feed,
+)
 from data.query_service import RuleQueryService
 
 if TYPE_CHECKING:
     from data.feed.research_feed import ResearchFeed 
     from data.feed.simulation_feed import SimulationFeed
     from data.feed.term_structure_feed import TermStructureFeed
+    from data.feed.fundamental_feed import FundamentalFeed
     from data.feed.models import MarketSnapshot
     from datetime import date
     import pandas as pd
@@ -41,13 +47,23 @@ class DataFacade:
         获取 ResearchFeed 实例。
     get_simulation_feed(product)
         获取 SimulationFeed 实例。
-     get_historical_vector(product, start_date=None, end_date=None, freq, view)
-         获取复权主连历史价格 DataFrame 。
+    get_fundamental_feed(product)
+        获取 FundamentalFeed 实例。
+    get_historical_vector(product, start_date=None, end_date=None, freq, view)
+        获取复权主连历史价格 DataFrame 。
+    get_historical_vector_multiple_products(products, start_date=None, end_date=None, freq, view, max_workers=None)
+        多品种并行获取复权主连历史价格面板 DataFrame 。
     get_snapshot_stream(product, start_date, end_date)
         获取逐笔市场快照数据流。
-     get_term_structure_data(product, start_date=None, end_date=None)
-         获取指定品种的期限结构长表 DataFrame 。
-    
+    get_term_structure_data(product, start_date=None, end_date=None)
+        获取指定品种的期限结构长表 DataFrame 。
+    get_term_structure_data_multiple_products(products, start_date=None, end_date=None, max_workers=None)
+        多品种并行获取期限结构长表面板 DataFrame 。
+    get_warehouse_receipt_data(product, start_date=None, end_date=None, aggregate=False, agg_unit_conversions=None)
+        获取指定品种的仓单日报明细或品种日聚合数据。
+    get_warehouse_receipt_data_multiple_products(products, start_date=None, end_date=None, max_workers=None, aggregate=False, agg_unit_conversions=None)
+        多品种并行获取仓单日报明细或品种日聚合数据。
+
     """
 
     def __init__(
@@ -67,6 +83,7 @@ class DataFacade:
         self._research_feeds: dict[str, ResearchFeed] = {} # 内部懒加载的 ResearchFeed 实例缓存
         self._simulation_feeds: dict[str, SimulationFeed] = {} # 内部懒加载的 SimulationFeed 实例缓存
         self._term_structure_feeds: dict[str, TermStructureFeed] = {} # 内部懒加载的 TermStructureFeed 实例缓存
+        self._fundamental_feeds: dict[str, FundamentalFeed] = {} # 内部懒加载的 FundamentalFeed 实例缓存
 
     def get_research_feed(self, product: str) -> ResearchFeed: 
         """
@@ -93,6 +110,86 @@ class DataFacade:
                 env_config=self._env_config
             )
         return self._simulation_feeds[product]
+
+    def get_fundamental_feed(self, product: str) -> FundamentalFeed:
+        """返回指定品种的基本面数据馈送器。"""
+        product = product.upper()
+        if product not in self._fundamental_feeds:
+            self._fundamental_feeds[product] = create_fundamental_feed(
+                product=product,
+                env_config=self._env_config,
+            )
+        return self._fundamental_feeds[product]
+
+    def get_warehouse_receipt_data(
+        self,
+        product: str,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        aggregate: bool = False,
+        agg_unit_conversions: Mapping[tuple[str, str, str], float] | None = None,
+    ) -> pd.DataFrame:
+        """
+        获取指定品种、指定日期闭区间内的仓单日报数据。
+
+        aggregate=False 时返回仓库级明细；aggregate=True 时先按
+        agg_unit_conversions 将完整查询区间的单位统一，再按“品种-交易日”
+        加总。转换键为 (品种, 原单位, 目标单位)，系数直接乘于数量。
+        """
+        feed = self.get_fundamental_feed(product)
+        return feed.get_warehouse_receipt_data(
+            start_date=start_date,
+            end_date=end_date,
+            aggregate=aggregate,
+            agg_unit_conversions=agg_unit_conversions,
+        )
+
+    def get_warehouse_receipt_data_multiple_products(
+        self,
+        products: list[str],
+        start_date: date | None = None,
+        end_date: date | None = None,
+        max_workers: int | None = None,
+        aggregate: bool = False,
+        agg_unit_conversions: Mapping[tuple[str, str, str], float] | None = None,
+    ) -> pd.DataFrame:
+        """并行获取多个品种的仓单日报明细或品种日聚合数据。"""
+        if not products:
+            raise ValueError("products 列表不能为空。")
+
+        results: dict[str, pd.DataFrame] = {}
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_product = {
+                executor.submit(
+                    self.get_warehouse_receipt_data,
+                    product=product,
+                    start_date=start_date,
+                    end_date=end_date,
+                    aggregate=aggregate,
+                    agg_unit_conversions=agg_unit_conversions,
+                ): product.upper()
+                for product in products
+            }
+            for future in as_completed(future_to_product):
+                product = future_to_product[future]
+                try:
+                    results[product] = future.result()
+                except Exception as exc:
+                    raise RuntimeError(f"品种 {product} 获取仓单数据失败。") from exc
+
+        frames = [results[product] for product in sorted(results)]
+        result = pd.concat(frames, ignore_index=True)
+        sort_columns = ["trading_date", "product"]
+        if not aggregate:
+            sort_columns.append("warehouse")
+        result.sort_values(
+            sort_columns,
+            na_position="last",
+            kind="stable",
+            inplace=True,
+        )
+        result.reset_index(drop=True, inplace=True)
+        return result
     
     def get_historical_vector(
             self,
@@ -224,8 +321,9 @@ class DataFacade:
         Returns
         ------
         pd.DataFrame
-            MultiIndex[trading_date, contract, product] 的长表面板，
-            列: is_dominant, Settle, last_trade_date, OpenInterest, Volume。
+            MultiIndex[trading_date, contract] 的长表面板，
+            列: product, is_dominant, Settle, last_trade_date, 
+            OpenInterest, Volume。
         """
         if not products:
             raise ValueError('products 列表不能为空。')
@@ -362,20 +460,18 @@ if __name__ == '__main__':
     
 
     # -------------------------ResearchFeed------------------------
-    # rb
-    # freq=1d
-    # from datetime import date
-    # product = 'rb'
-    # freq='1d'
-    # start_date = date(2009, 7, 20)
-    # end_date = date(2025, 10, 18)
-    # df1 = facade.get_historical_vector(product,start_date, end_date, freq='1d')
-    # print(f'product = {product}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df1.head())
-    # print(f'数据集的列为: {df1.columns.tolist()}')
-    # freq='5min'
-    # freq='5min'
-    # df2 = facade.get_historical_vector(product, start_date, end_date, freq='5min')
-    # print(f'product = {product}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df2.head())
+    from datetime import date
+    product = 'cf'
+    freq='1d'
+    start_date = date(2009, 7, 20)
+    end_date = date(2025, 10, 18)
+    df1 = facade.get_historical_vector(product,start_date, end_date, freq='1d')
+    print(f'product = {product}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df1.head())
+    print(f'数据集的列为: {df1.columns.tolist()}')
+    freq='5min'
+    freq='5min'
+    df2 = facade.get_historical_vector(product, start_date, end_date, freq='5min')
+    print(f'product = {product}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df2.head())
 
 
     # -------------------------SimulationFeed------------------------
@@ -411,7 +507,7 @@ if __name__ == '__main__':
     # print('多品种并行复权主连测试')
     # print('=' * 60)
 
-    # test_products = ['AP', 'RB', 'FG']
+    # test_products = ['AP', 'RB', 'FG', 'CF']
     # test_start = None
     # test_end = dt_date(2021, 12, 31)
 
@@ -429,47 +525,41 @@ if __name__ == '__main__':
     #     count = len(df_multi.xs(p, level='product')) if p in df_multi.index.get_level_values('product') else 0
     #     print(f'  {p}: {count}')
     # print(f'\n前 10 行:')
-    # print(df_multi.head(10).to_string())
+    # print(df_multi.head(10).to_string(line_width=80))
     # print(f'\n列名: {df_multi.columns.tolist()}')
     # print("MultiIndex level 0 (trading_date), first element type is:", type(df_multi.index.get_level_values(0)[0]))
 
     # # ----------------- get_term_structure_data_multiple_products ------------------
-    from datetime import date as dt_date
-    print('\n' + '=' * 60)
-    print('多品种并行期限结构测试')
-    print('=' * 60)
+    # from datetime import date as dt_date
+    # print('\n' + '=' * 60)
+    # print('多品种并行期限结构测试')
+    # print('=' * 60)
 
-    ts_products = ['AP', 'RB']
-    ts_start = dt_date(2021, 7, 25)
-    ts_end = dt_date(2024, 8, 10)
+    # ts_products = ['AP', 'RB']
+    # ts_start = dt_date(2021, 7, 25)
+    # ts_end = dt_date(2024, 8, 10)
 
-    df_ts_multi = facade.get_term_structure_data_multiple_products(
-        products=ts_products,
-        start_date=ts_start,
-        end_date=ts_end,
-    )
+    # df_ts_multi = facade.get_term_structure_data_multiple_products(
+    #     products=ts_products,
+    #     start_date=ts_start,
+    #     end_date=ts_end,
+    # )
 
-    print(f'\n多品种期限结构面板: {len(df_ts_multi)} 行')
-    print(f'索引层级: {df_ts_multi.index.names}')
-    print(f'列名: {df_ts_multi.columns.tolist()}')
-    print(f'各品种样本数:')
-    for p in ts_products:
-        mask = df_ts_multi['product'] == p
-        print(f'  {p}: {mask.sum()}')
+    # print(f'\n多品种期限结构面板: {len(df_ts_multi)} 行')
+    # print(f'索引层级: {df_ts_multi.index.names}')
+    # print(f'列名: {df_ts_multi.columns.tolist()}')
+    # print(f'各品种样本数:')
+    # for p in ts_products:
+    #     mask = df_ts_multi['product'] == p
+    #     print(f'  {p}: {mask.sum()}')
 
-    idx_df = df_ts_multi.index.to_frame()
-    idx_df.insert(loc=1, column='product', value=df_ts_multi['product'])
-    idx_df.rename(columns={'trading_date':'timestamp'}, inplace=True)
-    df_ts_multi.index = pd.MultiIndex.from_frame(idx_df)
+    # idx_df = df_ts_multi.index.to_frame()
+    # idx_df.insert(loc=1, column='product', value=df_ts_multi['product'])
+    # idx_df.rename(columns={'trading_date':'timestamp'}, inplace=True)
+    # df_ts_multi.index = pd.MultiIndex.from_frame(idx_df)
 
-    print(f'\n DataFrame 头部:')
-    print(df_ts_multi.head(50).to_string())
-    print("MultiIndex level 0 (trading_date), first element type is:", type(df_ts_multi.index.get_level_values(0)[0]))
-
-
-
-
-
-    
+    # print(f'\n DataFrame 头部:')
+    # print(df_ts_multi.head(50).to_string())
+    # print("MultiIndex level 0 (trading_date), first element type is:", type(df_ts_multi.index.get_level_values(0)[0]))
 
     

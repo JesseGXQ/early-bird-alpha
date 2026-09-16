@@ -4,6 +4,7 @@
 
 # 1. 期货交易规则入库相关原始下载的临时数据、快照以及本地缓存原始数据
 db/rules_ingestion/data/
+db/fundamental_ingestion/data/
 
 
 # API 凭证

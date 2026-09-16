@@ -23,6 +23,8 @@ from typing import TYPE_CHECKING, Any, Literal, Mapping
 
 if TYPE_CHECKING:
     import pandas as pd
+    from data.config import (RolloverConfig, AdjustmentConfig,
+                             SamplingConfig, EnvironmentConfig)
 
 
 # ============================================================
@@ -58,17 +60,17 @@ class UniverseSpec:
 
     Parameters
     ----------
-    min_listing_days : int
+    min_listing_days : int, optional
         品种上市后至少经历多少日历日才可纳入。
-    liquidity_lookback : int
+    liquidity_lookback : int, optional
         成交量/流动性回看窗口长度（交易日数）。
-    min_daily_volume : int
+    min_daily_volume : int, optional
         单日最低成交量（手）；为 0 则表示不启用该条件。
-    min_average_volume : int
+    min_average_volume : int, optional
         回看窗口内滚动平均最低成交量（手）；为 0 则表示不启用。
-    min_open_interest : int
+    min_open_interest : int, optional
         单日最低持仓量（手）；为 0 则表示不启用。
-    min_data_coverage : float
+    min_data_coverage : float, optional
         品种有效数据最低覆盖率阈值，取值范围 [0, 1]。
         这里的有效数据指 True_Return 列。
 
@@ -83,9 +85,11 @@ class UniverseSpec:
 
 @dataclass(frozen=True)
 class DataRequirement:
-    """数据需求类，包含数据源（名称）以及所需的列名。"""
+    """数据需求类，包含数据源（名称）、所需的列名，
+    以及向数据引擎大门请求此数据时的透传参数。"""
     source: str # 例如 'main_panel', 'term_structure'
     columns: tuple[str, ...] | None = None # 所需列的名称，例如对于 source='term_structure' 可为 ('Settle', 'Volume', 'last_trade_date')；为 None 表示不做任何裁剪，保留数据引擎服务门面对该数据源返回的原始数据所有列
+    request_params: Mapping[str, Any] | None = None # 向DataFacade发送数据请求时的参数
 
 @dataclass(frozen=True)
 class DatasetSpec:
@@ -94,10 +98,16 @@ class DatasetSpec:
 
     Parameters
     ----------
+    facade_config : tuple of (RolloverConfig, AdjustmentConfig, SamplingConfig, EnvironmentConfig)
+        数据引擎大门（DataFacade）的配置集合，依次包含：
+        换月配置（RolloverConfig）、复权配置（AdjustmentConfig）、
+        抽样配置（SamplingConfig）以及环境配置（EnvironmentConfig）。
     products : tuple of str
         品种代码，例如 ('RB', 'MA', 'FG')。
-    data_requirements: tuple[DataRequirement, ...]
-        一系列数据需求，每个数据需求包含数据源+列名。
+    data_requirements : tuple of DataRequirement
+        一系列数据需求。每个 DataRequirement 包含数据源（source）、
+        所需列名（columns，None 表示保留原始数据所有列）
+        以及向数据引擎请求数据时的参数（request_params）。
     start_date : date or None, optional, default None
         数据起始日期（闭区间），None 表示最早可用。
     end_date : date or None, optional, default None
@@ -108,13 +118,14 @@ class DatasetSpec:
         计划视图 or 实际视图。
     universe : UniverseSpec 
         动态品种池准入条件。
+    
     Raises
     ------
     ValueError
         若 freq 不是 '1d'（日内研究不在 V1 架构内，参见架构文档 §9.1）。
-
     """
-
+    facade_config: tuple[RolloverConfig, AdjustmentConfig,
+                         SamplingConfig, EnvironmentConfig]
     products: tuple[str, ...]
     data_requirements: tuple[DataRequirement, ...]
     start_date: date | None = None

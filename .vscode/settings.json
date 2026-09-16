@@ -2,6 +2,7 @@
     "terminal.integrated.env.windows": {
         "PYTHONPATH": "${workspaceFolder}"
     },
+    "jupyter.notebookFileRoot": "${workspaceFolder}",
     "python-envs.defaultEnvManager": "ms-python.python:conda",
     "python-envs.defaultPackageManager": "ms-python.python:conda",
     "python.analysis.autoImportCompletions": true,

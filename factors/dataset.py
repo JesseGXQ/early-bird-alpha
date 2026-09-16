@@ -5,9 +5,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Mapping
 
 import pandas as pd
+from dataclasses import asdict
 
 from factors.models import (
     INDEX_NAMES,
@@ -15,11 +16,9 @@ from factors.models import (
     DataQualitySummary,
     DatasetSpec,
     ResearchDataset,
+    UniverseSpec,
 )
-
-if TYPE_CHECKING:
-    from data.facade import DataFacade
-
+from data.facade import DataFacade
 
 # ============================================================
 # 私有辅助函数
@@ -95,6 +94,7 @@ def validate_research_frame(df: pd.DataFrame) -> DataQualitySummary:
         for product in products.unique():
             mask = products == product
             dates = df.loc[mask, 'trading_date']
+            assert isinstance(dates, pd.Series)
             if not dates.is_monotonic_increasing:
                 errors.append(
                     f"品种 {product} 的 trading_date 不是严格递增的，"
@@ -141,64 +141,85 @@ def validate_research_frame(df: pd.DataFrame) -> DataQualitySummary:
 # ============================================================
 # 数据集构建器
 # ============================================================
-
-
 class ResearchDatasetBuilder:
     """
-    从 DataFacade 构建统一的多品种日频研究面板。
+    构建统一的多品种研究面板。
 
     Parameters
     ----------
-    facade : DataFacade
-        数据引擎的统一对外接口实例。
+    spec : DatasetSpec
+        研究数据请求规格。
 
     Methods
     -------
-    build(spec)
-        按 DatasetSpec 构建并返回 ResearchDataset。
+    build()
+        按照请求规格，构建并返回 ResearchDataset。
 
     """
 
-    def __init__(self, facade: DataFacade):
-        self._facade = facade
+    def __init__(self, spec: DatasetSpec):
+        self._spec = spec
+        # 构造 facade 
+        (rollover_config, adj_config,
+        sample_config, env_config)  = self._spec.facade_config
+        self._facade = DataFacade(rollover_config=rollover_config,
+                                  adj_config=adj_config,
+                                  sample_config=sample_config,
+                                  env_config=env_config)
 
-    def build(
-        self,
-        spec: DatasetSpec,
-        max_workers: int | None = None,
-    ) -> ResearchDataset:
+    def _auxiliary(self) -> dict[str, dict[str, Any]]:
+        """
+        汇总所有非主面板（source != 'main_panel'）的辅助数据需求。
+
+        Returns
+        -------
+        dict[str, dict[str, Any]]
+            外层 key 为数据源名称（source），如 'term_structure'、
+            'warehouse_receipt' 等；
+            每个 value 为该数据源对应的请求参数字典，包含：
+            - 'columns' : 该数据源需要拉取的字段列表；
+            - 其余键   : DataRequirement 中除 source 外的其它请求参数
+                        （例如 request_params 等）。
+        """
+        data_requirements = self._spec.data_requirements
+        auxiliary: dict[str, dict[str, Any]] = {}
+        for dr in data_requirements:
+            if dr.source != 'main_panel': 
+                d = asdict(dr)
+                source = d.pop('source')
+                auxiliary[source] = d
+        return auxiliary
+
+    
+    def build(self, max_workers: int | None = None,) -> ResearchDataset:
         """
         执行完整的数据集构建流程。
 
         Parameters
         ----------
-        spec : DatasetSpec
-            研究数据请求规格。
         max_workers : int or None, default None
             最大线程数。默认为 None ，即使用 ThreadPoolExecutor 的默认值。
 
         Returns
         -------
         ResearchDataset
-            校验后的统一研究面板，含质量摘要和 universe 占位符。
+            校验后的统一研究数据集，包含请求规格、长表主面板、质量校验结果、
+            品种准入表，以及或有的附属数据集。
         """
         # 1. 品种设定校验 
-        if not spec.products:
-            raise ValueError("DatasetSpec.products 不能为空，请指定至少一个品种代码。")
+        if not self._spec.products:
+            raise ValueError("spec.products 不能为空，请指定至少一个品种代码。")
 
         # 2. 规范化所有品种代码（去空白 + 转大写）
-        products = tuple(_normalize_product_code(p) for p in spec.products)
-
-        # 3. 将数据需求从 spec 中整理出来为字典，key 为 source, value 为 columns
-        data_requirements = {dr.source: dr.columns for dr in spec.data_requirements}
+        products = tuple(_normalize_product_code(p) for p in self._spec.products)
 
         # 3. -----------   加载主面板（统一走数据引擎的多线程并行接口）----------
         panel = self._facade.get_historical_vector_multiple_products(
             products=list(products),
-            start_date=spec.start_date,
-            end_date=spec.end_date,
-            freq=spec.freq,
-            view=spec.view,
+            start_date=self._spec.start_date,
+            end_date=self._spec.end_date,
+            freq=self._spec.freq,
+            view=self._spec.view,
             max_workers=max_workers,
         )
 
@@ -230,12 +251,12 @@ class ResearchDatasetBuilder:
         universe = pd.Series(True, index=panel.index, name='eligible')
 
         # 是否需要附属数据集？（'main_panel' 之外请求的数据源）
-        auxiliary_sources = set(data_requirements.keys()) - {'main_panel'}
+        auxiliary_requirements = self._auxiliary()
 
         # 若不需要附属数据集，直接返回 ResearchDataset
-        if not auxiliary_sources:
+        if not auxiliary_requirements:
             return ResearchDataset(
-                spec=spec,
+                spec=self._spec,
                 main_panel=panel,
                 quality=quality,
                 universe=universe,
@@ -244,12 +265,12 @@ class ResearchDatasetBuilder:
         # 4. ----------------   需要附属数据集，按需加载 -------------------------
         auxiliary: dict[str, pd.DataFrame] = {}
 
-        if 'term_structure' in auxiliary_sources:
+        if 'term_structure' in auxiliary_requirements:
             # 加载期限结构数据集（统一走数据引擎的多线程并行接口）
             ts_df = self._facade.get_term_structure_data_multiple_products(
                 products=list(products),
-                start_date=spec.start_date,
-                end_date=spec.end_date,
+                start_date=self._spec.start_date,
+                end_date=self._spec.end_date,
                 max_workers=max_workers,
             )
 
@@ -268,23 +289,82 @@ class ResearchDatasetBuilder:
             ts_df.sort_index(inplace=True)
 
             # 按请求列裁剪；columns 为 None 表示不做裁剪，保留数据引擎返回的原始数据
-            requested_columns = data_requirements['term_structure']
-            if requested_columns is not None:
-                missing_columns = set(requested_columns) - set(ts_df.columns)
-                if missing_columns:
-                    raise ValueError(
-                        f"期限结构数据集缺少请求列: {sorted(missing_columns)}"
-                    )
-                ts_df = ts_df[list(requested_columns)]
+            requested_columns = auxiliary_requirements['term_structure']['columns']
+            ts_df = self._keep_columns('term_structure', ts_df, requested_columns)
 
             auxiliary['term_structure'] = ts_df
 
-            # ... 按需加载更多附属数据集
+        # ... 按需加载更多附属数据集
+        if 'warehouse_receipt' in auxiliary_requirements:
+            params = auxiliary_requirements['warehouse_receipt']['request_params']
+            receipt_df = self._facade.get_warehouse_receipt_data_multiple_products(
+                products=list(products),
+                start_date=self._spec.start_date,
+                end_date=self._spec.end_date,
+                max_workers=max_workers,
+                **params
+            )
+            requested_columns = auxiliary_requirements['warehouse_receipt']['columns']
+            receipt_df = self._keep_columns('warehouse_receipt', receipt_df,
+                                            requested_columns)
+            auxiliary['warehouse_receipt'] = receipt_df
+
+            
 
         return ResearchDataset(
-            spec=spec,
+            spec=self._spec,
             main_panel=panel,
             quality=quality,
             universe=universe,
             auxiliary=auxiliary,
         )
+
+    def _keep_columns(self, source: str,
+                      df: pd.DataFrame,  
+                      requested_columns: tuple[str, ...] | None):
+        if requested_columns is not None:
+            missing_columns = set(requested_columns) - set(df.columns)
+            if missing_columns:
+                raise ValueError(
+                        f"数据集 {source} 缺少请求列: {sorted(missing_columns)}"
+                    )
+            df = df[list(requested_columns)]
+        return df
+
+
+
+
+# ===========================================
+# inline smoke test
+# ===========================================
+if __name__ == "__main__":
+    from data.config import RolloverConfig, AdjustmentConfig, \
+        SamplingConfig, EnvironmentConfig
+    from factors.models import DataRequirement
+
+    rollover_config = RolloverConfig()
+    adj_config = AdjustmentConfig()
+    sample_config = SamplingConfig()
+    env_config = EnvironmentConfig()
+    facade_config = (rollover_config, adj_config,
+                     sample_config, env_config)
+    data_rq_1 = DataRequirement(source='term_structure')
+    data_rq_2 = DataRequirement(source='warehouse_receipt',
+                                columns=(
+                                    'trading_date','product',
+                                    'exchange','receipt_change_quantity',
+                                    'unit'
+                                ),
+                                request_params={
+                                    'aggregate': True,
+                                    'agg_unit_conversions': 7.33
+                                })
+    requirements = (data_rq_1, data_rq_2)
+    spec = DatasetSpec(
+        facade_config=facade_config, 
+        products=('A', 'CF', 'RB', 'SC', 'SH'),
+        data_requirements=requirements,
+    )
+    builder = ResearchDatasetBuilder(spec=spec)
+    dataset = builder.build()
+    

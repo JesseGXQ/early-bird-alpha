@@ -97,6 +97,8 @@ class EnvironmentConfig:
         存放原始 TICK 数据的目录路径。
     daily_snapshot_dir : str, optional
         存放日频快照数据的目录路径。
+    warehouse_receipt_dir : str, optional
+        存放仓单日报基本面数据的目录路径。
     
     master_table_dir : str, optional
         存放换月 master table 的目录路径。
@@ -123,6 +125,9 @@ class EnvironmentConfig:
     data_dir_1min: str = r'D:\量化策略\CTA策略\RAW_DATA\1min'              # 1min 数据储存路径
     data_dir_tick: str = r'D:\量化策略\CTA策略\RAW_DATA\TICK'                  # TICK 数据储存路径
     daily_snapshot_dir: str = 'db/market/daily_snapshots/bar_1d/bar_1d_tushare/cleaned' # 日频快照数据储存位置
+
+    # ── 基本面数据路径 ────────────────────────────────────────
+    warehouse_receipt_dir: str = './db/fundamental/warehouse_receipts'  # 仓单日报数据储存位置
     
     # ── 其他数据路径 ──────────────────────────────────────────
     master_table_dir: str = './db/derived/master_tables'     # 换月总表储存位置
