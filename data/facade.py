@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from data.feed.simulation_feed import SimulationFeed
     from data.feed.term_structure_feed import TermStructureFeed
     from data.feed.fundamental_feed import FundamentalFeed
-    from data.feed.models import MarketSnapshot
+    from data.feed.models import MarketEvent, MarketSnapshot
     from datetime import date
     import pandas as pd
     from typing import Generator
@@ -54,7 +54,9 @@ class DataFacade:
     get_historical_vector_multiple_products(products, start_date=None, end_date=None, freq, view, max_workers=None)
         多品种并行获取复权主连历史价格面板 DataFrame 。
     get_snapshot_stream(product, start_date, end_date)
-        获取逐笔市场快照数据流。
+        获取仅含逐笔市场快照的数据流，遇无主力日时报错。
+    get_market_event_stream(product, start_date, end_date)
+        获取含逐笔快照和无主力控制事件的混合流。
     get_term_structure_data(product, start_date=None, end_date=None)
         获取指定品种的期限结构长表 DataFrame 。
     get_term_structure_data_multiple_products(products, start_date=None, end_date=None, max_workers=None)
@@ -236,7 +238,7 @@ class DataFacade:
             end_date: date
     )-> Generator[MarketSnapshot, None, None]: 
         """
-        针对某品种，获取指定日期范围内的逐笔市场快照数据流。
+        针对某品种，获取指定日期范围内的仅快照数据流。
 
         Parameters
         ------
@@ -251,23 +253,61 @@ class DataFacade:
         ------
         MarketSnapshot
             包含主力合约的市场快照对象（若换月期，为新旧主力合约），严格遵循时间顺序下发。
+
+        Notes
+        -----
+        保持仅输出 ``MarketSnapshot`` 的旧接口契约。遇无主力控制事件时，
+        底层 Feed 会抛出 ``NoDominantContractError``，生成器随之终止。
+        需要接收控制事件并继续后续交易日时，使用 ``get_market_event_stream``。
         """
         s_feed = self.get_simulation_feed(product)
         return s_feed.get_snapshot_stream(
             start_date=start_date,
             end_date=end_date
         )
+
+    def get_market_event_stream(
+            self,
+            product: str,
+            start_date: date,
+            end_date: date,
+    ) -> Generator[MarketEvent, None, None]:
+        """获取逐笔快照与无主力控制事件组成的混合流。
+
+        Parameters
+        ----------
+        product : str
+            品种代码。
+        start_date : datetime.date
+            起始交易日。
+        end_date : datetime.date
+            结束交易日。
+
+        Yields
+        ------
+        MarketSnapshot | NoDominantEvent
+            有主力时输出市场快照；无主力时输出逐日控制事件。
+
+        Notes
+        -----
+        换月表当日主力为空时，Feed 发出一条 ``NoDominantEvent``，不生成
+        该日市场快照，然后继续后续交易日。下游收到事件后自行决定持仓与
+        回测状态的处理方式；本接口不静默丢弃异常日期。
+        """
+        s_feed = self.get_simulation_feed(product)
+        return s_feed.get_market_event_stream(start_date=start_date, end_date=end_date)
     
     def get_term_structure_data(
             self,
             product: str,
             start_date: date | None = None,
             end_date: date | None = None,
+            price_col: Literal['Close', 'Settle'] = 'Close',
     ) -> pd.DataFrame:
         """
         针对某品种，获取指定日期范围内的期限结构长表数据。
 
-        返回全部上市合约的每日结算价、成交量、持仓量，
+        返回全部上市合约的每日价格、成交量、持仓量，
         并标注主力合约标识和合约最后交易日。
 
         Parameters
@@ -278,12 +318,16 @@ class DataFacade:
             起始交易日，默认None表示最早可用日期。
         end_date: datetime.date or None, default None
             结束交易日，默认None表示最晚可用日期。
+        price_col: {'Close', 'Settle'}, default 'Close'
+            价格变量口径。为 'Close' 时使用收盘价，为 'Settle' 时使用结算价；
+            输出的价格列以所选口径命名。
 
         Returns
         -------
         pd.DataFrame
             期限结构长表，MultiIndex[trading_date, contract]。
-            列: product, is_dominant, Settle, last_trade_date, OpenInterest, Volume 。
+            列: product, is_dominant, Close/Settle, last_trade_date,
+            OpenInterest, Volume 。其中价格列列名与 price_col 一致。
         """
         if product not in self._term_structure_feeds:
             self._term_structure_feeds[product] = create_term_structure_feed(
@@ -295,6 +339,7 @@ class DataFacade:
         return ts_feed.get_term_structure_data(
             start_date=start_date,
             end_date=end_date,
+            price_col=price_col,
         )
 
     def get_term_structure_data_multiple_products(
@@ -302,6 +347,7 @@ class DataFacade:
             products: list[str],
             start_date: date | None = None,
             end_date: date | None = None,
+            price_col: Literal['Close', 'Settle'] = 'Close',
             max_workers: int | None = None,
     ) -> pd.DataFrame:
         """
@@ -315,6 +361,9 @@ class DataFacade:
             起始交易日。默认为 None，各品种最早可用交易日。
         end_date : datetime.date or None, default None
             结束交易日。默认为 None，各品种最新可用交易日。
+        price_col : {'Close', 'Settle'}, default 'Close'
+            价格变量口径。为 'Close' 时使用收盘价，为 'Settle' 时使用结算价；
+            输出的价格列以所选口径命名。
         max_workers : int, optional
             最大线程数，默认 None 即使用 ThreadPoolExecutor 自身默认值。
 
@@ -322,8 +371,8 @@ class DataFacade:
         ------
         pd.DataFrame
             MultiIndex[trading_date, contract] 的长表面板，
-            列: product, is_dominant, Settle, last_trade_date, 
-            OpenInterest, Volume。
+            列: product, is_dominant, Close/Settle, last_trade_date,
+            OpenInterest, Volume。其中价格列列名与 price_col 一致。
         """
         if not products:
             raise ValueError('products 列表不能为空。')
@@ -337,6 +386,7 @@ class DataFacade:
                     product=product,
                     start_date=start_date,
                     end_date=end_date,
+                    price_col=price_col,
                 ): product
                 for product in products
             }

@@ -7,7 +7,11 @@ from datetime import date
 import warnings
 
 from data.storage.tick_loader import TickLoaderFactory
-from data.feed.models import ContractTick, MarketSnapshot
+from data.feed.models import (
+    ContractTick, MarketEvent, MarketSnapshot, NoDominantContractError,
+    NoDominantEvent,
+)
+from data.stitching.models import RollState
 
 if TYPE_CHECKING:
     from data.stitching.stitching import ContinuousContractManager
@@ -61,7 +65,7 @@ class TickStreamGenerator:
 class SimulationFeed:
     """
     回测用事件分发器， Data Engine 面对回测引擎(Execution模块)的唯一实盘流式接口。
-    严格按时间顺序下发市场快照(MarketSnapshot)，非换月日分发单合约数据，换月时期分发双合约。
+    按交易日下发市场事件；有主力时输出市场快照，无主力时输出控制事件。
 
     Parameters
     ------
@@ -70,7 +74,8 @@ class SimulationFeed:
     calendar: ProductCalendar
         交易日历实例，提供交易日、交易小节、分钟偏移等查询功能。
     contract_manager: ContinuousContractManager
-        连续合约大管家，包含 master_table 属性(换月总表)，提供 `get_active_physical_contracts` 方法，根据交易日期返回主力合约列表。
+        连续合约大管家，包含换月总表；根据交易日期返回结构化的主力、
+        旧主力与换月状态。
     file_locator: FileLocator
         文件寻址器，提供根据合约代码和日期查询数据文件路径的功能。
     clean_pipeline: CleaningPipeline
@@ -78,8 +83,10 @@ class SimulationFeed:
 
     Methods
     ------
+    get_market_event_stream(start_date, end_date)
+        输出快照与无主力控制事件组成的混合流。
     get_snapshot_stream(start_date, end_date)
-        返回一个生成器，按时间顺序下发指定日期范围内的市场快照(MarketSnapshot)。
+        仅输出市场快照；遇无主力交易日时明确报错。
 
     """
     def __init__(self, 
@@ -99,21 +106,63 @@ class SimulationFeed:
             start_date: date, 
             end_date: date) -> Generator[MarketSnapshot, None, None]:
         """
-        返回一个生成器，按时间顺序下发指定日期范围内的市场快照(MarketSnapshot)。
+        输出指定日期范围内的市场快照，不混入控制事件。
 
         Parameters
-        ------
-        start_date: datetime.date
-            起始交易日
-        end_date: datetime.date
-            结束交易日
-        
+        ----------
+        start_date : datetime.date
+            起始交易日。
+        end_date : datetime.date
+            结束交易日。
+
         Yields
         ------
         MarketSnapshot
-            包含主力合约的市场快照对象（若换月期，为新旧主力合约），严格遵循时间顺序下发。
+            按时间顺序下发的主力合约市场快照。
+
+        Notes
+        -----
+        这是仅快照兼容接口，内部消费混合事件流。遇到 ``NoDominantEvent``
+        时抛出 ``NoDominantContractError``，不静默跳过，也不把控制事件
+        伪装为市场快照。生成器异常传出后不能继续迭代；需要继续处理后续
+        交易日的调用方应使用 ``get_market_event_stream``。
         """
-        
+        for event in self.get_market_event_stream(start_date, end_date):
+            if isinstance(event, NoDominantEvent):
+                raise NoDominantContractError(
+                    f'{event.product} 在 {event.trading_date} 的换月表中没有主力合约；'
+                    '仅快照接口无法继续，请改用混合事件流。'
+                )
+            yield event
+
+    def get_market_event_stream(
+            self, start_date: date, end_date: date
+    ) -> Generator[MarketEvent, None, None]:
+        """输出逐笔市场快照与逐日无主力控制事件。
+
+        Parameters
+        ----------
+        start_date : datetime.date
+            起始交易日。
+        end_date : datetime.date
+            结束交易日。
+
+        Yields
+        ------
+        MarketSnapshot | NoDominantEvent
+            主力已知时逐笔输出快照；主力为空时输出一条逐日控制事件。
+
+        Notes
+        -----
+        按交易日遍历换月表。当日主力为空时，在该日任何行情快照之前
+        输出一次 ``NoDominantEvent``，不创建 TICK 生成器，并继续下个交易日。
+        当日主力已知而历史窗口缺失时，仍订阅该主力，快照的 ``roll_state``
+        为 ``UNKNOWN``，且不推断旧主力。正常换月则同时订阅旧、新合约。
+        控制事件只有交易日期，没有虚构的日历时间戳；流的外层顺序按
+        交易日排列，同一交易日的行情快照按实际时间戳排列。
+        换月表缺少整行、多次换月等数据或接口错误会直接传出，
+        不转换为无主力控制事件。
+        """
         # 根据 start_date 和 end_date， 获取所有的交易日期
         mask = (
             (self.calendar.exchange_trading_dates >= pd.Timestamp(start_date) ) & 
@@ -127,24 +176,26 @@ class SimulationFeed:
         trading_dates = self.calendar.exchange_trading_dates[mask].date
 
         for trading_date in trading_dates:
-            contracts = self.contract_manager.get_active_physical_contracts(trading_date)
+            selection = self.contract_manager.get_active_physical_contracts(trading_date)
+            if selection.dominant is None:
+                yield NoDominantEvent(product=self.product, trading_date=trading_date)
+                continue
 
-            # 依据 contracts 中的元素数量判断是否为换月期
-            is_roll = len(contracts) == 2
-
-            if is_roll:
+            contracts = selection.contracts
+            if selection.roll_state is RollState.ROLL:
+                assert selection.outgoing is not None
                 dominant_gen = self._make_contract_tick_generator(
                     trading_date=trading_date,
-                    contract=contracts[1]
+                    contract=selection.dominant
                 )
                 outgoing_gen = self._make_contract_tick_generator(
                     trading_date=trading_date,
-                    contract=contracts[0]
+                    contract=selection.outgoing
                 )
             else:
                 dominant_gen=self._make_contract_tick_generator(
                     trading_date=trading_date,
-                    contract=contracts[0]
+                    contract=selection.dominant
                 )
                 outgoing_gen = None
 
@@ -153,7 +204,7 @@ class SimulationFeed:
                 trading_date=trading_date,
                 dominant_gen=dominant_gen,
                 outgoing_gen=outgoing_gen,
-                is_roll=is_roll
+                roll_state=selection.roll_state
             )
 
     def _make_contract_tick_generator(self, 
@@ -177,15 +228,23 @@ class SimulationFeed:
             yield from self.tsg.generate_stream(cleaned_tick_df_chunk)
 
     def _stream(self, 
-                contracts: list[str],
+                contracts: tuple[str, ...],
                 trading_date: date,
                 dominant_gen: Generator[ContractTick, None, None],
                 outgoing_gen: Generator[ContractTick, None, None] | None,
-                is_roll: bool,
+                roll_state: RollState,
                 ) -> Generator[MarketSnapshot, None, None]:
         """
-        根据输入的主力合约 TICK 生成器，利用 Min-heap 算法 + ZOH, 返回包含市场快照的生成器。
-        
+        合并主力与旧主力的 TICK 流，逐时点输出市场快照。
+
+        Notes
+        -----
+        使用最小堆按日历时间戳合并两路 TICK；同一时间戳的 TICK
+        全部处理完后才输出一条快照。每路合约保留最新 TICK 作零阶保持，
+        因此一方尚未出现首笔数据时，其快照字段仍可能为空。
+        ``roll_state`` 原样传递到每条快照，历史窗口缺失时不会被
+        强行转换为布尔换月标记。若主力 TICK 流为空，沿用现有行为：
+        发出警告且该日没有快照；旧主力 TICK 流为空则仅输出主力行情。
         """
         generators = {'dominant': dominant_gen, 'outgoing': outgoing_gen}
 
@@ -197,7 +256,7 @@ class SimulationFeed:
         # 这里需要处理一个边界问题：若 dominant_gen 或 outgoing_gen 中有任意一者是空生成器（当天一笔 TICK 都无）。
         dominant_tick = next(generators['dominant'], None)
         if not dominant_tick: #若 dominant_gen 是空生成器
-            warnings.warn(f'（新）主力合约 {contracts[1]} 的 TICK 流在 {trading_date} 缺失，跳过该交易日。')
+            warnings.warn(f'主力合约 {contracts[-1]} 的 TICK 流在 {trading_date} 缺失，跳过该交易日。')
             return 
         ts = dominant_tick.calendar_timestamp
         priority = 1
@@ -248,6 +307,6 @@ class SimulationFeed:
                 trading_date=trading_date,
                 dominant=latest_tick.get('dominant'),
                 outgoing=latest_tick.get('outgoing'),
-                is_roll=is_roll
+                roll_state=roll_state
             )
 

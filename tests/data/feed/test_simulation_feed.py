@@ -104,7 +104,7 @@ def test_simulation_feed(
                 f'bid={dom.bid if dom else "N/A":>8}  '
                 f'ask={dom.ask if dom else "N/A":>8}  '
                 f'volume={dom.volume if dom else "N/A":>8}  '
-                f'is_roll={snapshot.is_roll}  '
+                f'roll_state={snapshot.roll_state.value}  '
                 f'outgoing={out.contract if out else "None"}'
             )
 

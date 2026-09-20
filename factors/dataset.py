@@ -267,11 +267,15 @@ class ResearchDatasetBuilder:
 
         if 'term_structure' in auxiliary_requirements:
             # 加载期限结构数据集（统一走数据引擎的多线程并行接口）
+            ts_params = (
+                auxiliary_requirements['term_structure'].get('request_params') or {}
+            )
             ts_df = self._facade.get_term_structure_data_multiple_products(
                 products=list(products),
                 start_date=self._spec.start_date,
                 end_date=self._spec.end_date,
                 max_workers=max_workers,
+                **ts_params,
             )
 
             # 多线程接口返回 MultiIndex[trading_date, contract]，品种在 product 列中；
@@ -357,7 +361,8 @@ if __name__ == "__main__":
                                 ),
                                 request_params={
                                     'aggregate': True,
-                                    'agg_unit_conversions': 7.33
+                                    'agg_unit_conversions': \
+                                        {('SC','吨', '桶') :7.33}
                                 })
     requirements = (data_rq_1, data_rq_2)
     spec = DatasetSpec(
@@ -367,4 +372,5 @@ if __name__ == "__main__":
     )
     builder = ResearchDatasetBuilder(spec=spec)
     dataset = builder.build()
+
     

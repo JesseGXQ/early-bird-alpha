@@ -1,5 +1,4 @@
 from __future__ import annotations
-import calendar
 from typing import TYPE_CHECKING, Iterable, Literal
 import pandas as pd
 import numpy as np
@@ -16,7 +15,7 @@ if TYPE_CHECKING:
 
 class ProductCalendar:
     """
-    特定品种的交易日历。
+    品种交易日历。
 
     该类负责针对特定品种进行交易日历的管理与查询。包含判断交易日、查找下一个交易日，
     以及将时间戳映射为交易日、交易小节（夜盘/早盘/午盘）、分钟偏移量等，并支持进行反向映射。

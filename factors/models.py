@@ -88,7 +88,7 @@ class DataRequirement:
     """数据需求类，包含数据源（名称）、所需的列名，
     以及向数据引擎大门请求此数据时的透传参数。"""
     source: str # 例如 'main_panel', 'term_structure'
-    columns: tuple[str, ...] | None = None # 所需列的名称，例如对于 source='term_structure' 可为 ('Settle', 'Volume', 'last_trade_date')；为 None 表示不做任何裁剪，保留数据引擎服务门面对该数据源返回的原始数据所有列
+    columns: tuple[str, ...] | None = None # 所需列的名称，例如对于 source='term_structure' 可为 ('Close', 'Volume', 'last_trade_date')（价格列名随 request_params['price_col'] 口径而定）；为 None 表示不做任何裁剪，保留数据引擎服务门面对该数据源返回的原始数据所有列
     request_params: Mapping[str, Any] | None = None # 向DataFacade发送数据请求时的参数
 
 @dataclass(frozen=True)

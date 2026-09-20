@@ -1,7 +1,6 @@
 from datetime import date
 
 import pytest
-from trio import open_file
 
 from data.calendar.product_calendar import ProductCalendar
 from data.feed.aggregator import BarAggregator
@@ -16,7 +15,7 @@ from data.cleaning.cleaning_tick import CleaningPipeline
 master_table_dir = r'db\derived\master_tables'
 data_dir = r'D:\量化策略\CTA策略\RAW_DATA\1min'
 
-product = 'ag'
+product = 'FU'
 
 rollover_config = RolloverConfig()
 sample_config = SamplingConfig()
@@ -60,23 +59,23 @@ def test_research_feed(meta_manager, exchange_calendar_manager,
     # 3. 测试 `get_historical_vector` 方法
     
     # ----------------------- 1d --------------------------
-    # freq = '1d'
-    # start_date = date(2015, 5, 13)
-    # end_date = date(2025, 5, 16)
-    # df = feed.get_historical_vector(start_date=start_date, end_date=end_date, freq=freq)
-    # print(f'\n 从 {start_date} 至 {end_date}, freq={freq}，复权主力合约连续价格dataframe为：\n', df)
-    # print(f'Columns are {df.columns}')
-    # print(f'Times of rollover is: {df['is_roll'].sum()}')
+    freq = '1d'
+    start_date = date(2015, 5, 13)
+    end_date = date(2025, 5, 16)
+    df = feed.get_historical_vector(start_date=start_date, end_date=end_date, freq=freq)
+    print(f'\n 从 {start_date} 至 {end_date}, freq={freq}，复权主力合约连续价格dataframe为：\n', df)
+    print(f'Columns are {df.columns}')
+    print(f'Times of rollover is: {df['is_roll'].sum()}')
 
     # ----------------------- 5min --------------------------
     freq = '1h'
-    start_date = date(2012, 5, 10)
-    end_date = date(2026, 6, 25)
+    start_date = date(2015, 5, 10)
+    end_date = date(2019, 1, 1)
     df = feed.get_historical_vector(start_date=start_date, end_date=end_date, freq=freq, view='realized')
     print(f'\n 从 {start_date} 至 {end_date}, freq={freq}，复权主力合约连续价格dataframe为：\n', df)
-    print(f'\n === LRU Cache Info ===')
+    # print(f'\n === LRU Cache Info ===')
     print(f'ProductCalendar._get_trading_sessions_cached.cache_info(): {ProductCalendar._get_trading_sessions_cached.cache_info()}')
-    # # ----------------------- 30min --------------------------
+    # ----------------------- 30min --------------------------
     # freq = '30min'
     # df = feed.get_historical_vector(start_date=start_date, end_date=end_date, freq=freq)
     # print(f'\n 从 {start_date} 至 {end_date}, freq={freq}，复权主力合约连续价格dataframe为：\n', df)

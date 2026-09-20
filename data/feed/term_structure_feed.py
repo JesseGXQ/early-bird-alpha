@@ -5,7 +5,7 @@
 供因子研究模块进行近月/远月合约识别和展期收益率计算。
 """
 from __future__ import annotations
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING, Iterable, Literal
 from datetime import date
 from unittest import result
 import pandas as pd
@@ -23,7 +23,7 @@ class TermStructureFeed:
     """
     期限结构数据流。
 
-    汇聚某品种全部上市合约的每日快照数据（结算价、成交量、持仓量），
+    汇聚某品种全部上市合约的每日快照数据（价格、成交量、持仓量），
     并标注主力合约和合约最后交易日，输出统一的长表格式。
 
     Parameters
@@ -39,7 +39,7 @@ class TermStructureFeed:
 
     Methods
     ------
-    get_term_structure_data(start_date, end_date)
+    get_term_structure_data(start_date, end_date, price_col='Close')
         返回指定日期范围内，该品种所有上市合约的期限结构长表。
     """
 
@@ -59,6 +59,7 @@ class TermStructureFeed:
         self,
         start_date: date | None,
         end_date: date | None,
+        price_col: Literal['Close', 'Settle'] = 'Close',
     ) -> pd.DataFrame:
         """
         返回指定日期范围内，该品种所有上市合约的期限结构长表。
@@ -69,6 +70,9 @@ class TermStructureFeed:
             起始交易日。默认为 None ，即最早可用。
         end_date: datetime.date or None, default None
             结束交易日。默认为 None ，即最晚可用。
+        price_col: {'Close', 'Settle'}, default 'Close'
+            价格变量口径。为 'Close' 时使用收盘价，为 'Settle' 时使用结算价；
+            构造的价格列以所选口径命名。
 
         Returns
         -------
@@ -81,8 +85,8 @@ class TermStructureFeed:
                 品种代码。
             is_dominant: bool
                 是否为当日主力合约。
-            Settle: float
-                结算价。
+            Close / Settle: float
+                价格列，列名与参数 price_col 一致（收盘价或结算价）。
             last_trade_date: datetime.date | NaT
                 合约最后交易日。
             OpenInterest: float
@@ -90,6 +94,12 @@ class TermStructureFeed:
             Volume: float
                 成交量。
         """
+        if price_col not in ('Close', 'Settle'):
+            raise ValueError(
+                f"[TermStructureFeed] price_col 仅支持 'Close' 或 'Settle'，"
+                f"收到 {price_col!r}。"
+            )
+
         product_df = self.daily_snapshot_manager.get_product_df(
             self.product, normalize_col_names=True
         )
@@ -114,7 +124,7 @@ class TermStructureFeed:
         product_df.rename(columns={"Contract": "contract"}, inplace=True)
 
         result_df = product_df[
-            ["trading_date", "contract", "Settle", "Volume", "OpenInterest"]
+            ["trading_date", "contract", price_col, "Volume", "OpenInterest"]
         ].copy()
 
         dominant_s = self._build_dominant_series(result_df)
@@ -130,7 +140,7 @@ class TermStructureFeed:
         result_df = result_df.sort_index()
 
         result_df = result_df[
-            ["product", "is_dominant", "Settle", "last_trade_date", "OpenInterest", "Volume"]
+            ["product", "is_dominant", price_col, "last_trade_date", "OpenInterest", "Volume"]
         ]
 
         return result_df

@@ -231,7 +231,11 @@ class FundamentalFeed:
         if agg_unit_conversions is None:
             return {}
         if not isinstance(agg_unit_conversions, Mapping):
-            raise ValueError("agg_unit_conversions 必须是映射或 None。")
+            raise ValueError(
+                "agg_unit_conversions 必须是映射或 None。"
+                "其中映射的 key 是 (品种代码，原单位，目标单位) 三元字符串组。" \
+                "value 需要是 float。"
+            )
 
         normalized: dict[str, dict[str, tuple[str, float]]] = {}
         normalized_keys: dict[UnitConversionKey, float] = {}

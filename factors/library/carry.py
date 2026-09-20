@@ -23,10 +23,12 @@ class RollYieldFactor(Factor):
     """展期收益率因子。"""
 
     def __init__(self, combination: _RY_COMBO = 'near_dominant',
-                 near_dte_min: int = 0, far_dte_max: int = 365):
+                 near_dte_min: int = 0, far_dte_max: int = 365,
+                 price_col: Literal['Close', 'Settle'] = 'Close'):
         self.combination = combination
         self.near_dte_min = near_dte_min
         self.far_dte_max = far_dte_max
+        self.price_col = price_col
         self.warnings: list[str] = []
 
     @property
@@ -34,7 +36,8 @@ class RollYieldFactor(Factor):
         return {
             'combination':  self.combination,
             'near_dte_min': self.near_dte_min,
-            'far_dte_max':  self.far_dte_max
+            'far_dte_max':  self.far_dte_max,
+            'price_col':    self.price_col,
         }
     
     @property
@@ -50,8 +53,9 @@ class RollYieldFactor(Factor):
         return    (
             DataRequirement(
                 source='term_structure',
-                columns=('Settle', 'last_trade_date',
+                columns=(self.price_col, 'last_trade_date',
                          'is_dominant', 'OpenInterest', 'Volume'),
+                request_params={'price_col': self.price_col},
             ),
         )
 
@@ -115,8 +119,8 @@ class RollYieldFactor(Factor):
 
     def _compute_roll_yield(self, df: pd.DataFrame, near: str, far: str) -> float:
         """根据近月合约和远月合约计算年化展期收益率。"""
-        near_price = df.at[near, 'Settle']
-        far_price  = df.at[far,  'Settle']
+        near_price = df.at[near, self.price_col]
+        far_price  = df.at[far,  self.price_col]
         near_dte   = df.at[near, 'days_to_last_trade']
         far_dte    = df.at[far,  'days_to_last_trade']
         assert near_dte != far_dte

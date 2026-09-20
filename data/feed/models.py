@@ -5,6 +5,9 @@
 from dataclasses import dataclass
 import pandas as pd
 from datetime import date
+from typing import Literal
+
+from data.stitching.models import RollState
 
 @dataclass(frozen=True)
 class ContractTick:
@@ -67,23 +70,34 @@ class MarketSnapshot:
             主力合约的 TICK 数据。
         outgoing: ContractTick or None
             旧主力合约的 TICK 数据，换月期提供。非换月期为 None。
-        is_roll: bool
-            是否处于换月期。换月期为 True，非换月期为 False。
+        roll_state: RollState
+            换月状态：换月、非换月或因历史主力缺失而无法确定。
 
     """
     calendar_timestamp: pd.Timestamp
     trading_date: date
     dominant: ContractTick | None 
     outgoing: ContractTick | None 
-    is_roll: bool 
+    roll_state: RollState
 
 
+@dataclass(frozen=True)
+class NoDominantEvent:
+    """换月表中某交易日没有主力合约的控制事件。
+
+    Notes
+    -----
+    每个无主力交易日只发送一次。该事件不含行情，也不伪造日历时间戳；
+    下游根据 ``trading_date`` 和流中的先后顺序决定如何处理持仓与回测状态。
+    """
+
+    product: str
+    trading_date: date
+    reason: Literal['NO_DOMINANT_IN_MASTER_TABLE'] = 'NO_DOMINANT_IN_MASTER_TABLE'
 
 
+MarketEvent = MarketSnapshot | NoDominantEvent
 
 
-
-    
-
-
-
+class NoDominantContractError(RuntimeError):
+    """仅快照流遇到无主力控制事件时抛出的错误。"""
