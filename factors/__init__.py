@@ -47,6 +47,8 @@ from factors.models import (
     CandidateFactor,
 )
 
+from factors.universe import Universe
+
 from factors.profiles import (
     # 六个主流组合收获范式
     market_rank_ls,
@@ -65,6 +67,7 @@ __all__ = [
     'DatasetSpec',
     'DataQualitySummary',
     'ResearchDataset',
+    'Universe',
     'FactorState',
     'IncrementalFactorResult',
     'FactorResult',

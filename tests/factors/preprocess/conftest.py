@@ -17,6 +17,7 @@ from factors.models import (
     DatasetSpec,
     DataQualitySummary,
 )
+from factors.universe import Universe
 
 # ----------------------------------------------------------------
 # 公共常量
@@ -75,6 +76,7 @@ def _build_env() -> tuple[pd.DatetimeIndex, pd.MultiIndex, ResearchDataset]:
         errors=(),
     )
     spec = DatasetSpec(
+        facade_config=(),
         products=tuple(PRODUCTS),
         data_requirements=(),
         start_date=ts[0].date(),
@@ -84,7 +86,10 @@ def _build_env() -> tuple[pd.DatetimeIndex, pd.MultiIndex, ResearchDataset]:
         spec=spec,
         main_panel=main_panel,
         quality=quality,
-        universe=pd.Series(True, index=idx, name='universe'),
+        universe=Universe(
+            eligible=pd.Series(True, index=idx, name='universe'),
+            exclude_reason=pd.Series('', index=idx, name='exclude_reason'),
+        ),
         auxiliary={'classification': class_df},
     )
     return ts, idx, dataset

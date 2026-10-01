@@ -1,12 +1,34 @@
 """动态品种池管理。"""
 
 from __future__ import annotations
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 import pandas as pd
 
 if TYPE_CHECKING:
     from factors.models import UniverseSpec
     from data.facade import DataFacade
+
+
+@dataclass(frozen=True)
+class Universe:
+    """动态品种池的构建结果。
+
+    将准入掩码与其排除原因绑定为一个领域对象，避免两者在传递过程中
+    失配或丢失，从而保证品种池排除原因可追溯、可审计。
+
+    Parameters
+    ----------
+    eligible : pd.Series
+        品种池准入布尔掩码，索引与主面板一致（MultiIndex[timestamp, product]）。
+    exclude_reason : pd.Series
+        与 eligible 同索引的排除原因，未被排除的样本为空字符串；
+        单个样本可能因多条约束被排除，原因以 ';' 连接。
+    """
+
+    eligible: pd.Series
+    exclude_reason: pd.Series
+
 
 class DynamicUniverse:
     """动态品种池。"""
@@ -15,18 +37,24 @@ class DynamicUniverse:
         self.spec = spec
         self.facade = facade
 
-    def build(self, panel: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
+    def build(self, panel: pd.DataFrame) -> Universe:
         """构建动态品种池准入。
         
         Parameters
         ------
         panel: pd.DataFrame
             研究主面板。 MultiIndex[timestamp, product]
+            内部会新增临时列 'list_date'、'days_from_list_date'（不改动入参）。
+            依赖列：
+            - 'Volume'：成交量约束（min_daily_volume / min_average_volume）
+            - 'OpenInterest'：持仓量约束（min_open_interest）
+            - 'True_Return'：有效数据覆盖率（min_data_coverage > 0 时必需，
+              否则跳过该约束）
 
         Returns
         ------
-        tuple[pd.Series, pd.Series]
-            - universe: 品种池准入布尔掩码，索引与 panel 一致。
+        Universe
+            - eligible: 品种池准入布尔掩码，索引与 panel 一致。
             - exclude_reason: 对应的排除原因，索引与 panel 一致。
         """
         panel = panel.copy()
@@ -119,7 +147,7 @@ class DynamicUniverse:
                 exclude_reason + ';min_data_coverage'
             )
         
-        return universe, exclude_reason
+        return Universe(eligible=universe, exclude_reason=exclude_reason)
 
 
 # ============================================================
@@ -178,7 +206,8 @@ if __name__ == '__main__':
     spec = UniverseSpec(min_listing_days=60, min_data_coverage=0)
     facade = FakeFacade(listing)
     du = DynamicUniverse(spec, facade)
-    universe, reason = du.build(panel)
+    result = du.build(panel)
+    universe, reason = result.eligible, result.exclude_reason
 
     for (ts, prod), val in universe.items():
         if prod == 'RB':
@@ -203,7 +232,8 @@ if __name__ == '__main__':
     panel3 = make_panel(['RB'], n_days=5, start_date=date(2020, 7, 1))
     spec3 = UniverseSpec(min_listing_days=60, min_data_coverage=0)
     du3 = DynamicUniverse(spec3, FakeFacade({'RB': date(2020, 1, 1)}))
-    universe3, reason3 = du3.build(panel3)
+    result3 = du3.build(panel3)
+    universe3, reason3 = result3.eligible, result3.exclude_reason
     assert universe3.all(), f"RB should pass, got {universe3.tolist()}"
     # 通过的样本 reason 应为空字符串
     assert (reason3 == '').all(), f"Passed samples should have empty reason, got: {reason3.iloc[0]}"
@@ -217,7 +247,8 @@ if __name__ == '__main__':
     spec4 = UniverseSpec(min_listing_days=0, min_daily_volume=100,
                          liquidity_lookback=5, min_data_coverage=0)
     du4 = DynamicUniverse(spec4, FakeFacade(listing4))
-    universe4, reason4 = du4.build(panel4)
+    result4 = du4.build(panel4)
+    universe4, reason4 = result4.eligible, result4.exclude_reason
     assert not universe4.any(), f"All volumes=50<100, should all be False, got {universe4.sum()} True"
     print("  → All excluded — PASS\n")
 
@@ -229,7 +260,7 @@ if __name__ == '__main__':
                          min_average_volume=0, min_open_interest=0,
                          min_data_coverage=0)
     du5 = DynamicUniverse(spec5, FakeFacade({'RB': date(2020, 1, 1)}))
-    universe5, _ = du5.build(panel5)
+    universe5 = du5.build(panel5).eligible
     assert universe5.all(), f"got {universe5.sum()}/{len(universe5)}"
     print("  → PASS\n")
 
@@ -241,7 +272,7 @@ if __name__ == '__main__':
     spec6 = UniverseSpec(min_listing_days=0, min_daily_volume=1,
                          liquidity_lookback=3, min_data_coverage=0)
     du6 = DynamicUniverse(spec6, FakeFacade({'RB': date(2020, 1, 1)}))
-    universe6, _ = du6.build(panel6)
+    universe6 = du6.build(panel6).eligible
     first_3 = universe6.iloc[:3]
     assert not first_3.any(), f"got {first_3.tolist()}"
     print("  → PASS\n")
@@ -254,7 +285,7 @@ if __name__ == '__main__':
                          min_open_interest=1000, liquidity_lookback=3,
                          min_data_coverage=0)
     du7 = DynamicUniverse(spec7, FakeFacade({'RB': date(2020, 1, 1)}))
-    universe7, _ = du7.build(panel7)
+    universe7 = du7.build(panel7).eligible
     assert not universe7.any(), f"OI=500 < 1000, should all be False"
     print("  → PASS\n")
 
@@ -266,7 +297,7 @@ if __name__ == '__main__':
                          min_average_volume=100, min_open_interest=500,
                          liquidity_lookback=3, min_data_coverage=0)
     du8 = DynamicUniverse(spec8, FakeFacade({'RB': date(2020, 1, 1), 'MA': date(2020, 1, 1)}))
-    universe8, _ = du8.build(panel8)
+    universe8 = du8.build(panel8).eligible
     assert universe8.index.equals(panel8.index), "Index mismatch"
     assert universe8.sum() == len(universe8), f"Expected all True, got {universe8.sum()}/{len(universe8)}"
     print("  → PASS\n")
@@ -280,7 +311,7 @@ if __name__ == '__main__':
                          liquidity_lookback=3, min_data_coverage=0)
     facade9 = FakeFacade({'RB': date(2020, 2, 1), 'MA': date(2019, 1, 1)})
     du9 = DynamicUniverse(spec9, facade9)
-    universe9, _ = du9.build(panel9)
+    universe9 = du9.build(panel9).eligible
     rb_excluded = int((~universe9.xs('RB', level='product')).sum())
     ma_passed = int(universe9.xs('MA', level='product').sum())
     print(f"  RB excluded: {rb_excluded}/5, MA passed: {ma_passed}/5")
@@ -296,7 +327,8 @@ if __name__ == '__main__':
                           min_data_coverage=0.5, liquidity_lookback=5)
     facade10 = FakeFacade({'RB': date(2019, 1, 1), 'MA': date(2019, 1, 1)})
     du10 = DynamicUniverse(spec10, facade10)
-    universe10, reason10 = du10.build(panel10)
+    result10 = du10.build(panel10)
+    universe10, reason10 = result10.eligible, result10.exclude_reason
     # lookback=5, 前 7 天真_ret NaN → rolling count：前 5 天约 0~2 非 NaN
     # 覆盖率 < 0.5 → 大量被排除
     excluded = (~universe10).sum()

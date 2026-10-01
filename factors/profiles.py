@@ -98,6 +98,22 @@ constrained_alpha_opt = HarvestProfile(
                 '的约束组合增量对比实验。',
 )
 
+# ==========================时序范式====================================
+
+ts_inv_vol_gross_one = HarvestProfile(
+    name='ts_inv_vol_gross_one',
+    strategy_family='time_series',
+    signal_mapping='clip',
+    risk_scaling='inverse_volatility',
+    neutrality='none',
+    risk_allocation='equal_product',
+    portfolio_target='gross_one',
+    position_limit='per_instrument_and_gross',
+    cost_proxy='linear_turnover',
+    uses_covariance=False,
+)
+
+
 # ------------------------------------------------------------
 # §10 时序范式一：独立预测、逆波动率与目标波动率 CTA
 #   每品种独立决定方向，1/sigma 定仓，组合缩放至目标波动率。
@@ -146,3 +162,4 @@ MAINSTREAM_HARVEST_PROFILES: tuple[HarvestProfile, ...] = (
     ts_inv_vol_target_vol,
     sector_risk_budget_cta,
 )
+

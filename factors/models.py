@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     import pandas as pd
     from data.config import (RolloverConfig, AdjustmentConfig,
                              SamplingConfig, EnvironmentConfig)
+    from factors.universe import Universe
 
 
 # ============================================================
@@ -189,9 +190,10 @@ class ResearchDataset:
         长表格式主面板（即市场行情），索引为 MultiIndex[timestamp, product]。
     quality : DataQualitySummary or None
         主面板数据质量校验结果。
-    universe : pd.Series or None
-        与 df 同索引的布尔准入表，True 表示该行品种在该时点可研究。
-        初始可以为空 ，在 DynamicUniverse.build() 后注入。
+    universe : Universe
+        动态品种池构建结果，由 DynamicUniverse.build() 生成。
+        其 eligible 属性为与 df 同索引的布尔准入掩码，True 表示该行品种
+        在该时点可研究；exclude_reason 属性记录对应的排除原因，供追溯审计。
     auxiliary: Mapping[str, Any] or None
         一系列附属数据集， key 为数据源（名称），例如 'term_structure'。
 
@@ -201,7 +203,7 @@ class ResearchDataset:
     spec: DatasetSpec
     main_panel: pd.DataFrame = field(repr=False)
     quality: DataQualitySummary
-    universe: pd.Series = field(repr=False)
+    universe: Universe = field(repr=False)
     auxiliary: Mapping[str, Any] | None = field(default=None, repr=False)
 
 
@@ -625,6 +627,9 @@ class DecayResult:
     ic_summary_by_horizon: pd.DataFrame | None = None
     rank_ic_summary_by_horizon: pd.DataFrame | None = None
     long_short_by_horizon: pd.DataFrame | None = None
+
+
+
 
 
 # ============================================================

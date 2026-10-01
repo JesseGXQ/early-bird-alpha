@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from re import S
 from typing import TYPE_CHECKING, Any, Mapping
 
 import pandas as pd
@@ -19,6 +20,7 @@ from factors.models import (
     UniverseSpec,
 )
 from data.facade import DataFacade
+from factors.universe import DynamicUniverse
 
 # ============================================================
 # 私有辅助函数
@@ -157,15 +159,21 @@ class ResearchDatasetBuilder:
 
     """
 
-    def __init__(self, spec: DatasetSpec):
-        self._spec = spec
+    def __init__(self, dataset_spec: DatasetSpec,
+                 universe_spec: UniverseSpec):
+        self._dataset_spec = dataset_spec
+        self._universe_spec = universe_spec
         # 构造 facade 
         (rollover_config, adj_config,
-        sample_config, env_config)  = self._spec.facade_config
+        sample_config, env_config)  = self._dataset_spec.facade_config
         self._facade = DataFacade(rollover_config=rollover_config,
                                   adj_config=adj_config,
                                   sample_config=sample_config,
                                   env_config=env_config)
+        self._dynamic_universe = DynamicUniverse(
+            spec=self._universe_spec,
+            facade=self._facade
+        )
 
     def _auxiliary(self) -> dict[str, dict[str, Any]]:
         """
@@ -181,7 +189,7 @@ class ResearchDatasetBuilder:
             - 其余键   : DataRequirement 中除 source 外的其它请求参数
                         （例如 request_params 等）。
         """
-        data_requirements = self._spec.data_requirements
+        data_requirements = self._dataset_spec.data_requirements
         auxiliary: dict[str, dict[str, Any]] = {}
         for dr in data_requirements:
             if dr.source != 'main_panel': 
@@ -207,19 +215,19 @@ class ResearchDatasetBuilder:
             品种准入表，以及或有的附属数据集。
         """
         # 1. 品种设定校验 
-        if not self._spec.products:
+        if not self._dataset_spec.products:
             raise ValueError("spec.products 不能为空，请指定至少一个品种代码。")
 
         # 2. 规范化所有品种代码（去空白 + 转大写）
-        products = tuple(_normalize_product_code(p) for p in self._spec.products)
+        products = tuple(_normalize_product_code(p) for p in self._dataset_spec.products)
 
         # 3. -----------   加载主面板（统一走数据引擎的多线程并行接口）----------
         panel = self._facade.get_historical_vector_multiple_products(
             products=list(products),
-            start_date=self._spec.start_date,
-            end_date=self._spec.end_date,
-            freq=self._spec.freq,
-            view=self._spec.view,
+            start_date=self._dataset_spec.start_date,
+            end_date=self._dataset_spec.end_date,
+            freq=self._dataset_spec.freq,
+            view=self._dataset_spec.view,
             max_workers=max_workers,
         )
 
@@ -245,10 +253,10 @@ class ResearchDatasetBuilder:
         # 主面板数据质量校验 
         quality = validate_research_frame(panel)
 
-        # universe 占位符 
-        # 初始化为全 True，表示所有品种在所有时点均可研究。
-        # 后续由 DynamicUniverse 根据准入条件生成真实的布尔掩码并替换。
-        universe = pd.Series(True, index=panel.index, name='eligible')
+        # 构造动态品种池（Universe 领域对象：准入掩码 + 排除原因）
+        assert 'OpenInterest' in panel.columns and \
+        'Volume' in panel.columns
+        universe = self._dynamic_universe.build(panel=panel)
 
         # 是否需要附属数据集？（'main_panel' 之外请求的数据源）
         auxiliary_requirements = self._auxiliary()
@@ -256,7 +264,7 @@ class ResearchDatasetBuilder:
         # 若不需要附属数据集，直接返回 ResearchDataset
         if not auxiliary_requirements:
             return ResearchDataset(
-                spec=self._spec,
+                spec=self._dataset_spec,
                 main_panel=panel,
                 quality=quality,
                 universe=universe,
@@ -272,8 +280,8 @@ class ResearchDatasetBuilder:
             )
             ts_df = self._facade.get_term_structure_data_multiple_products(
                 products=list(products),
-                start_date=self._spec.start_date,
-                end_date=self._spec.end_date,
+                start_date=self._dataset_spec.start_date,
+                end_date=self._dataset_spec.end_date,
                 max_workers=max_workers,
                 **ts_params,
             )
@@ -303,8 +311,8 @@ class ResearchDatasetBuilder:
             params = auxiliary_requirements['warehouse_receipt']['request_params']
             receipt_df = self._facade.get_warehouse_receipt_data_multiple_products(
                 products=list(products),
-                start_date=self._spec.start_date,
-                end_date=self._spec.end_date,
+                start_date=self._dataset_spec.start_date,
+                end_date=self._dataset_spec.end_date,
                 max_workers=max_workers,
                 **params
             )
@@ -316,7 +324,7 @@ class ResearchDatasetBuilder:
             
 
         return ResearchDataset(
-            spec=self._spec,
+            spec=self._dataset_spec,
             main_panel=panel,
             quality=quality,
             universe=universe,
@@ -370,7 +378,7 @@ if __name__ == "__main__":
         products=('A', 'CF', 'RB', 'SC', 'SH'),
         data_requirements=requirements,
     )
-    builder = ResearchDatasetBuilder(spec=spec)
+    builder = ResearchDatasetBuilder(dataset_spec=spec)
     dataset = builder.build()
 
     
