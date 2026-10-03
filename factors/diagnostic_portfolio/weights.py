@@ -126,87 +126,17 @@ class WeightStateMachine(ABC):
         """
         ...
 
-
-    def _enforce_constraints(self, weights: pd.Series) -> pd.Series:
-        """对基础权重应用单品种绝对权重上限。
-
-        未设置 ``max_product_weight`` 时原样返回；否则把权重拆成正、负
-        两侧，按两侧共同可达的 exposure 缩放，再分别做
-        cap-and-redistribute，最后合并回原索引。正负两侧目标 exposure
-        相同，因此始终保持净敞口为零。
-
-        Parameters
-        ----------
-        weights : pd.Series
-            基础权重，Index[product]。
-
-        Returns
-        -------
-        pd.Series
-            约束后的权重，Index 与 ``weights`` 一致。
-
-        """
-        if self._spec.constraints.max_product_weight is None:
+    def _enforce_max_gross(self, weights: pd.Series) -> pd.Series:
+        """对权重施加 max_gross 限制；max_gross 为 None 表示不封顶。"""
+        g_max = self._spec.constraints.max_gross
+        if g_max is None:
             return weights
-        positive_part = weights[weights > 0]
-        negative_part = weights[weights < 0]
-        s = self._spec.constraints.max_product_weight
-        target_exposure = min(0.5, len(positive_part)*s, len(negative_part)*s) # 例：正数侧只有两个品种，s=0.2，则此时正数侧能达到的最大 exposure 是0.4。而按照“市场中性”的要求，负数侧的 exposure 目标也应该是0.4。
+        g_w = weights.abs().sum()
+        if g_w > g_max: # 若超出，则做缩放
+            return weights * (g_max / g_w)
+        return weights
 
-        if target_exposure < 0.5: # 目标 exposure 达不到 0.5。由于原本正负两侧的 exposure 都是0.5，先对两侧都做目标 exposure 分配（或者说对原权重做等比例缩放，缩放到总 exposure 等于目标 exposure）
-            positive_part = positive_part / positive_part.sum() * target_exposure
-            negative_part = negative_part / negative_part.abs().sum() * target_exposure
-        
-        redistributed_positive_part = self._cap_and_redistribute(positive_part)
-        redistributed_negative_part = - self._cap_and_redistribute(- negative_part)
-        re_weights = pd.concat(
-                [redistributed_positive_part, redistributed_negative_part],
-                axis=0
-            ).reindex(weights.index, fill_value=0) # 将被丢掉的0权重品种补回
-        
-        return re_weights
 
-    def _cap_and_redistribute(self, weights: pd.Series) -> pd.Series:
-        """把单侧（全为正）权重压到单品种上限内，并同侧再分配超额。
-
-        Parameters
-        ----------
-        weights : pd.Series
-            单侧权重，必须全为正。
-
-        Returns
-        -------
-        pd.Series
-            所有值均不超过 ``max_product_weight`` 的单侧权重，总和与
-            输入相同。
-
-        Raises
-        ------
-        ValueError
-            当所有品种都已达到上限、没有可再分配空间时抛出。
-
-        """
-        assert (weights > 0).all()
-        weights = weights.copy()
-        s = self._spec.constraints.max_product_weight
-        assert s is not None
-        while True: 
-            if (weights <= s).all() or np.isclose(weights, s).all():
-                return weights
-            if (weights >= s).all() and (weights > s).any():
-                raise ValueError(
-                    '无剩余权重分配空间，无法执行 cap-and-redistribute 算法。'
-                )
-            # 找出 weights 中最大的权重(超出s)
-            prod_max_w = weights.idxmax()
-            extra: float = weights.at[prod_max_w] - s # 先取出超出上限的部分
-            weights.at[prod_max_w] = s # 再将该品种设为上限s
-            # 将多余部分按原绝对权重分配到未触及上限s的品种
-            unbinding = weights[weights < s].index
-            pct_to_distribute: pd.Series = \
-                weights.loc[unbinding] / weights.loc[unbinding].sum()
-            to_distribute = pct_to_distribute * extra
-            weights.loc[unbinding] += to_distribute     
 
     @property
     def weight_change(self) -> pd.Series:
@@ -327,7 +257,7 @@ class MarketRankLSWeightStateMachine(WeightStateMachine):
                 final_weights = self._flat_positions()
             else:
                 proposed_weights = self._gen_base_weights(signal_valid)
-                final_weights = self._enforce_constraints(proposed_weights)
+                final_weights = self._enforce_max_product_weight(proposed_weights)
                 final_weights = final_weights.reindex(self._products, fill_value=0) # 将缺失的品种权重回补为 0 
         
         # 记录权重机状态
@@ -349,6 +279,87 @@ class MarketRankLSWeightStateMachine(WeightStateMachine):
         qvalues = ranks - ranks.mean()
         weights = qvalues / qvalues.abs().sum() # gross = 1, sum of weights = 0
         return weights
+
+    def _enforce_max_product_weight(self, weights: pd.Series) -> pd.Series:
+        """对基础权重应用单品种绝对权重上限。
+
+        未设置 ``max_product_weight`` 时原样返回；否则把权重拆成正、负
+        两侧，按两侧共同可达的 exposure 缩放，再分别做
+        cap-and-redistribute，最后合并回原索引。正负两侧目标 exposure
+        相同，因此始终保持净敞口为零。
+
+        Parameters
+        ----------
+        weights : pd.Series
+            基础权重，Index[product]。
+
+        Returns
+        -------
+        pd.Series
+            约束后的权重，Index 与 ``weights`` 一致。
+
+        """
+        if self._spec.constraints.max_product_weight is None:
+            return weights
+        positive_part = weights[weights > 0]
+        negative_part = weights[weights < 0]
+        s = self._spec.constraints.max_product_weight
+        target_exposure = min(0.5, len(positive_part)*s, len(negative_part)*s) # 例：正数侧只有两个品种，s=0.2，则此时正数侧能达到的最大 exposure 是0.4。而按照“市场中性”的要求，负数侧的 exposure 目标也应该是0.4。
+
+        if target_exposure < 0.5: # 目标 exposure 达不到 0.5。由于原本正负两侧的 exposure 都是0.5，先对两侧都做目标 exposure 分配（或者说对原权重做等比例缩放，缩放到总 exposure 等于目标 exposure）
+            positive_part = positive_part / positive_part.sum() * target_exposure
+            negative_part = negative_part / negative_part.abs().sum() * target_exposure
+        
+        redistributed_positive_part = self._cap_and_redistribute(positive_part)
+        redistributed_negative_part = - self._cap_and_redistribute(- negative_part)
+        re_weights = pd.concat(
+                [redistributed_positive_part, redistributed_negative_part],
+                axis=0
+            ).reindex(weights.index, fill_value=0) # 将被丢掉的0权重品种补回
+        
+        return re_weights
+
+    def _cap_and_redistribute(self, weights: pd.Series) -> pd.Series:
+        """把单侧（全为正）权重压到单品种上限内，并同侧再分配超额。
+
+        Parameters
+        ----------
+        weights : pd.Series
+            单侧权重，必须全为正。
+
+        Returns
+        -------
+        pd.Series
+            所有值均不超过 ``max_product_weight`` 的单侧权重，总和与
+            输入相同。
+
+        Raises
+        ------
+        ValueError
+            当所有品种都已达到上限、没有可再分配空间时抛出。
+
+        """
+        assert (weights > 0).all()
+        weights = weights.copy()
+        s = self._spec.constraints.max_product_weight
+        assert s is not None
+        while True: 
+            if (weights <= s).all() or np.isclose(weights, s).all():
+                return weights
+            if (weights >= s).all() and (weights > s).any():
+                raise ValueError(
+                    '无剩余权重分配空间，无法执行 cap-and-redistribute 算法。'
+                )
+            # 找出 weights 中最大的权重(超出s)
+            prod_max_w = weights.idxmax()
+            extra: float = weights.at[prod_max_w] - s # 先取出超出上限的部分
+            weights.at[prod_max_w] = s # 再将该品种设为上限s
+            # 将多余部分按原绝对权重分配到未触及上限s的品种
+            unbinding = weights[weights < s].index
+            pct_to_distribute: pd.Series = \
+                weights.loc[unbinding] / weights.loc[unbinding].sum()
+            to_distribute = pct_to_distribute * extra
+            weights.loc[unbinding] += to_distribute     
     
 
         
@@ -382,6 +393,7 @@ class TSInverseVolatilityWeightMachine(WeightStateMachine):
         self._validate_input_index(signal, eligible)
 
         cov_mat_estimation_meta = None
+        warnings: list[str] = []
 
         if not rebalance:
             final_weights = self._apply_universe(eligible) 
@@ -395,7 +407,7 @@ class TSInverseVolatilityWeightMachine(WeightStateMachine):
                 invalid_products = self._risk_manager.get_invalid_products() 
                 remove = pd.Index(invalid_products)\
                     .intersection(proposed_weights.index)
-                if remove:
+                if not remove.empty:
                     proposed_weights.loc[remove] = 0.0
                     proposed_weights = self._scale_to_gross_one(proposed_weights)
                 # 选出非零权重品种，做目标波动率缩放
@@ -404,21 +416,31 @@ class TSInverseVolatilityWeightMachine(WeightStateMachine):
                     proposed_weights, exante_vol_res = \
                         self._scale_to_target_vol(nonzero)
                     cov_mat_estimation_meta = \
-                        exante_vol_res.cov_mat_estimation_meta # 设定协方差估计的元数据
-            final_weights = self._enforce_constraints(proposed_weights)
+                        exante_vol_res.cov_mat_estimation_meta 
+                    warnings.extend(exante_vol_res.warnings)
+                proposed_weights = self._enforce_max_gross(proposed_weights)
+            final_weights = self._enforce_max_product_weight(proposed_weights)
             final_weights = final_weights.reindex(self._products, fill_value=0) # 将缺失的品种权重回补为 0 
-    
+
         # 记录权重机状态
         self._weight_history.append(final_weights)
         self._last_weights = final_weights
 
         return CurrentWeight(
             weights=final_weights.copy(),
-            warnings=(),
+            warnings=tuple(warnings),
             metadata=WeightMeta(
                 cov_mat_estimation_meta=cov_mat_estimation_meta
             )
         )
+    def _enforce_max_product_weight(self, weights: pd.Series) -> pd.Series:
+        """施加单品种权重上限限制。仅做 clip， 不做剩余权重再分配。"""
+        if self._spec.constraints.max_product_weight is None:
+            return weights
+        s = self._spec.constraints.max_product_weight
+        assert s > 0
+        return weights.clip(lower=-s,upper=s)
+
 
     def _scale_to_gross_one(self, weights: pd.Series) -> pd.Series:
         """gross = 1 的权重归一化。"""
@@ -440,15 +462,18 @@ class TSInverseVolatilityWeightMachine(WeightStateMachine):
                 annualization_factor=self._spec.annualization_factor
             )
         vol, meta = vol_result.value, vol_result.cov_mat_estimation_meta
+        assert vol >= 0
         self._cov_est_metadata.append(meta)
 
+        if vol == 0: # 估计出的组合事前波动率为0，这属于估计失败，直接空仓
+            return self._flat_positions().reindex(weights.index), vol_result
+        
         lambda_star: float = self._spec.risk.target_volatility / vol  # type: ignore
         lambda_clipped = min(
             self._spec.constraints.max_volatility_scaler, # pyright: ignore[reportArgumentType]
             lambda_star
         )
         return lambda_clipped * weights, vol_result
-
 
     def _gen_base_weight(self, signal: pd.Series) -> pd.Series: # signal 为在品种池内且无缺失
         """在 profile 为 ts_inv_vol_gross_one 下，根据信号，生成基础权重：
@@ -462,208 +487,3 @@ class TSInverseVolatilityWeightMachine(WeightStateMachine):
         u_weights = signal_clipped / vol.reindex(signal_clipped.index)
         u_weights.fillna(0, inplace=True) # 将由于事前波动率缺失导致的缺失用0填充
         return self._scale_to_gross_one(weights=u_weights)
-
-
-
-
-
-# =====================
-# inline smoke test
-# =====================
-if __name__ == '__main__':
-    from factors.profiles import market_rank_ls
-    from factors.diagnostic_portfolio.models import (
-        DiagnosticPortfolioSpec, ConstraintConfig, CostConfig, RiskConfig,
-        RebalanceConfig,
-    )
-
-    _failures: list[str] = []
-
-    def _check(name: str, fn: Any) -> None:
-        try:
-            fn()
-        except Exception as exc:  # noqa: BLE001
-            _failures.append(name)
-            print(f'[FAIL] {name}: {type(exc).__name__}: {exc}')
-        else:
-            print(f'[PASS] {name}')
-
-    def _spec(max_product_weight=None, min_cs=2):
-        return DiagnosticPortfolioSpec(
-            name='smoke_market_rank_ls',
-            harvest_profile=market_rank_ls,
-            rebalance=RebalanceConfig(interval=2),
-            constraints=ConstraintConfig(
-                max_gross=1.0, max_product_weight=max_product_weight),
-            costs=CostConfig(rate=0.0003),
-            realized_volatility_lookback=5,
-            min_cross_section_size=min_cs,
-        )
-
-    def _machine(products, max_product_weight=None, min_cs=2):
-        machine = MarketRankLSWeightStateMachine(
-            _spec(max_product_weight, min_cs), products)
-        return machine
-
-    def _flat(products):
-        return pd.Series(0.0, index=products)
-
-    def _same(left, right):
-        pd.testing.assert_series_equal(
-            left, right, atol=1e-12, check_names=False, check_dtype=False)
-
-    def test_rejects_wrong_profile():
-        from factors.profiles import ts_inv_vol_gross_one
-        spec = DiagnosticPortfolioSpec(
-            name='wrong', harvest_profile=ts_inv_vol_gross_one,
-            rebalance=RebalanceConfig(interval=2),
-            constraints=ConstraintConfig(max_gross=1.0),
-            costs=CostConfig(rate=0.0),
-            realized_volatility_lookback=5,
-            risk=RiskConfig(volatility_lookback=5, volatility_min_periods=3),
-            clip_bound=1.0,
-        )
-        try:
-            MarketRankLSWeightStateMachine(spec, ['A', 'B'])
-        except ValueError as exc:
-            assert 'market_rank_ls' in str(exc)
-        else:
-            raise AssertionError('非 market_rank_ls 范式应拒绝')
-
-    def test_base_rank_ls():
-        products = ['A', 'B', 'C', 'D', 'E']
-        machine = _machine(products)
-        weights = machine.update(
-            True, pd.Series(True, index=products),
-            pd.Series([10, 20, 20, 40, 50], index=products, dtype=float))
-        expected = pd.Series(
-            [-1 / 3, -1 / 12, -1 / 12, 1 / 6, 1 / 3], index=products)
-        _same(weights, expected)
-        assert abs(weights.sum()) < 1e-12                # 截面中性
-        assert abs(weights.abs().sum() - 1.0) < 1e-12    # gross=1
-        assert len(machine._weight_history) == 1
-
-    def test_freeze_and_forced_exit():
-        products = ['A', 'B', 'C', 'D', 'E']
-        machine = _machine(products)
-        signal = pd.Series([10, 20, 20, 40, 50], index=products, dtype=float)
-        base = machine.update(True, pd.Series(True, index=products), signal)
-        eligible = pd.Series([True, False, True, True, True], index=products)
-        frozen = machine.update(False, eligible, signal)
-        expected = base.copy()
-        expected['B'] = 0.0
-        _same(frozen, expected)  # 退出归零，其余冻结、不重新分配
-
-    def test_new_product_waits_for_next_rebalance():
-        products = ['A', 'B', 'C']
-        machine = _machine(products)
-        signal = pd.Series([10, 20, 30], index=products, dtype=float)
-        base = machine.update(
-            True, pd.Series([True, True, False], index=products), signal)
-        assert base['C'] == 0.0
-        entered = machine.update(
-            False, pd.Series(True, index=products), signal)
-        _same(entered, base)
-        assert entered['C'] == 0.0
-
-    def test_failed_rebalance_flattens_and_records():
-        products = ['A', 'B', 'C']
-        machine = _machine(products, min_cs=2)
-        good = pd.Series([1.0, 2.0, 3.0], index=products)
-        held_before = machine.update(
-            True, pd.Series(True, index=products), good)
-        assert held_before.abs().sum() > 0
-        bad = pd.Series([1.0, None, None], index=products)
-        weights = machine.update(
-            True, pd.Series(True, index=products), bad)
-        _same(weights, _flat(products))
-        _same(machine._last_weights, _flat(products))  # 应回到空仓
-        held = machine.update(
-            False, pd.Series(True, index=products), bad)
-        _same(held, _flat(products))  # 失败调仓后仍应为空仓
-        assert len(machine._weight_history) == 3  # 失败调仓也要入账
-
-    def test_constant_signal_goes_flat():
-        products = ['A', 'B', 'C']
-        machine = _machine(products)
-        weights = machine.update(
-            True, pd.Series(True, index=products),
-            pd.Series([5.0, 5.0, 5.0], index=products))
-        _same(weights, _flat(products))
-        _same(machine._last_weights, _flat(products))
-
-    def test_product_cap_scaled_and_capped():
-        products = ['A', 'B', 'C', 'D', 'E']
-        machine = _machine(products, max_product_weight=0.2)
-        weights = machine.update(
-            True, pd.Series(True, index=products),
-            pd.Series([10, 20, 20, 40, 50], index=products, dtype=float))
-        # 单侧可达 exposure = min(0.5, 2*0.2, 3*0.2) = 0.4；先等比例缩放
-        # 到 0.4，再对超限品种做 cap-and-redistribute，故 E 被压到 0.2。
-        expected = pd.Series([-0.2, -0.1, -0.1, 0.2, 0.2], index=products)
-        _same(weights, expected)
-        assert abs(weights.sum()) < 1e-12
-        assert weights.abs().max() <= 0.2 + 1e-12
-
-    def test_rejects_inconsistent_index():
-        products = ['A', 'B', 'C', 'D']
-        machine = _machine(products)
-        # signal 与 eligible 索引不一致
-        try:
-            machine.update(
-                True, pd.Series([True, True], index=['A', 'B']),
-                pd.Series([1.0, 2.0, 3.0], index=['A', 'B', 'C']))
-        except ValueError as exc:
-            assert '不完全相同' in str(exc)
-        else:
-            raise AssertionError('signal 与 eligible 索引不一致应报错')
-        # eligible/signal 缺少状态机品种 D
-        try:
-            machine.update(
-                True, pd.Series([True, True, True], index=['A', 'B', 'C']),
-                pd.Series([1.0, 2.0, 3.0], index=['A', 'B', 'C']))
-        except ValueError as exc:
-            assert '缺少' in str(exc) and 'D' in str(exc)
-        else:
-            raise AssertionError('缺少状态机品种应报错')
-
-    def test_cap_and_redistribute_binding():
-        machine = _machine(['X', 'Y'], max_product_weight=0.3)
-        out = machine._cap_and_redistribute(
-            pd.Series([0.4, 0.1], index=['X', 'Y']))
-        _same(out, pd.Series([0.3, 0.2], index=['X', 'Y']))
-
-    for _name, _fn in (
-        ('rejects_wrong_profile', test_rejects_wrong_profile),
-        ('base_rank_ls', test_base_rank_ls),
-        ('freeze_and_forced_exit', test_freeze_and_forced_exit),
-        ('new_product_waits_for_next_rebalance',
-         test_new_product_waits_for_next_rebalance),
-        ('failed_rebalance_flattens_and_records',
-         test_failed_rebalance_flattens_and_records),
-        ('constant_signal_goes_flat', test_constant_signal_goes_flat),
-        ('product_cap_scaled_and_capped', test_product_cap_scaled_and_capped),
-        ('cap_and_redistribute_binding', test_cap_and_redistribute_binding),
-        ('rejects_inconsistent_index', test_rejects_inconsistent_index),
-    ):
-        _check(_name, _fn)
-
-    if _failures:
-        print(f'\n{len(_failures)} 个 smoke test 失败: {_failures}')
-        raise SystemExit(1)
-    print('ALL SMOKE TESTS PASSED')
-    
-
-
-
-
-
-        
-
-
-
-
-        
-
-
-

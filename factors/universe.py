@@ -59,7 +59,7 @@ class DynamicUniverse:
         """
         panel = panel.copy()
 
-        universe = pd.Series([True]* len(panel), index=panel.index)
+        eligible = pd.Series([True]* len(panel), index=panel.index)
         exclude_reason = pd.Series('' * len(panel), index=panel.index)
 
         # 1. 品种上市日约束
@@ -77,7 +77,7 @@ class DynamicUniverse:
 
         mask = (panel['days_from_list_date'] \
                        >= self.spec.min_listing_days)
-        universe &= mask
+        eligible &= mask
         exclude_reason.loc[~mask] = exclude_reason + 'min_listing_days'  
 
         def gen_mask(df: pd.DataFrame, col: str, agg: str, threshold_value: float | int):
@@ -107,7 +107,7 @@ class DynamicUniverse:
         mask = gen_mask(
             df=panel, col='Volume', agg='min',
             threshold_value=self.spec.min_daily_volume)
-        universe &= mask
+        eligible &= mask
         exclude_reason.loc[~mask] = exclude_reason + ';min_daily_volume'
 
         # 2.2 （回看窗口内）平均成交量
@@ -115,7 +115,7 @@ class DynamicUniverse:
             df=panel, col='Volume', agg='mean',
             threshold_value=self.spec.min_average_volume
         )
-        universe &= mask
+        eligible &= mask
         exclude_reason.loc[~mask] = exclude_reason + ';min_average_volume'
 
         # 3. （回看窗口内）单日最低持仓量
@@ -123,7 +123,7 @@ class DynamicUniverse:
             df=panel, col='OpenInterest', agg='min',
             threshold_value=self.spec.min_open_interest
         )
-        universe &= mask
+        eligible &= mask
         exclude_reason.loc[~mask] = exclude_reason + ';min_open_interest'
 
         # 4. 有效数据覆盖率：在回看窗口内，True_Return 的非 NaN 占比
@@ -142,12 +142,12 @@ class DynamicUniverse:
                 rolled / self.spec.liquidity_lookback
                 >= self.spec.min_data_coverage
             )
-            universe &= coverage_mask
+            eligible &= coverage_mask
             exclude_reason.loc[~coverage_mask] = (
                 exclude_reason + ';min_data_coverage'
             )
         
-        return Universe(eligible=universe, exclude_reason=exclude_reason)
+        return Universe(eligible=eligible, exclude_reason=exclude_reason)
 
 
 # ============================================================

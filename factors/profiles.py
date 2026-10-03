@@ -163,3 +163,12 @@ MAINSTREAM_HARVEST_PROFILES: tuple[HarvestProfile, ...] = (
     sector_risk_budget_cta,
 )
 
+# V1 组合实验层可执行研究配方注册表（开发方案 §7.2）。
+# DiagnosticPortfolioExperiment 只接受该元组中的收获范式，其余范式明确拒绝，
+# 不得静默降级成语义不同的权重规则。
+V1_DIAGNOSTIC_PORTFOLIO_PROFILES: tuple[HarvestProfile, ...] = (
+    ts_inv_vol_gross_one,
+    ts_inv_vol_target_vol,
+    market_rank_ls,
+)
+

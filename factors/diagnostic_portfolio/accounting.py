@@ -46,7 +46,10 @@ class DecisionLedger:
         """返回所记录的警告。"""
         warnings: list[str] = []
         for record in self._book:
-            warnings.extend(record.weight_warnings)
+            if record.weight_warnings:
+                _text = f'{record.timestamp.isoformat()} : ' + \
+                f'{"；".join(record.weight_warnings)}' # looks like： 2025-01-02T00:00:00 : 警告1；警告2；警告3
+                warnings.append(_text)
         return tuple(warnings)
 
     @property

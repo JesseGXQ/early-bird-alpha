@@ -494,3 +494,106 @@ def test_performance_empty_returns() -> None:
     assert performance['max_drawdown'].isna().all()
     assert set(warnings) == {
         'SHARPE_UNDEFINED:gross', 'SHARPE_UNDEFINED:proxy_net'}
+
+
+# ============================================================
+# DecisionLedger：权重/警告/协方差元数据记账
+# ============================================================
+def test_decision_ledger_to_weights_series() -> None:
+    """决策记录册输出 MultiIndex[timestamp, product] 权重。"""
+    from factors.diagnostic_portfolio.accounting import (
+        DecisionLedger, DecisionRecord)
+    from factors.diagnostic_portfolio.weights import WeightMeta
+
+    ts0 = pd.Timestamp('2024-01-01')
+    ts1 = pd.Timestamp('2024-01-02')
+    ledger = DecisionLedger()
+    ledger.append(DecisionRecord(
+        timestamp=ts0, weights=pd.Series([0.5, -0.5], index=['A', 'B']),
+        rebalance=True, weight_warnings=(), weight_meta=WeightMeta(None)))
+    ledger.append(DecisionRecord(
+        timestamp=ts1, weights=pd.Series([0.2, -0.2], index=['A', 'B']),
+        rebalance=False, weight_warnings=(), weight_meta=WeightMeta(None)))
+
+    weights = ledger.to_weights_series()
+
+    assert tuple(weights.index.names) == ('timestamp', 'product')
+    assert weights.index.is_unique
+    assert weights.tolist() == [0.5, -0.5, 0.2, -0.2]
+
+
+def test_decision_ledger_warnings_prefix_timestamp() -> None:
+    """回归：警告需带决策时点前缀，且空警告记录被跳过。"""
+    from factors.diagnostic_portfolio.accounting import (
+        DecisionLedger, DecisionRecord)
+    from factors.diagnostic_portfolio.weights import WeightMeta
+
+    ts = pd.Timestamp('2024-01-02')
+    ledger = DecisionLedger()
+    ledger.append(DecisionRecord(
+        timestamp=pd.Timestamp('2024-01-01'),
+        weights=pd.Series([0.0], index=['A']),
+        rebalance=True, weight_warnings=(), weight_meta=WeightMeta(None)))
+    ledger.append(DecisionRecord(
+        timestamp=ts, weights=pd.Series([0.0], index=['A']),
+        rebalance=True, weight_warnings=('w1', 'w2'),
+        weight_meta=WeightMeta(None)))
+
+    warnings = ledger.warnings
+
+    assert warnings == (f'{ts.isoformat()} : w1；w2',)
+
+
+def test_decision_ledger_metadata_covariance_estimation() -> None:
+    """协方差估计元数据按决策时点汇总为 DataFrame。"""
+    from factors.diagnostic_portfolio.accounting import (
+        DecisionLedger, DecisionRecord)
+    from factors.diagnostic_portfolio.weights import WeightMeta
+
+    ts0 = pd.Timestamp('2024-01-01')
+    ts1 = pd.Timestamp('2024-01-02')
+    ledger = DecisionLedger()
+    ledger.append(DecisionRecord(
+        timestamp=ts0, weights=pd.Series([0.0], index=['A']),
+        rebalance=True, weight_warnings=(),
+        weight_meta=WeightMeta(
+            pd.Series({'valid_prod_count': 2, 'min_eigen': 0.1}))))
+    ledger.append(DecisionRecord(
+        timestamp=ts1, weights=pd.Series([0.0], index=['A']),
+        rebalance=True, weight_warnings=(), weight_meta=WeightMeta(None)))
+
+    meta = ledger.metadata
+
+    cov_meta = meta['covariance_estimation']
+    assert cov_meta is not None
+    assert list(cov_meta.index) == [ts0]
+    assert cov_meta.loc[ts0, 'valid_prod_count'] == 2
+
+
+def test_decision_ledger_metadata_without_covariance_is_none() -> None:
+    from factors.diagnostic_portfolio.accounting import (
+        DecisionLedger, DecisionRecord)
+    from factors.diagnostic_portfolio.weights import WeightMeta
+
+    ledger = DecisionLedger()
+    ledger.append(DecisionRecord(
+        timestamp=pd.Timestamp('2024-01-01'),
+        weights=pd.Series([0.0], index=['A']),
+        rebalance=True, weight_warnings=(), weight_meta=WeightMeta(None)))
+
+    assert ledger.metadata['covariance_estimation'] is None
+
+
+def test_weight_changes_sorted_internally() -> None:
+    """回归：权重输入乱序时，内部排序后再计算换手（不能按输入顺序 diff）。"""
+    idx = _multi_index(['2024-01-01', '2024-01-02'], ['A'])
+    ordered = pd.Series([0.5, 0.2], index=idx)
+    shuffled = ordered.iloc[::-1]
+
+    _, turnover_ordered, _ = compute_weight_changes_turnover_cost(
+        ordered, CostConfig(rate=0.0))
+    _, turnover_shuffled, _ = compute_weight_changes_turnover_cost(
+        shuffled, CostConfig(rate=0.0))
+
+    pd.testing.assert_series_equal(
+        turnover_ordered, turnover_shuffled, check_names=False)

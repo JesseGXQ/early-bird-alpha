@@ -87,10 +87,34 @@ class UniverseSpec:
 @dataclass(frozen=True)
 class DataRequirement:
     """数据需求类，包含数据源（名称）、所需的列名，
-    以及向数据引擎大门请求此数据时的透传参数。"""
-    source: str # 例如 'main_panel', 'term_structure'
-    columns: tuple[str, ...] | None = None # 所需列的名称，例如对于 source='term_structure' 可为 ('Close', 'Volume', 'last_trade_date')（价格列名随 request_params['price_col'] 口径而定）；为 None 表示不做任何裁剪，保留数据引擎服务门面对该数据源返回的原始数据所有列
-    request_params: Mapping[str, Any] | None = None # 向DataFacade发送数据请求时的参数
+    以及向数据引擎大门请求此数据时的透传参数。
+    
+    Parameters
+    -------
+    source: str
+        数据源名称。可选 'main_panel', 'term_structure', 'warehouse_receipt'。
+    columns: tuple of str, optional
+        所需列名。
+        - 例如对于 source='term_structure' 可为 
+        ('Close', 'Volume', 'last_trade_date')
+        （价格列名随 `request_params['price_col']` 口径而定）；
+        为 None 表示不做任何裁剪，保留数据引擎服务门面对该数据源返回的原始数据所有列。
+    request_params: Mapping[str, Any], optional
+        向数据引擎大门发送数据请求时的参数。 key 是数据源名称，value 为参数字典。
+        - 当 key 为 'term_structure'时。
+        例: `{'term_structure': {'price_col': 'Close'}}`。可为 `'Close'` 
+        或 `'Settle'`。
+        - 当 key 为 'warehouse_receipt' 时。
+        例：`{'warehouse_receipt': {
+        'aggregate': True, 
+        'agg_unit_conversions': {('SC', '吨', '桶'): 7.33}
+        }
+        }`
+
+    """
+    source: str 
+    columns: tuple[str, ...] | None = None 
+    request_params: Mapping[str, Any] | None = None 
 
 @dataclass(frozen=True)
 class DatasetSpec:

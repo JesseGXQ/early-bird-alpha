@@ -58,6 +58,22 @@ from factors.profiles import (
     ts_inv_vol_target_vol,
     sector_risk_budget_cta,
     MAINSTREAM_HARVEST_PROFILES,
+    # V1 组合实验层
+    ts_inv_vol_gross_one,
+    V1_DIAGNOSTIC_PORTFOLIO_PROFILES,
+)
+
+from factors.diagnostic_portfolio.models import (
+    DiagnosticSignal,
+    RebalanceConfig,
+    RiskConfig,
+    ConstraintConfig,
+    CostConfig,
+    DiagnosticPortfolioSpec,
+    DiagnosticPortfolioResult,
+)
+from factors.diagnostic_portfolio.experiment import (
+    DiagnosticPortfolioExperimentRunner,
 )
 
 __all__ = [
@@ -88,4 +104,15 @@ __all__ = [
     'ts_inv_vol_target_vol',
     'sector_risk_budget_cta',
     'MAINSTREAM_HARVEST_PROFILES',
+    # V1 组合实验层
+    'ts_inv_vol_gross_one',
+    'V1_DIAGNOSTIC_PORTFOLIO_PROFILES',
+    'DiagnosticSignal',
+    'RebalanceConfig',
+    'RiskConfig',
+    'ConstraintConfig',
+    'CostConfig',
+    'DiagnosticPortfolioSpec',
+    'DiagnosticPortfolioResult',
+    'DiagnosticPortfolioExperimentRunner',
 ]

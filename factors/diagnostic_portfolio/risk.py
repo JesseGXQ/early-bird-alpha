@@ -8,6 +8,10 @@ from typing import TYPE_CHECKING, Any, Mapping
 if TYPE_CHECKING:
     from factors.diagnostic_portfolio.models import RiskConfig
 
+#: 事前组合方差 w'Σw 的绝对数值容差（单位与单期收益方差一致）。
+#: 结果落在容差以内时视为协方差估计失败，当期按空仓处理（开发方案 §13.2）。
+EX_ANTE_VARIANCE_TOLERANCE: float = 1e-12
+
 @dataclass(frozen=True)
 class CovarianceEstimationResult:
     cov_mat: pd.DataFrame # Index[product], Column[product]
@@ -17,6 +21,7 @@ class CovarianceEstimationResult:
 class ExAntePortfolioVolatility:
     value: float
     cov_mat_estimation_meta: pd.Series
+    warnings: tuple[str,...]
 
 class DiagnosticPortfolioRiskManager:
 
@@ -49,7 +54,9 @@ class DiagnosticPortfolioRiskManager:
             weights: pd.Series,
             annualization_factor: int
     ) -> ExAntePortfolioVolatility:
-        """计算组合的年化事前波动率。"""
+        """计算组合的年化事前波动率。
+        
+        返回值满足 ExAntePortfolioVolatility.value >= 0 。"""
         ret_series = self._return_to_series(
             lag=self._config.covariance_lookback # pyright: ignore[reportArgumentType]
         )
@@ -62,10 +69,26 @@ class DiagnosticPortfolioRiskManager:
         result = self._covariance_matrix_pairwise(ret_wide)
         cov_mat = result.cov_mat
         assert cov_mat.index.equals(weights.index)
-        vol = np.sqrt(annualization_factor * (weights @ cov_mat @ weights))
+
+        ex_ante_port_var_raw = float(weights @ cov_mat @ weights)
+        if ex_ante_port_var_raw <= EX_ANTE_VARIANCE_TOLERANCE:
+            # 估计失败（矩阵退化/全零、浮点重建残差），当期空仓并记录。
+            warnings = (
+                '估计出的事前组合方差 '
+                f'{ex_ante_port_var_raw} 在绝对数值容差 '
+                f'{EX_ANTE_VARIANCE_TOLERANCE} 以内，按估计失败处理，'
+                '当期空仓。',
+            )
+            vol = 0.0
+        else:
+            warnings = ()
+            vol = float(
+                np.sqrt(annualization_factor * ex_ante_port_var_raw)
+            )
         return ExAntePortfolioVolatility(
-            value=float(vol),
-            cov_mat_estimation_meta=result.metadata
+            value=vol,
+            cov_mat_estimation_meta=result.metadata,
+            warnings=warnings
         )
 
 

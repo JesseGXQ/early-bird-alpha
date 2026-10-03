@@ -89,7 +89,7 @@ class MomentumFactor(Factor):
         Parameters
         ---
         data: pd.DataFrame
-            main_panel （研究主面板）， MultiIndex[timetamp, product]
+            MultiIndex[timetamp, product]，包含 `True_Return` 列。
 
         Returns
         ---

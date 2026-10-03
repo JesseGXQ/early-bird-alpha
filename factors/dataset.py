@@ -17,7 +17,6 @@ from factors.models import (
     DataQualitySummary,
     DatasetSpec,
     ResearchDataset,
-    UniverseSpec,
 )
 from data.facade import DataFacade
 from factors.universe import DynamicUniverse
@@ -149,7 +148,7 @@ class ResearchDatasetBuilder:
 
     Parameters
     ----------
-    spec : DatasetSpec
+    dataset_spec : DatasetSpec
         研究数据请求规格。
 
     Methods
@@ -159,10 +158,8 @@ class ResearchDatasetBuilder:
 
     """
 
-    def __init__(self, dataset_spec: DatasetSpec,
-                 universe_spec: UniverseSpec):
+    def __init__(self, dataset_spec: DatasetSpec):
         self._dataset_spec = dataset_spec
-        self._universe_spec = universe_spec
         # 构造 facade 
         (rollover_config, adj_config,
         sample_config, env_config)  = self._dataset_spec.facade_config
@@ -171,7 +168,7 @@ class ResearchDatasetBuilder:
                                   sample_config=sample_config,
                                   env_config=env_config)
         self._dynamic_universe = DynamicUniverse(
-            spec=self._universe_spec,
+            spec=self._dataset_spec.universe,
             facade=self._facade
         )
 

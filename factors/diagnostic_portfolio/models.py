@@ -387,7 +387,7 @@ class ConstraintConfig:
 
     Parameters
     ----------
-    max_gross : float
+    max_gross : float, optional
         最终 gross 上限（绝对权重之和），正数。
     max_product_weight : float or None, optional
         单品种最终绝对权重上限，取值 (0, +inf)；None 表示不设上限，
@@ -406,12 +406,15 @@ class ConstraintConfig:
 
     """
 
-    max_gross: float
+    max_gross: float | None = None
     max_product_weight: float | None = None
     max_volatility_scaler: float | None = None
 
     def __post_init__(self) -> None:
-        _require_positive_number(self.max_gross, 'ConstraintConfig.max_gross')
+        if self.max_gross is not None:
+            _require_positive_number(
+                self.max_gross, 'ConstraintConfig.max_gross'
+            )
         if self.max_product_weight is not None:
             _require_positive_number(
                 self.max_product_weight, 'ConstraintConfig.max_product_weight'
@@ -692,6 +695,7 @@ class DiagnosticPortfolioSpec:
                 'ts_inv_vol_gross_one 不接受 '
                 'constraints.max_volatility_scaler'
             )
+        self._check_max_gross()
 
     def _validate_ts_target_vol(self) -> None:
         """
@@ -767,6 +771,15 @@ class DiagnosticPortfolioSpec:
             raise ValueError(
                 'market_rank_ls 不接受 constraints.max_volatility_scaler'
             )
+        self._check_max_gross()
+        
+    def _check_max_gross(self) -> None:
+        if self.harvest_profile.portfolio_target == 'gross_one':
+            if self.constraints.max_gross is not None:
+                raise ValueError(
+                    f'在 HarvestProfile.portfolio_target 为 "gross_one" 的情况下，'
+                    'DiagnosticPortfolioSpec.constraints.max_gross 必须为 None 。'
+                )
 
 
 # ============================================================
