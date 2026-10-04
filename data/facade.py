@@ -1,5 +1,4 @@
 from __future__ import annotations
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Literal, Mapping
 
 import pandas as pd
@@ -51,20 +50,20 @@ class DataFacade:
         获取 FundamentalFeed 实例。
     get_historical_vector(product, start_date=None, end_date=None, freq, view)
         获取复权主连历史价格 DataFrame 。
-    get_historical_vector_multiple_products(products, start_date=None, end_date=None, freq, view, max_workers=None)
-        多品种并行获取复权主连历史价格面板 DataFrame 。
+    get_historical_vector_multiple_products(products, start_date=None, end_date=None, freq, view)
+        多品种批量获取复权主连历史价格面板 DataFrame 。
     get_snapshot_stream(product, start_date, end_date)
         获取仅含逐笔市场快照的数据流，遇无主力日时报错。
     get_market_event_stream(product, start_date, end_date)
         获取含逐笔快照和无主力控制事件的混合流。
     get_term_structure_data(product, start_date=None, end_date=None)
         获取指定品种的期限结构长表 DataFrame 。
-    get_term_structure_data_multiple_products(products, start_date=None, end_date=None, max_workers=None)
-        多品种并行获取期限结构长表面板 DataFrame 。
+    get_term_structure_data_multiple_products(products, start_date=None, end_date=None)
+        多品种批量获取期限结构长表面板 DataFrame 。
     get_warehouse_receipt_data(product, start_date=None, end_date=None, aggregate=False, agg_unit_conversions=None)
         获取指定品种的仓单日报明细或品种日聚合数据。
-    get_warehouse_receipt_data_multiple_products(products, start_date=None, end_date=None, max_workers=None, aggregate=False, agg_unit_conversions=None)
-        多品种并行获取仓单日报明细或品种日聚合数据。
+    get_warehouse_receipt_data_multiple_products(products, start_date=None, end_date=None, aggregate=False, agg_unit_conversions=None)
+        多品种批量获取仓单日报明细或品种日聚合数据。
 
     """
 
@@ -151,33 +150,25 @@ class DataFacade:
         products: list[str],
         start_date: date | None = None,
         end_date: date | None = None,
-        max_workers: int | None = None,
         aggregate: bool = False,
         agg_unit_conversions: Mapping[tuple[str, str, str], float] | None = None,
     ) -> pd.DataFrame:
-        """并行获取多个品种的仓单日报明细或品种日聚合数据。"""
+        """串行获取多个品种的仓单日报明细或品种日聚合数据。"""
         if not products:
             raise ValueError("products 列表不能为空。")
 
         results: dict[str, pd.DataFrame] = {}
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_product = {
-                executor.submit(
-                    self.get_warehouse_receipt_data,
+        for product in products:
+            try:
+                results[product.upper()] = self.get_warehouse_receipt_data(
                     product=product,
                     start_date=start_date,
                     end_date=end_date,
                     aggregate=aggregate,
                     agg_unit_conversions=agg_unit_conversions,
-                ): product.upper()
-                for product in products
-            }
-            for future in as_completed(future_to_product):
-                product = future_to_product[future]
-                try:
-                    results[product] = future.result()
-                except Exception as exc:
-                    raise RuntimeError(f"品种 {product} 获取仓单数据失败。") from exc
+                )
+            except Exception as exc:
+                raise RuntimeError(f"品种 {product} 获取仓单数据失败。") from exc
 
         frames = [results[product] for product in sorted(results)]
         result = pd.concat(frames, ignore_index=True)
@@ -348,10 +339,9 @@ class DataFacade:
             start_date: date | None = None,
             end_date: date | None = None,
             price_col: Literal['Close', 'Settle'] = 'Close',
-            max_workers: int | None = None,
     ) -> pd.DataFrame:
         """
-        多品种并行获取期限结构长表数据。
+        多品种批量获取期限结构长表数据。
 
         Parameters
         ------
@@ -364,8 +354,6 @@ class DataFacade:
         price_col : {'Close', 'Settle'}, default 'Close'
             价格变量口径。为 'Close' 时使用收盘价，为 'Settle' 时使用结算价；
             输出的价格列以所选口径命名。
-        max_workers : int, optional
-            最大线程数，默认 None 即使用 ThreadPoolExecutor 自身默认值。
 
         Returns
         ------
@@ -377,32 +365,18 @@ class DataFacade:
         if not products:
             raise ValueError('products 列表不能为空。')
 
-        results: dict[str, pd.DataFrame] = {}
-
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_product = {
-                executor.submit(
-                    self.get_term_structure_data,
+        dfs: list[pd.DataFrame] = []
+        for product in products:
+            try:
+                df_product = self.get_term_structure_data(
                     product=product,
                     start_date=start_date,
                     end_date=end_date,
                     price_col=price_col,
-                ): product
-                for product in products
-            }
-
-            for future in as_completed(future_to_product):
-                product = future_to_product[future]
-                try:
-                    df_product = future.result()
-                except Exception as e:
-                    raise RuntimeError(f'品种 {product} 获取数据失败。') from e
-                results[product] = df_product
-
-        dfs: list[pd.DataFrame] = []
-        for product, df in results.items():
-            df = df.copy()
-            dfs.append(df)
+                )
+            except Exception as e:
+                raise RuntimeError(f'品种 {product} 获取数据失败。') from e
+            dfs.append(df_product)
 
         df = pd.concat(dfs, axis=0)
         df.sort_index(inplace=True)
@@ -416,13 +390,12 @@ class DataFacade:
             end_date: date | None = None,
             freq: str = '1d',
             view: Literal['scheduled', 'realized'] = 'scheduled',
-            max_workers: int | None = None,
     ) -> pd.DataFrame:
         """
-        多品种并行获取复权主力合约历史价格数据。
+        多品种批量获取复权主力合约历史价格数据。
 
-        内部复用 `get_historical_vector`，使用线程池并行调度各品种的
-        数据加载、聚合、复权计算，最后拼接为统一的长表面板。
+        内部复用 `get_historical_vector`，按 `products` 顺序串行取数，
+        最后拼接为统一的长表面板。
 
         Parameters
         ------
@@ -436,8 +409,6 @@ class DataFacade:
             K 线频率，同 Pandas Offset aliases。
         view : Literal['scheduled', 'realized'], default 'scheduled'
             计划或实际视图。
-        max_workers : int, optional
-            最大线程数，默认 None 即使用 ThreadPoolExecutor 自身默认值。
 
         Returns
         ------
@@ -448,34 +419,22 @@ class DataFacade:
         if not products:
             raise ValueError('products 列表不能为空。')
 
-        results: dict[str, pd.DataFrame] = {}
-
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_product = {
-                executor.submit(
-                    self.get_historical_vector,
+        dfs: list[pd.DataFrame] = []
+        for product in products:
+            try:
+                df_product = self.get_historical_vector(
                     product=product,
                     start_date=start_date,
                     end_date=end_date,
                     freq=freq,
                     view=view,
-                ): product
-                for product in products
-            }
-
-            for future in as_completed(future_to_product):
-                product = future_to_product[future]
-                try:
-                    df_product = future.result()
-                except Exception as e:
-                    raise RuntimeError(f'品种 {product} 获取数据失败。') from e
-                results[product] = df_product
-
-        dfs: list[pd.DataFrame] = []
-        for product, df in results.items():
-            df = df.copy()
-            df['product'] = product
-            dfs.append(df)
+                )
+            except Exception as e:
+                raise RuntimeError(f'品种 {product} 获取数据失败。') from e
+            # ResearchFeed 每次返回全新构造的帧，不与任何内部缓存共享，
+            # 故可直接写入 product 列，无需先拷贝。
+            df_product['product'] = product
+            dfs.append(df_product)
 
         df = pd.concat(dfs, axis=0)
         df.set_index('product', append=True, inplace=True)
@@ -491,8 +450,8 @@ if __name__ == '__main__':
     facade = DataFacade()
 
     # ------------------------ query rule -----------------------------
-    product = 'AP'
-    print(f'品种 {product} 的上市日期为 {facade.rule_query.get_list_date_product(product)}。')
+    # product = 'JR'
+    # print(f'品种 {product} 的上市日期为 {facade.rule_query.get_list_date_product(product)}。')
 
     # # 测试 rule_query.classification
     # print('品种分类 DataFrame 为: \n ', facade.rule_query.classification.get_classification())
@@ -511,17 +470,17 @@ if __name__ == '__main__':
 
     # -------------------------ResearchFeed------------------------
     from datetime import date
-    product = 'cf'
+    products = ['JR','PD']
     freq='1d'
-    start_date = date(2009, 7, 20)
-    end_date = date(2025, 10, 18)
-    df1 = facade.get_historical_vector(product,start_date, end_date, freq='1d')
-    print(f'product = {product}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df1.head())
-    print(f'数据集的列为: {df1.columns.tolist()}')
-    freq='5min'
-    freq='5min'
-    df2 = facade.get_historical_vector(product, start_date, end_date, freq='5min')
-    print(f'product = {product}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df2.head())
+    start_date = None
+    end_date = None
+    df1 = facade.get_historical_vector_multiple_products(products,start_date, end_date, freq='1d')
+    print(f'product = {products}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df1.head())
+    # print(f'数据集的列为: {df1.columns.tolist()}')
+    # freq='5min'
+    # freq='5min'
+    # df2 = facade.get_historical_vector(product, start_date, end_date, freq='5min')
+    # print(f'product = {product}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df2.head())
 
 
     # -------------------------SimulationFeed------------------------
@@ -554,7 +513,7 @@ if __name__ == '__main__':
     # from datetime import date as dt_date
 
     # print('\n' + '=' * 60)
-    # print('多品种并行复权主连测试')
+    # print('多品种批量复权主连测试')
     # print('=' * 60)
 
     # test_products = ['AP', 'RB', 'FG', 'CF']
@@ -582,7 +541,7 @@ if __name__ == '__main__':
     # # ----------------- get_term_structure_data_multiple_products ------------------
     # from datetime import date as dt_date
     # print('\n' + '=' * 60)
-    # print('多品种并行期限结构测试')
+    # print('多品种批量期限结构测试')
     # print('=' * 60)
 
     # ts_products = ['AP', 'RB']

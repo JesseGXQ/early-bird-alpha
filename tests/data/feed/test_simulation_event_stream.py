@@ -22,6 +22,7 @@ def _feed(dominants: list[str | None]):
     manager.master_table = pd.DataFrame({'Dominant_Contract': dominants}, index=dates)
     manager.dates_list = dates.tolist()
     manager.transition_days = 1
+    manager._build_daily_lookup()
 
     feed = SimulationFeed.__new__(SimulationFeed)
     feed.product = 'TEST'

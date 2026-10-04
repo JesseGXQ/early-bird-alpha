@@ -23,6 +23,9 @@ class InstrumentRegistryManager:
     负责从指定目录加载各交易所的合约注册表 Parquet 数据，并在内存中进行统一汇总与缓存。
     提供合约注册属性的查询以及系统内部合约代码与交易所报单代码之间的转换功能。
 
+    采用**eager loading**：在构造函数中一次性读取全市场所有合约数据，加载完成后本实例即可安全地被多线程共享使用。
+    之所以选择饿汉式而非懒加载，理由见 ``_load_all`` 的说明。
+
     Parameters
     ------
     instrument_registry_dir: str
@@ -38,15 +41,22 @@ class InstrumentRegistryManager:
 
     def __init__(self, instrument_registry_dir: str):
         self.instrument_registry_dir: Path = Path(instrument_registry_dir)
-        
-        self._registry_df: pd.DataFrame | None = None # 全市场所有合约的注册表汇总
+
+        # 饿汉式加载：构造期间一次性读取全市场合约数据。
+        # 构造函数返回之前，本实例的引用不会逸出到其它线程手中，
+        # 因此不可能有线程观察到“正在构造中”的中间态，也就不需要任何加锁。
+        self._registry_df: pd.DataFrame = self._load_all() # 全市场所有合约的注册表汇总
         self._inst_cache: dict[str, InstrumentRegistry] = {} # key is instrument。已实例化的合约对象缓存，保证每个合约对象智慧被实例化一次
 
-    def _load_all(self) -> None:
-        """ 一次性读取全市场所有合约 parquet 数据 """
-        if self._registry_df is not None:
-            return
-        
+    def _load_all(self) -> pd.DataFrame:
+        """
+        一次性读取全市场所有合约 parquet 数据，汇总为以 instrument 为索引的注册表并返回。
+
+        全程在局部变量上加工，只在最后 ``return`` 一个**完全可用**的 DataFrame，
+        由调用方一次性赋值。这样即便将来有人重新引入懒加载，
+        共享属性也只会从“无”跳变到“完全可用”，绝不会暴露半成品状态
+        （半成品的索引仍是 parquet 自带的 int64 RangeIndex，会让 .loc[合约代码] 抛 KeyError）。
+        """
         dfs: list[pd.DataFrame] = []
 
         file_paths = [
@@ -63,13 +73,15 @@ class InstrumentRegistryManager:
                 f"在 {self.instrument_registry_dir} 下未找到任何合约注册数据文件(*.parquet)"
             )
         
-        self._registry_df = pd.concat(dfs, axis=0)
-        self._registry_df['instrument'] = self._registry_df['instrument'].str.upper()
-        self._registry_df.set_index('instrument', inplace=True, drop=False)
+        registry_df = pd.concat(dfs, axis=0, ignore_index=True)
+        registry_df['instrument'] = registry_df['instrument'].str.upper()
+        registry_df = registry_df.set_index('instrument', drop=False)
 
         #这里我没有选择将(exchange, instrument)作为索引，因此要检查一下合约代码的唯一性
-        if self._registry_df.index.duplicated().any():
+        if registry_df.index.duplicated().any():
             raise ValueError(f"合约代码存在重复，后续查询会有问题。请检查数据源，确认是否合约代码重复问题。")
+
+        return registry_df
 
     def get_instrument_registry(self, contract: str) -> InstrumentRegistry:
         """
@@ -89,12 +101,6 @@ class InstrumentRegistryManager:
         contract = contract.upper()   
         if contract in self._inst_cache:
             return self._inst_cache[contract]
-
-        # 若该合约未被缓存，检查是否未加载数据
-        if self._registry_df is None:
-            self._load_all()
-
-        assert self._registry_df is not None
 
         # 在 DataFrame 中查找合约
         try:
@@ -133,12 +139,6 @@ class InstrumentRegistryManager:
 
         而 exchange format 则维持郑商所合约后数字为3位不变，例如CF001。
         """
-        # 确认数据已加载
-        if self._registry_df is None:
-            self._load_all()
-        
-        assert self._registry_df is not None
-
         if direction == 'internal_to_exchange': # 可以直接返回，此时 code 是 unique
             return self.get_instrument_registry(contract=code).exchange_inst
         

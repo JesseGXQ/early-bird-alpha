@@ -64,6 +64,7 @@ def test_hard_rule_starts_transition_before_expiry(transition_days, last_trade_d
     manager.master_table = calendar
     manager.dates_list = calendar.index.tolist()
     manager.transition_days = transition_days
+    manager._build_daily_lookup()
     first_roll = manager.get_active_physical_contracts(date(2026, 1, 6))
     assert first_roll.contracts == ('OLD', 'NEXT')
     assert first_roll.roll_state is RollState.ROLL

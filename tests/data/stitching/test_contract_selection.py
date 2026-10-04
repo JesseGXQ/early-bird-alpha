@@ -16,6 +16,7 @@ def _manager(dominants: list[str | None], transition_days: int = 1):
     manager.master_table = pd.DataFrame({'Dominant_Contract': dominants}, index=dates)
     manager.dates_list = dates.tolist()
     manager.transition_days = transition_days
+    manager._build_daily_lookup()
     return manager, dates
 
 

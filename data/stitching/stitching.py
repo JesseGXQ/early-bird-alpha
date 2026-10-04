@@ -582,6 +582,69 @@ class ContinuousContractManager:
         self.dates_list: list[pd.Timestamp] = self.master_table.index.tolist()
         assert isinstance(self.dates_list[0], pd.Timestamp)
 
+        # 预先建立逐交易日主力判定所需的全部索引与缓存。
+        self._build_daily_lookup()
+
+    def _build_daily_lookup(self) -> None:
+        """
+        建立逐交易日主力判定所需的索引与缓存。
+
+        调用方需先设置好 ``master_table`` 与 ``dates_list``；``__init__`` 在读取
+        换月总表后调用。以内省测试常用的 ``ContinuousContractManager.__new__``
+        构造对象时，也需在填好上述两个字段后显式调用一次。
+
+        建立的内容
+        ----------
+        dates_index : dict[pd.Timestamp, int]
+            交易日到其在 ``dates_list`` 中位置的映射，用于 O(1) 定位查询日。
+        _dominants : np.ndarray
+            ``Dominant_Contract`` 列取出的 object 数组。逐交易日判定原本每次都要
+            重新构造一个 Series，改存数组后窗口切片与元素读取都是 ndarray 操作。
+        _dominants_na : np.ndarray[bool]
+            逐日标记主力是否缺失（``None`` / ``NaN``）。原实现每次都对窗口调用
+            ``Series.isna()``，现改为预先算好的布尔数组上的一次 ``any()``。
+        _dominants_changed : np.ndarray[bool]
+            逐日标记主力是否相对前一日发生变化（下标 0 恒为 False）。原实现每次
+            都重新遍历窗口比较相邻合约，改为一次性预计算后求窗口内的变化个数。
+
+        Raises
+        ------
+        ValueError
+            换月总表索引存在重复交易日时抛出；此时位置索引不唯一。
+
+        Notes
+        -----
+        这些结构都是 ``master_table`` 与 ``dates_list`` 的派生量，构造后不应再改动
+        这两个字段；若确实改动，必须重新调用本方法重建缓存。
+        """
+        index = self.master_table.index
+        if not index.is_unique:
+            raise ValueError(
+                f'【ContinuousContractManager】品种 {self.product} 的换月总表存在'
+                '重复交易日，无法建立唯一的交易日位置索引。'
+            )
+
+        # 交易日 -> 表内位置
+        self.dates_index: dict[pd.Timestamp, int] = {
+            ts: idx for idx, ts in enumerate(self.dates_list)
+        }
+
+        # 主力列一次性取出为 object 数组，后续不再重复构造 Series
+        self._dominants: np.ndarray = (
+            self.master_table['Dominant_Contract'].to_numpy(dtype=object)
+        )
+        # 逐日主力是否缺失
+        self._dominants_na: np.ndarray = pd.isna(self._dominants)
+        # 逐日主力是否相对前一日变化；主力缺失处该标记无意义，
+        # 但那些日期会被下面的缺失检查短路，不会被采纳。
+        self._dominants_changed: np.ndarray = np.zeros(
+            len(self._dominants), dtype=bool
+        )
+        if len(self._dominants) > 1:
+            self._dominants_changed[1:] = (
+                self._dominants[:-1] != self._dominants[1:]
+            )
+
     def get_active_physical_contracts(
             self, trading_date: date
     ) -> ActiveContractSelection:
@@ -610,33 +673,39 @@ class ContinuousContractManager:
         换月表缺少整个查询日期属于数据错误，不等同于主力为空。
         """
         ts = pd.Timestamp(trading_date)
-        if ts not in self.master_table.index:
+        current_idx = self.dates_index.get(ts)
+        if current_idx is None:
             raise ValueError(f'【ContinuousContractManager】在已有数据中找不到所查询的日期 {trading_date} 。')
 
-        current_idx = self.dates_list.index(ts)
-        curr_dominant = self.master_table.at[ts, 'Dominant_Contract']
-        if pd.isna(curr_dominant):
+        if self._dominants_na[current_idx]:
             return ActiveContractSelection(None, None, RollState.UNKNOWN)
+        curr_dominant = self._dominants[current_idx]
         if not isinstance(curr_dominant, str):
             raise TypeError(f'{trading_date} 的主力合约不是字符串：{curr_dominant!r}')
 
+        # 窗口为截至当日的 transition_days + 1 个表内交易日；
+        # 窗口内任一交易日主力缺失时状态不可确定，直接短路。
         idx_start = max(0, current_idx - self.transition_days)
-        window = self.master_table['Dominant_Contract'].iloc[idx_start:current_idx + 1]
-        if window.isna().any():
+        if self._dominants_na[idx_start:current_idx + 1].any():
             return ActiveContractSelection(curr_dominant, None, RollState.UNKNOWN)
 
-        dominants = window.tolist()
-        changes = [
-            (old, new) for old, new in zip(dominants, dominants[1:])
-            if old != new
-        ]
-        if len(changes) > 1:
+        # 变化标记已预先算好，这里只需数窗口内的个数；
+        # 窗口无缺失，故这些标记均来自相邻有效合约的真实比较。
+        changed = self._dominants_changed[idx_start + 1:current_idx + 1]
+        n_changes = int(changed.sum())
+        if n_changes > 1:
             raise MultipleRolloverError(
                 f'{self.product} 在 {trading_date} 的过渡窗口内发生多次换月：'
-                f'{dominants}；单个旧主力无法表达。'
+                f'{self._dominants[idx_start:current_idx + 1].tolist()}；'
+                '单个旧主力无法表达。'
             )
-        if changes:
-            return ActiveContractSelection(curr_dominant, changes[0][0], RollState.ROLL)
+        if n_changes == 1:
+            # 唯一一次变化发生在 idx_start + 首个为 True 的相对位置处，
+            # 变化前的合约即该位置的元素。
+            rolled_from_idx = idx_start + int(np.argmax(changed))
+            return ActiveContractSelection(
+                curr_dominant, self._dominants[rolled_from_idx], RollState.ROLL
+            )
         return ActiveContractSelection(curr_dominant, None, RollState.NOT_ROLL)
     
     def get_continuous_info(self, trading_date: date) -> dict:

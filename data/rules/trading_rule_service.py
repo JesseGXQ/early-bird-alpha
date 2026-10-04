@@ -53,17 +53,14 @@ class TradingRuleService:
         self.exchange_calendar_manager: ExchangeCalendarManager = exchange_calendar_manager
         self.daily_status_manager: InstrumentDailyStatusManager | None = daily_status_manager
 
-        self._trading_sessions_cache: dict[tuple[str, date, str], TradingSessions] = {} # key: (contract, trading_date, view)
-        self._session_rule_resolver: SessionRuleResolver | None = None 
+        # 交易时段规则解释器。该类无状态且构造无开销，直接构造即可。
+        self.session_rule_resolver: SessionRuleResolver = SessionRuleResolver(
+            registry_manager=self.registry_manager,
+            meta_manager=self.meta_manager,
+            holiday_manager=self.holiday_manager,
+        )
 
-    def _get_session_rule_resolver(self) -> SessionRuleResolver: # lazy construction
-        if self._session_rule_resolver is None:
-            self._session_rule_resolver = SessionRuleResolver(
-                registry_manager=self.registry_manager,
-                meta_manager=self.meta_manager,
-                holiday_manager=self.holiday_manager,
-            )
-        return self._session_rule_resolver
+        self._trading_sessions_cache: dict[tuple[str, date, str], TradingSessions] = {} # key: (contract, trading_date, view)
     
     def get_trading_sessions(
         self,
@@ -120,8 +117,7 @@ class TradingRuleService:
         session_override_rules = self.meta_manager.get_session_override_rules()
 
         # 3. 调用 SessionRuleResolver.resolve_rules(...) 得到 TradingSessions，并缓存
-        rule_resolver = self._get_session_rule_resolver()
-        trading_sessions = rule_resolver.resolve_rules(
+        trading_sessions = self.session_rule_resolver.resolve_rules(
             contract=contract,
             trading_date=trading_date,
             base_sessions=base_sessions, 

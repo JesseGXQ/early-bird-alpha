@@ -158,8 +158,8 @@ class ResearchDatasetBuilder:
 
     """
 
-    def __init__(self, dataset_spec: DatasetSpec):
-        self._dataset_spec = dataset_spec
+    def __init__(self, spec: DatasetSpec):
+        self._dataset_spec = spec
         # 构造 facade 
         (rollover_config, adj_config,
         sample_config, env_config)  = self._dataset_spec.facade_config
@@ -196,14 +196,9 @@ class ResearchDatasetBuilder:
         return auxiliary
 
     
-    def build(self, max_workers: int | None = None,) -> ResearchDataset:
+    def build(self) -> ResearchDataset:
         """
         执行完整的数据集构建流程。
-
-        Parameters
-        ----------
-        max_workers : int or None, default None
-            最大线程数。默认为 None ，即使用 ThreadPoolExecutor 的默认值。
 
         Returns
         -------
@@ -218,21 +213,20 @@ class ResearchDatasetBuilder:
         # 2. 规范化所有品种代码（去空白 + 转大写）
         products = tuple(_normalize_product_code(p) for p in self._dataset_spec.products)
 
-        # 3. -----------   加载主面板（统一走数据引擎的多线程并行接口）----------
+        # 3. -----------   加载主面板（统一走数据引擎的多品种批量接口）----------
         panel = self._facade.get_historical_vector_multiple_products(
             products=list(products),
             start_date=self._dataset_spec.start_date,
             end_date=self._dataset_spec.end_date,
             freq=self._dataset_spec.freq,
             view=self._dataset_spec.view,
-            max_workers=max_workers,
         )
 
         # 统一命名索引层级为架构契约名称
         panel.index.names = list(INDEX_NAMES)
 
-        # 请求品种全覆盖校验：多线程 concat 会静默丢弃返回空数据的品种，
-        # 此处兜底覆盖原逐品种加载的"某品种返回空数据"检查。
+        # 请求品种全覆盖校验：多品种接口的 concat 会静默丢弃返回空数据的品种，
+        # 此处兜底覆盖逐品种加载的"某品种返回空数据"检查。
         present = set(panel.index.get_level_values('product'))
         missing = set(products) - present
         if missing:
@@ -271,7 +265,7 @@ class ResearchDatasetBuilder:
         auxiliary: dict[str, pd.DataFrame] = {}
 
         if 'term_structure' in auxiliary_requirements:
-            # 加载期限结构数据集（统一走数据引擎的多线程并行接口）
+            # 加载期限结构数据集（统一走数据引擎的多品种批量接口）
             ts_params = (
                 auxiliary_requirements['term_structure'].get('request_params') or {}
             )
@@ -279,11 +273,10 @@ class ResearchDatasetBuilder:
                 products=list(products),
                 start_date=self._dataset_spec.start_date,
                 end_date=self._dataset_spec.end_date,
-                max_workers=max_workers,
                 **ts_params,
             )
 
-            # 多线程接口返回 MultiIndex[trading_date, contract]，品种在 product 列中；
+            # 多品种接口返回 MultiIndex[trading_date, contract]，品种在 product 列中；
             # 重建索引为 [timestamp, product, contract]，product 移入索引后移除原列。
             assert isinstance(ts_df.index, pd.MultiIndex)
             ts_df.index = pd.MultiIndex.from_arrays(
@@ -310,7 +303,6 @@ class ResearchDatasetBuilder:
                 products=list(products),
                 start_date=self._dataset_spec.start_date,
                 end_date=self._dataset_spec.end_date,
-                max_workers=max_workers,
                 **params
             )
             requested_columns = auxiliary_requirements['warehouse_receipt']['columns']
@@ -375,7 +367,7 @@ if __name__ == "__main__":
         products=('A', 'CF', 'RB', 'SC', 'SH'),
         data_requirements=requirements,
     )
-    builder = ResearchDatasetBuilder(dataset_spec=spec)
+    builder = ResearchDatasetBuilder(spec=spec)
     dataset = builder.build()
 
     

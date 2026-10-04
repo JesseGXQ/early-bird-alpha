@@ -281,8 +281,8 @@ def validate_with_manager(registry: pd.DataFrame) -> dict[str, Any]:
         for exchange, part in registry.groupby("exchange"):
             sample_instrument = str(part.iloc[0]["instrument"])
             samples[exchange] = asdict(manager.get_instrument_registry(sample_instrument))
-        manager._load_all()
-        loaded_rows = len(manager._registry_df) if manager._registry_df is not None else 0
+        # 饿汉式加载：manager 构造完成时已加载全部数据，此处直接取行数
+        loaded_rows = len(manager._registry_df)
     finally:
         os.chdir(old_cwd)
     return {"loaded_rows": loaded_rows, "sample_objects": samples}

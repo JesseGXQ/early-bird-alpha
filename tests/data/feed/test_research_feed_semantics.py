@@ -17,6 +17,7 @@ def _manager(master: pd.DataFrame, transition_days: int = 1):
     manager.master_table = master
     manager.dates_list = master.index.tolist()
     manager.transition_days = transition_days
+    manager._build_daily_lookup()
     return manager
 
 
