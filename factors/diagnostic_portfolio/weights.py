@@ -75,22 +75,32 @@ class WeightStateMachine(ABC):
         """校验输入索引的合法性。
 
         1. 信号与品种池的索引必须完全一致（标签与顺序相同）。
-        2. 品种池（及信号）必须恰好覆盖状态机构造时的全部品种，
-           不得缺失或出现多余品种，避免 `.where` 对齐时静默置零。
         """
         if not signal.index.equals(eligible.index):
             raise ValueError('输入信号和品种池的索引不完全相同。')
-        expected = set(self._products)
-        if not eligible.index.is_unique or set(eligible.index) != expected:
-            missing = sorted(expected - set(eligible.index))
-            extra = sorted(set(eligible.index) - expected)
-            raise ValueError(
-                '品种池(及信号)的索引必须与状态机的品种集合完全一致，'
-                f'缺少 {missing}，多余 {extra}。'
-            )
+
+    def _align_index(self, eligible: pd.Series, signal: pd.Series) \
+    -> tuple[pd.Series[bool], pd.Series]:
+        """将品种池和信号两个Series的索引对齐到所有品种，暴露出
+        缺失的那些。品种池缺失的品种用False（不在池内），信号缺失的不填充，
+        保持NaN。
+        
+        Notes
+        -----
+        由于各品种生命周期的差异，研究主面板是 ragged long panel，早期必然只有
+        很少的某些品种。
+        
+        所有子类的 `update()` 方法开头必须调用此方法。
+        """
+        return (
+            eligible.reindex(self._products, fill_value=False).astype(bool),
+            signal.reindex(self._products)
+        )
+
 
     def _apply_universe(self, eligible: pd.Series[bool]) -> pd.Series:
         """应用品种池：在上一期权重Series中，将本期已不在品种池内的设为 0 。"""
+        assert len(eligible.index) == len(self._products)
         return self._last_weights.where(eligible, 0.0)
 
     @abstractmethod
@@ -128,7 +138,7 @@ class WeightStateMachine(ABC):
 
     def _enforce_max_gross(self, weights: pd.Series) -> pd.Series:
         """对权重施加 max_gross 限制；max_gross 为 None 表示不封顶。"""
-        g_max = self._spec.constraints.max_gross
+        g_max = self._spec.constraint.max_gross
         if g_max is None:
             return weights
         g_w = weights.abs().sum()
@@ -200,8 +210,7 @@ class MarketRankLSWeightStateMachine(WeightStateMachine):
             是否为计划调仓时点。``True`` 时按信号重算截面权重；
             ``False`` 时仅在上一期权重上执行品种池强制退出。
         eligible : pd.Series
-            品种池准入条件，布尔 Series，Index[product]，必须与状态机
-            品种集合完全一致。
+            品种池准入条件，布尔 Series，Index[product]。
         signal : pd.Series
             各品种的当期信号值，Index[product]，必须与 ``eligible``
             完全对齐。允许包含 NaN（按缺失信号处理）。
@@ -217,14 +226,13 @@ class MarketRankLSWeightStateMachine(WeightStateMachine):
         Raises
         ------
         ValueError
-            当 ``signal`` 与 ``eligible`` 索引不一致，或二者未恰好覆盖
-            状态机品种集合时抛出。
+            当 ``signal`` 与 ``eligible`` 索引不一致时抛出。
 
         Notes
         -----
         权重更新遵循以下顺序。
 
-        1. 输入校验：校验输入索引恰好覆盖全部品种。
+        1. 输入校验：校验输入索引相同。
         2. 非调仓日（``rebalance=False``）：令上一期权重在已退出品种上
            归零，其余品种权重冻结，不重算、不重新分配。
         3. 调仓日（``rebalance=True``）：
@@ -243,6 +251,7 @@ class MarketRankLSWeightStateMachine(WeightStateMachine):
 
         """
         self._validate_input_index(signal, eligible)
+        eligible, signal = self._align_index(eligible, signal)
 
         if not rebalance:
             final_weights = self._apply_universe(eligible) 
@@ -299,11 +308,11 @@ class MarketRankLSWeightStateMachine(WeightStateMachine):
             约束后的权重，Index 与 ``weights`` 一致。
 
         """
-        if self._spec.constraints.max_product_weight is None:
+        if self._spec.constraint.max_product_weight is None:
             return weights
         positive_part = weights[weights > 0]
         negative_part = weights[weights < 0]
-        s = self._spec.constraints.max_product_weight
+        s = self._spec.constraint.max_product_weight
         target_exposure = min(0.5, len(positive_part)*s, len(negative_part)*s) # 例：正数侧只有两个品种，s=0.2，则此时正数侧能达到的最大 exposure 是0.4。而按照“市场中性”的要求，负数侧的 exposure 目标也应该是0.4。
 
         if target_exposure < 0.5: # 目标 exposure 达不到 0.5。由于原本正负两侧的 exposure 都是0.5，先对两侧都做目标 exposure 分配（或者说对原权重做等比例缩放，缩放到总 exposure 等于目标 exposure）
@@ -341,7 +350,7 @@ class MarketRankLSWeightStateMachine(WeightStateMachine):
         """
         assert (weights > 0).all()
         weights = weights.copy()
-        s = self._spec.constraints.max_product_weight
+        s = self._spec.constraint.max_product_weight
         assert s is not None
         while True: 
             if (weights <= s).all() or np.isclose(weights, s).all():
@@ -391,6 +400,7 @@ class TSInverseVolatilityWeightMachine(WeightStateMachine):
         self._risk_manager.append(ret=ret) # 将收益率series转交给 risk manager
 
         self._validate_input_index(signal, eligible)
+        eligible, signal = self._align_index(eligible, signal)
 
         cov_mat_estimation_meta = None
         warnings: list[str] = []
@@ -435,9 +445,9 @@ class TSInverseVolatilityWeightMachine(WeightStateMachine):
         )
     def _enforce_max_product_weight(self, weights: pd.Series) -> pd.Series:
         """施加单品种权重上限限制。仅做 clip， 不做剩余权重再分配。"""
-        if self._spec.constraints.max_product_weight is None:
+        if self._spec.constraint.max_product_weight is None:
             return weights
-        s = self._spec.constraints.max_product_weight
+        s = self._spec.constraint.max_product_weight
         assert s > 0
         return weights.clip(lower=-s,upper=s)
 
@@ -470,7 +480,7 @@ class TSInverseVolatilityWeightMachine(WeightStateMachine):
         
         lambda_star: float = self._spec.risk.target_volatility / vol  # type: ignore
         lambda_clipped = min(
-            self._spec.constraints.max_volatility_scaler, # pyright: ignore[reportArgumentType]
+            self._spec.constraint.max_volatility_scaler, # pyright: ignore[reportArgumentType]
             lambda_star
         )
         return lambda_clipped * weights, vol_result

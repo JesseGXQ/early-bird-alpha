@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from data.rules.product_meta_manager import ProductMetaManager  
     from data.rules.trading_rule_service import TradingRuleService
 
+# TODO 目前所有的查询，都没有考虑该品种的生命周期（是否上市、是否退市），如果之后该对象要提供向除本模块以外的用户提供服务，必须加上生命周期检查。
 class ProductCalendar:
     """
     品种交易日历。

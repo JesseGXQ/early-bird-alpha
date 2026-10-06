@@ -61,7 +61,7 @@ def _valid_signal(**overrides) -> DiagnosticSignal:
 def _base_spec_kwargs() -> dict:
     return dict(
         rebalance=RebalanceConfig(interval=1),
-        costs=CostConfig(rate=0.0),
+        cost=CostConfig(rate=0.0),
         realized_volatility_lookback=5,
     )
 
@@ -69,7 +69,7 @@ def _base_spec_kwargs() -> dict:
 def _gross_one_spec(**overrides) -> DiagnosticPortfolioSpec:
     kwargs = dict(
         name='gross_one', harvest_profile=ts_inv_vol_gross_one,
-        constraints=ConstraintConfig(),
+        constraint=ConstraintConfig(),
         risk=RiskConfig(volatility_lookback=5, volatility_min_periods=3),
         clip_bound=1.0)
     kwargs.update(_base_spec_kwargs())
@@ -85,7 +85,7 @@ def _target_vol_spec(**overrides) -> DiagnosticPortfolioSpec:
             covariance_lookback=5, covariance_min_periods=3,
             target_volatility=0.2),
         clip_bound=1.0,
-        constraints=ConstraintConfig(max_gross=2.0, max_volatility_scaler=3.0))
+        constraint=ConstraintConfig(max_gross=2.0, max_volatility_scaler=3.0))
     kwargs.update(_base_spec_kwargs())
     kwargs.update(overrides)
     return DiagnosticPortfolioSpec(**kwargs)
@@ -94,7 +94,7 @@ def _target_vol_spec(**overrides) -> DiagnosticPortfolioSpec:
 def _market_rank_spec(**overrides) -> DiagnosticPortfolioSpec:
     kwargs = dict(
         name='rank', harvest_profile=market_rank_ls,
-        constraints=ConstraintConfig(),
+        constraint=ConstraintConfig(),
         min_cross_section_size=2)
     kwargs.update(_base_spec_kwargs())
     kwargs.update(overrides)
@@ -330,7 +330,7 @@ def test_spec_rejects_unsupported_profile() -> None:
     with pytest.raises(ValueError, match='不支持的 HarvestProfile'):
         DiagnosticPortfolioSpec(
             name='bad', harvest_profile=sector_risk_budget_cta,
-            constraints=ConstraintConfig(),
+            constraint=ConstraintConfig(),
             **_base_spec_kwargs(),
             risk=RiskConfig(volatility_lookback=5, volatility_min_periods=3),
             clip_bound=1.0)
@@ -361,12 +361,12 @@ def test_spec_gross_one_rejects_min_cs_and_scaler() -> None:
     with pytest.raises(ValueError, match='min_cross_section_size'):
         _gross_one_spec(min_cross_section_size=2)
     with pytest.raises(ValueError, match='max_volatility_scaler'):
-        _gross_one_spec(constraints=ConstraintConfig(max_volatility_scaler=2.0))
+        _gross_one_spec(constraint=ConstraintConfig(max_volatility_scaler=2.0))
 
 
 def test_spec_gross_one_forbids_max_gross() -> None:
     with pytest.raises(ValueError, match='max_gross'):
-        _gross_one_spec(constraints=ConstraintConfig(max_gross=1.0))
+        _gross_one_spec(constraint=ConstraintConfig(max_gross=1.0))
 
 
 def test_spec_target_vol_requires_full_risk() -> None:
@@ -383,15 +383,15 @@ def test_spec_target_vol_requires_clip_scaler_and_rejects_min_cs() -> None:
     with pytest.raises(ValueError, match='clip_bound'):
         _target_vol_spec(clip_bound=None)
     with pytest.raises(ValueError, match='max_volatility_scaler'):
-        _target_vol_spec(constraints=ConstraintConfig(max_gross=2.0))
+        _target_vol_spec(constraint=ConstraintConfig(max_gross=2.0))
     with pytest.raises(ValueError, match='min_cross_section_size'):
         _target_vol_spec(min_cross_section_size=2)
 
 
 def test_spec_target_vol_allows_none_max_gross() -> None:
     spec = _target_vol_spec(
-        constraints=ConstraintConfig(max_volatility_scaler=3.0))
-    assert spec.constraints.max_gross is None
+        constraint=ConstraintConfig(max_volatility_scaler=3.0))
+    assert spec.constraint.max_gross is None
 
 
 def test_spec_market_rank_rejects_risk_and_clip_and_scaler() -> None:
@@ -402,7 +402,7 @@ def test_spec_market_rank_rejects_risk_and_clip_and_scaler() -> None:
         _market_rank_spec(clip_bound=1.0)
     with pytest.raises(ValueError, match='max_volatility_scaler'):
         _market_rank_spec(
-            constraints=ConstraintConfig(max_volatility_scaler=2.0))
+            constraint=ConstraintConfig(max_volatility_scaler=2.0))
 
 
 def test_spec_market_rank_requires_min_cs_at_least_two() -> None:
@@ -414,7 +414,7 @@ def test_spec_market_rank_requires_min_cs_at_least_two() -> None:
 
 def test_spec_market_rank_forbids_max_gross() -> None:
     with pytest.raises(ValueError, match='max_gross'):
-        _market_rank_spec(constraints=ConstraintConfig(max_gross=1.0))
+        _market_rank_spec(constraint=ConstraintConfig(max_gross=1.0))
 
 
 @pytest.mark.parametrize('field, value', [
@@ -430,7 +430,7 @@ def test_spec_rejects_wrong_field_types() -> None:
     with pytest.raises(ValueError, match='rebalance'):
         _market_rank_spec(rebalance=1)
     with pytest.raises(ValueError, match='costs'):
-        _market_rank_spec(costs=1)
+        _market_rank_spec(cost=1)
     with pytest.raises(ValueError, match='harvest_profile'):
         _market_rank_spec(harvest_profile='market_rank_ls')
 

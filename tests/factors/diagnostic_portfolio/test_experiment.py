@@ -50,8 +50,8 @@ def _rank_spec(*, interval=2, max_product_weight=None,
     return DiagnosticPortfolioSpec(
         name='rank', harvest_profile=market_rank_ls,
         rebalance=RebalanceConfig(interval=interval),
-        constraints=ConstraintConfig(max_product_weight=max_product_weight),
-        costs=CostConfig(rate=cost),
+        constraint=ConstraintConfig(max_product_weight=max_product_weight),
+        cost=CostConfig(rate=cost),
         realized_volatility_lookback=2,
         min_cross_section_size=2,
     )
@@ -63,8 +63,8 @@ def _gross_one_spec(*, interval=1, volatility_lookback=2,
     return DiagnosticPortfolioSpec(
         name='gross_one', harvest_profile=ts_inv_vol_gross_one,
         rebalance=RebalanceConfig(interval=interval),
-        constraints=ConstraintConfig(),
-        costs=CostConfig(rate=cost),
+        constraint=ConstraintConfig(),
+        cost=CostConfig(rate=cost),
         realized_volatility_lookback=2,
         risk=RiskConfig(
             volatility_lookback=volatility_lookback,
@@ -80,9 +80,9 @@ def _target_vol_spec(*, anchor, interval=100, max_scaler=1.0,
     return DiagnosticPortfolioSpec(
         name='target_vol', harvest_profile=ts_inv_vol_target_vol,
         rebalance=RebalanceConfig(interval=interval, anchor=anchor),
-        constraints=ConstraintConfig(
+        constraint=ConstraintConfig(
             max_gross=max_gross, max_volatility_scaler=max_scaler),
-        costs=CostConfig(rate=0.0),
+        cost=CostConfig(rate=0.0),
         realized_volatility_lookback=2,
         risk=RiskConfig(
             volatility_lookback=volatility_lookback, volatility_min_periods=2,
@@ -304,7 +304,7 @@ def test_rank_end_to_end_sector_attribution(dataset_factory, signal_factory) -> 
     spec = DiagnosticPortfolioSpec(
         name='rank_sector', harvest_profile=market_rank_ls,
         rebalance=RebalanceConfig(interval=2),
-        constraints=ConstraintConfig(), costs=CostConfig(rate=0.0),
+        constraint=ConstraintConfig(), cost=CostConfig(rate=0.0),
         realized_volatility_lookback=2, min_cross_section_size=2,
         sector_attribution_col='sector')
 
@@ -425,8 +425,9 @@ def test_align_weight_to_global_next_return(dataset_factory, signal_factory) -> 
             [timestamps[:2], products], names=INDEX_NAMES)).rename('weight')
     cost = pd.Series([0.01, 0.02], index=timestamps[:2])
 
+    timeline = build_global_timeline(panel=panel)
     aligned, weights_shifted, costs_shifted = \
-        runner._align_weight_return_cost(weights, panel, cost)
+        runner._align_weight_return_cost(weights, panel, cost, timeline)
 
     # 首个时间戳被剔除；实现时点 t 使用决策时点 t-1 的权重与成本。
     assert timestamps[0] not in aligned.index.get_level_values('timestamp')

@@ -45,8 +45,8 @@ def _rank_spec(*, max_product_weight=None, min_cs=2) -> DiagnosticPortfolioSpec:
     return DiagnosticPortfolioSpec(
         name='rank', harvest_profile=market_rank_ls,
         rebalance=RebalanceConfig(interval=1),
-        constraints=ConstraintConfig(max_product_weight=max_product_weight),
-        costs=CostConfig(rate=0.0),
+        constraint=ConstraintConfig(max_product_weight=max_product_weight),
+        cost=CostConfig(rate=0.0),
         realized_volatility_lookback=3,
         min_cross_section_size=min_cs,
     )
@@ -56,8 +56,8 @@ def _gross_one_spec(*, max_product_weight=None) -> DiagnosticPortfolioSpec:
     return DiagnosticPortfolioSpec(
         name='gross_one', harvest_profile=ts_inv_vol_gross_one,
         rebalance=RebalanceConfig(interval=1),
-        constraints=ConstraintConfig(max_product_weight=max_product_weight),
-        costs=CostConfig(rate=0.0),
+        constraint=ConstraintConfig(max_product_weight=max_product_weight),
+        cost=CostConfig(rate=0.0),
         realized_volatility_lookback=3,
         risk=RiskConfig(volatility_lookback=3, volatility_min_periods=2),
         clip_bound=1.0,
@@ -69,10 +69,10 @@ def _target_vol_spec(*, max_gross=10.0, max_scaler=5.0,
     return DiagnosticPortfolioSpec(
         name='target_vol', harvest_profile=ts_inv_vol_target_vol,
         rebalance=RebalanceConfig(interval=1),
-        constraints=ConstraintConfig(
+        constraint=ConstraintConfig(
             max_gross=max_gross, max_volatility_scaler=max_scaler,
             max_product_weight=max_product_weight),
-        costs=CostConfig(rate=0.0),
+        cost=CostConfig(rate=0.0),
         realized_volatility_lookback=3,
         risk=RiskConfig(
             volatility_lookback=3, volatility_min_periods=2,
@@ -231,10 +231,7 @@ def test_rank_rejects_inconsistent_index() -> None:
         machine.update(
             True, pd.Series([True, True], index=['A', 'B']),
             pd.Series([1.0, 2.0, 3.0], index=['A', 'B', 'C']))
-    with pytest.raises(ValueError, match='缺少'):
-        machine.update(
-            True, pd.Series([True, True, True], index=['A', 'B', 'C']),
-            pd.Series([1.0, 2.0, 3.0], index=['A', 'B', 'C']))
+
 
 
 def test_weight_change_property() -> None:

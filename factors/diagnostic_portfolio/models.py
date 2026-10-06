@@ -389,6 +389,7 @@ class ConstraintConfig:
     ----------
     max_gross : float, optional
         最终 gross 上限（绝对权重之和），正数。
+        当 HarvestProfile.portfolio_target != 'gross_one' 时适用。
     max_product_weight : float or None, optional
         单品种最终绝对权重上限，取值 (0, +inf)；None 表示不设上限，
         默认 None。
@@ -572,7 +573,7 @@ class DiagnosticPortfolioSpec:
         权重约束。
     costs : CostConfig
         成本代理。
-    realized_volatility_lookback : int
+    realized_volatility_lookback : int or None, optional
         输出组合滚动实现波动率的窗口长度，正整数。
     risk : RiskConfig or None, optional
         风险参数，默认 None。
@@ -605,9 +606,9 @@ class DiagnosticPortfolioSpec:
     name: str
     harvest_profile: HarvestProfile
     rebalance: RebalanceConfig
-    constraints: ConstraintConfig
-    costs: CostConfig
-    realized_volatility_lookback: int
+    constraint: ConstraintConfig
+    cost: CostConfig
+    realized_volatility_lookback: int | None = None
     risk: RiskConfig | None = None
     clip_bound: float | None = None
     min_cross_section_size: int | None = None
@@ -626,20 +627,21 @@ class DiagnosticPortfolioSpec:
                 'DiagnosticPortfolioSpec.rebalance 必须是 RebalanceConfig，'
                 f'收到 {type(self.rebalance).__name__}'
             )
-        if not isinstance(self.constraints, ConstraintConfig):
+        if not isinstance(self.constraint, ConstraintConfig):
             raise ValueError(
                 'DiagnosticPortfolioSpec.constraints 必须是 ConstraintConfig，'
-                f'收到 {type(self.constraints).__name__}'
+                f'收到 {type(self.constraint).__name__}'
             )
-        if not isinstance(self.costs, CostConfig):
+        if not isinstance(self.cost, CostConfig):
             raise ValueError(
                 'DiagnosticPortfolioSpec.costs 必须是 CostConfig，'
-                f'收到 {type(self.costs).__name__}'
+                f'收到 {type(self.cost).__name__}'
             )
-        _require_positive_int(
-            self.realized_volatility_lookback,
-            'DiagnosticPortfolioSpec.realized_volatility_lookback',
-        )
+        if self.realized_volatility_lookback is not None:
+            _require_positive_int(
+                self.realized_volatility_lookback,
+                'DiagnosticPortfolioSpec.realized_volatility_lookback',
+            )
         _require_positive_int(
             self.annualization_factor,
             'DiagnosticPortfolioSpec.annualization_factor',
@@ -690,7 +692,7 @@ class DiagnosticPortfolioSpec:
             raise ValueError(
                 'ts_inv_vol_gross_one 不接受 min_cross_section_size'
             )
-        if self.constraints.max_volatility_scaler is not None:
+        if self.constraint.max_volatility_scaler is not None:
             raise ValueError(
                 'ts_inv_vol_gross_one 不接受 '
                 'constraints.max_volatility_scaler'
@@ -728,7 +730,7 @@ class DiagnosticPortfolioSpec:
         _require_positive_number(
             self.clip_bound, 'DiagnosticPortfolioSpec.clip_bound'
         )
-        if self.constraints.max_volatility_scaler is None:
+        if self.constraint.max_volatility_scaler is None:
             raise ValueError(
                 'ts_inv_vol_target_vol 要求在 ConstraintConfig 中提供 '
                 'max_volatility_scaler'
@@ -767,7 +769,7 @@ class DiagnosticPortfolioSpec:
                 'DiagnosticPortfolioSpec.min_cross_section_size 必须是'
                 f'至少为 2 的整数，收到 {self.min_cross_section_size!r}'
             )
-        if self.constraints.max_volatility_scaler is not None:
+        if self.constraint.max_volatility_scaler is not None:
             raise ValueError(
                 'market_rank_ls 不接受 constraints.max_volatility_scaler'
             )
@@ -775,7 +777,7 @@ class DiagnosticPortfolioSpec:
         
     def _check_max_gross(self) -> None:
         if self.harvest_profile.portfolio_target == 'gross_one':
-            if self.constraints.max_gross is not None:
+            if self.constraint.max_gross is not None:
                 raise ValueError(
                     f'在 HarvestProfile.portfolio_target 为 "gross_one" 的情况下，'
                     'DiagnosticPortfolioSpec.constraints.max_gross 必须为 None 。'

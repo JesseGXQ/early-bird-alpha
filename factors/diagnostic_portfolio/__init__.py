@@ -20,6 +20,14 @@
 包统一导出。
 
 """
+from factors.diagnostic_portfolio.models import (
+    DiagnosticSignal,
+    DiagnosticPortfolioSpec,
+    RebalanceConfig,
+    RiskConfig,
+    ConstraintConfig,
+    CostConfig
+)
 
 from factors.diagnostic_portfolio.experiment import (
     DiagnosticPortfolioExperimentRunner,
@@ -43,4 +51,6 @@ __all__ = [
     'WeightStateMachine',
     'MarketRankLSWeightStateMachine',
     'TSInverseVolatilityWeightMachine',
+    'DiagnosticSignal',
+    'DiagnosticPortfolioSpec'
 ]

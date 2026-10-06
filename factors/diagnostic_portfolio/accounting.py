@@ -85,12 +85,22 @@ def compute_weight_changes_turnover_cost(
         weights: pd.Series, cost_config: CostConfig) \
     -> tuple[pd.Series, pd.Series, pd.Series]:
     """
-    计算权重变化+换手+决策成本（换手成本）。
+    计算权重变化+换手+决策成本（换手成本），使用决策时间轴（尚未与收益实现时间对齐）。
 
     Parameters
     -------
     weights: pd.Series
         Index[timestamp, product]
+
+    Returns
+    ------
+    tuple[pd.Series, pd.Series, pd.Series]
+        - weight_changes: pd.Series
+            权重变化。
+        - turnover: pd.Series
+            换手。
+        - cost: pd.Series
+            决策（换手）成本。
     
     """
     assert weights.index.is_unique, '权重的 MultiIndex 必须唯一。'
