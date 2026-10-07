@@ -585,6 +585,10 @@ class DiagnosticPortfolioSpec:
         年化因子，V1 日频默认 252，必须为正整数。
     sector_attribution_col: str or None, optional
         按板块分类做收益贡献归因时，所用的板块列名称。
+    missing_return_policy: {'raise', 'default_to_zero_and_warning'}, optional
+        缺失收益率政策（对齐后的品种权重不为0，但收益率缺失时如何处理）。
+        当为 'raise' 时抛出异常，直接中止实验；当为
+        'default_to_zero_and_warning' 时，将缺失的收益率用0填充。
 
     Notes
     -----
@@ -614,6 +618,8 @@ class DiagnosticPortfolioSpec:
     min_cross_section_size: int | None = None
     annualization_factor: int = 252
     sector_attribution_col: str | None = None
+    missing_return_policy: Literal['raise', 'default_to_zero_and_warning'] =\
+    'raise'
 
     def __post_init__(self) -> None:
         _require_non_empty_str(self.name, 'DiagnosticPortfolioSpec.name')

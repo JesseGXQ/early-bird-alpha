@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Mapping, Any
+from typing import TYPE_CHECKING, Mapping, Any, Literal
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
@@ -137,7 +137,11 @@ def compute_weight_changes_turnover_cost(
 
     return weight_changes, turnover, cost
 
-def compute_contribution(aligned_df: pd.DataFrame) -> pd.Series:
+def compute_contribution(
+        aligned_df: pd.DataFrame,
+        missing_return_policy: Literal[
+            'raise', 'default_to_zero_and_warning']
+    ) -> tuple[pd.Series, tuple[str,...], dict[str, pd.DataFrame]]:
     """
     计算每个时间戳 t ，各品种的收益贡献（w_{i,t} * r_{i, t+1} ）。
     若 w 为 0，则无论 r 是否缺失，贡献一律为 0；
@@ -148,29 +152,64 @@ def compute_contribution(aligned_df: pd.DataFrame) -> pd.Series:
     aligned_df: pd.DataFrame
         对齐后的数据集，Index[timestamp, product], columns: true_return,
         eligible, weight
+    missing_return_policy: {'raise', 'default_to_zero_and_warning'}
 
     Returns
     ------
-    pd.Series
-        每个时间戳上，各品种的收益贡献。Index[timestamp, product]。
+    tuple[pd.Series, tuple[str,...], dict[str, pd.DataFrame]]
+    ~~~
+        - contributions: pd.Series
+            每个时间戳上，各品种的收益贡献。Index[timestamp, product]。
+        - warnings: tuple of str
+            警告：若policy为'default_to_zero_and_warning'，且出现
+            用0值填充时，包含稳定代码前缀的警告；无则为空tuple。
+        - metadata: dict[str, pd.DataFrame]
+            当权重不为0而收益率缺失的原始数据，供审计。
+            - key: 'missing_return_0_filled_raw_entries'
+            - value: pd.DataFrame, Index[timestamp, product],
+            columns: true_return, eligible, weight 
     """
     df = aligned_df.copy()
 
     assert df['weight'].notna().all()
+    # 将 w 为 0 且 r 缺失处的收益按 0 处理，避免 0 * NaN 产生污染；
+    # 只改写 true_return，保留原始行（含品种池已有的时间戳与品种）。
+    df.loc[(df['weight'] == 0) & df['true_return'].isna(), 'true_return'] = 0.0
 
     #检查是否存在 w 不为 0 时，r 缺失
     mask = (df['weight'] != 0) & df['true_return'].isna()
     if mask.any():
-        raise ValueError(
-            '存在权重不为0，但下一期收益为缺失。'
-            'V1 不允许这种情况，先修正数据才能运行实验。'
-            '问题数据为: \n'
-            f'{df[mask]}'
-        )
-    # 将 w 为 0 且 r 缺失处的收益按 0 处理，避免 0 * NaN 产生污染；
-    # 只改写 true_return，保留原始行（含品种池已有的时间戳与品种）。
-    df.loc[(df['weight'] == 0) & df['true_return'].isna(), 'true_return'] = 0.0
-    return df['weight'] * df['true_return']
+        if missing_return_policy == 'raise':
+            raise ValueError(
+                '存在权重不为0，但下一期收益为缺失。'
+                'V1 不允许这种情况，先修正数据才能运行实验。'
+                '问题数据为: \n'
+                f'{df[mask]}'
+            )
+        else:
+            # 记录 metadata
+            metadata = {
+                'missing_return_0_filled_raw_entries':df[mask].copy()
+            }
+            # 记录警告
+            cell_count = mask.sum()
+            prod_count = df[mask].index.get_level_values(level='product')\
+            .unique().size
+            share = mask.mean()
+            warnings = (
+                f'MISSING_RETURN_ZERO_FILLED:policy=default_to_zero_and_warning,' 
+                f'cells={cell_count},products={prod_count},share={share}',
+            )
+            # 用0填充缺失
+            df.loc[mask, 'true_return'] = 0.0
+    else:
+        warnings = ()
+        metadata = {}
+    return (
+        df['weight'] * df['true_return'],
+        warnings,
+        metadata
+    )
 
 
 def compute_portfolio_returns(contributions: pd.Series, costs_shifted: pd.Series)\

@@ -64,7 +64,7 @@ def align_inputs(
     return experiment_panel.sort_index(level=['timestamp','product'])
 
 def build_global_timeline(panel: pd.DataFrame) -> pd.DatetimeIndex:
-    """构造全局时间轴。""" # 注意，下面的实现目前不严谨：如果panel在某个日期，所有品种都没有数据，那么依然得不到完整的时间轴。真正的权威时间轴，要向交易日历 ProductCalendar 索取。
+    """构造全局时间轴。""" # 注意，下面的实现目前不严谨：如果panel在某个日期，所有品种都没有数据，那么依然得不到完整的时间轴。真正的权威时间轴，要向交易日历索取。
     timeline = panel.index.get_level_values('timestamp')\
         .drop_duplicates().sort_values()
     return pd.to_datetime(timeline)
@@ -77,8 +77,9 @@ def _build_global_timeline(
         env_config: EnvironmentConfig
     ) -> pd.DatetimeIndex:
     """
+    严谨版（待实现）：
     构建组合实验的全局时间轴。
-    品种时间轴 = [start_date, end_date] 和 [上市时间，退市时间] 的交集 。
+    品种时间轴 = [start_date, end_date] 和 [上市时间，退市时间] 的交集，再取交易日。
 
     全局时间轴= 品种1时间轴 ∪ 品种2时间轴 ∪ 品种3时间轴 ...
     """
@@ -302,7 +303,8 @@ class DiagnosticPortfolioExperimentRunner:
         timeline: pd.DatetimeIndex  
     ):
         """计算各实验结果统计量 artifacts 作为中间结果。"""
-        warnings_list = []
+        warnings_facts: list[str] = []
+        metadata_facts: Mapping[str, Any] = {}
 
         weight_changes, turnover, cost = compute_weight_changes_turnover_cost(
         weights, cost_config=self._spec.cost
@@ -311,7 +313,11 @@ class DiagnosticPortfolioExperimentRunner:
         aligned_df, weights_shifted, costs_shifted = \
             self._align_weight_return_cost(weights, panel, cost, timeline)
 
-        contributions = compute_contribution(aligned_df)
+        contributions, warnings, metadata = compute_contribution(
+            aligned_df, missing_return_policy=self._spec.missing_return_policy)
+        warnings_facts.extend(warnings)
+        metadata_facts.update(metadata)
+
         portfolio_returns = compute_portfolio_returns(
         contributions=contributions, costs_shifted=costs_shifted
         )
@@ -345,7 +351,7 @@ class DiagnosticPortfolioExperimentRunner:
             net_returns=portfolio_returns['proxy_net_return'],
             annualization_factor=self._spec.annualization_factor
         )
-        warnings_list.extend(warnings)
+        warnings_facts.extend(warnings)
 
         return AccountingArtifacts(
             weight_changes=weight_changes, 
@@ -361,8 +367,8 @@ class DiagnosticPortfolioExperimentRunner:
             sector_attribution=attribution_sector,
             performance=performance,
             status=None,
-            warnings=tuple(warnings_list),
-            metadata={}
+            warnings=tuple(warnings_facts),
+            metadata=metadata_facts
         )
 
     def _build_result(
