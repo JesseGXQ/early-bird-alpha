@@ -1,0 +1,62 @@
+{
+  "target": {
+    "exchange": "SHFE",
+    "trade_date": "20250526",
+    "date": "2025-05-26"
+  },
+  "source_csv": "db/market/daily_snapshots/bar_1d/bar_1d_tushare/raw/fut_daily/exchange=SHFE/trade_date=20250526.csv",
+  "structure": {
+    "rows": 250,
+    "columns": [
+      "ts_code",
+      "trade_date",
+      "pre_close",
+      "pre_settle",
+      "open",
+      "high",
+      "low",
+      "close",
+      "settle",
+      "change1",
+      "change2",
+      "vol",
+      "amount",
+      "oi",
+      "oi_chg"
+    ],
+    "distinct_trade_date": [
+      "20250526"
+    ],
+    "null_cells": 108,
+    "ts_code_unique": 250,
+    "exchange_suffix_values": [
+      "SHF"
+    ],
+    "issues": []
+  },
+  "ohlc_issues": [],
+  "continuity": {
+    "prior_trade_date": "20250523",
+    "compared_rows": 250,
+    "max_abs_pre_close_diff": 0.0,
+    "max_abs_pre_settle_diff": 0.0,
+    "max_abs_change1_diff": 7.72715225139109e-14,
+    "max_abs_change2_diff": 9.059419880941277e-14,
+    "max_abs_oi_chg_diff": 0.0,
+    "issues": []
+  },
+  "official_settlement_cross_check": {
+    "official_source": "db/rules_ingestion/data/raw/exchange_settlement_data_scraping/exchange=SHFE/trading_day=20250526",
+    "official_csv": "db/rules_ingestion/data/raw/exchange_settlement_data_scraping/exchange=SHFE/trading_day=20250526/Settlement20250526.csv",
+    "official_csv_exists": true,
+    "official_rows": 276,
+    "matched_rows": 214,
+    "tushare_rows_without_official": 36,
+    "max_abs_settle_diff": 0.0,
+    "mismatch_rows": 0,
+    "mismatch_samples": [],
+    "issues": []
+  },
+  "all_issues": [],
+  "passed": true
+}

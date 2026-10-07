@@ -1,0 +1,1296 @@
+{
+  "step": "03_rebuild_shfe_cleaned",
+  "generated_at_utc": "2026-10-06T12:34:34+00:00",
+  "target": {
+    "exchange": "SHFE",
+    "trade_date": "20250526",
+    "date": "2025-05-26"
+  },
+  "full_rerun_audit": {
+    "tushare": {
+      "csv_files": 32414,
+      "total_rows": 2921634,
+      "mapped_rows": 2353494,
+      "unmapped_rows": 568140,
+      "rows_by_source_exchange": {
+        "CFFEX": 152563,
+        "CZCE": 818697,
+        "DCE": 895997,
+        "GFEX": 26753,
+        "INE": 115954,
+        "SHFE": 911670
+      },
+      "duplicate_instrument_date_groups": 0,
+      "duplicate_instrument_date_rows": 0,
+      "rows_after_duplicate_drop": 2353494,
+      "empty_or_unreadable_file_count": 4733,
+      "empty_or_unreadable_file_sample": [
+        "db\\market\\daily_snapshots\\bar_1d\\bar_1d_tushare\\raw\\fut_daily\\exchange=CZCE\\trade_date=19901012.csv",
+        "db\\market\\daily_snapshots\\bar_1d\\bar_1d_tushare\\raw\\fut_daily\\exchange=CZCE\\trade_date=19901015.csv",
+        "db\\market\\daily_snapshots\\bar_1d\\bar_1d_tushare\\raw\\fut_daily\\exchange=CZCE\\trade_date=19901016.csv",
+        "db\\market\\daily_snapshots\\bar_1d\\bar_1d_tushare\\raw\\fut_daily\\exchange=CZCE\\trade_date=19901017.csv",
+        "db\\market\\daily_snapshots\\bar_1d\\bar_1d_tushare\\raw\\fut_daily\\exchange=CZCE\\trade_date=19901018.csv",
+        "db\\market\\daily_snapshots\\bar_1d\\bar_1d_tushare\\raw\\fut_daily\\exchange=CZCE\\trade_date=19901019.csv",
+        "db\\market\\daily_snapshots\\bar_1d\\bar_1d_tushare\\raw\\fut_daily\\exchange=CZCE\\trade_date=19901022.csv",
+        "db\\market\\daily_snapshots\\bar_1d\\bar_1d_tushare\\raw\\fut_daily\\exchange=CZCE\\trade_date=19901023.csv",
+        "db\\market\\daily_snapshots\\bar_1d\\bar_1d_tushare\\raw\\fut_daily\\exchange=CZCE\\trade_date=19901024.csv",
+        "db\\market\\daily_snapshots\\bar_1d\\bar_1d_tushare\\raw\\fut_daily\\exchange=CZCE\\trade_date=19901025.csv"
+      ],
+      "top_unmapped_ts_code_count": 50,
+      "top_unmapped_ts_code_sample": [
+        [
+          "AL.SHF",
+          7578
+        ],
+        [
+          "ALL.SHF",
+          7578
+        ],
+        [
+          "CU.SHF",
+          7578
+        ],
+        [
+          "CUL.SHF",
+          7578
+        ],
+        [
+          "RU.SHF",
+          7377
+        ],
+        [
+          "RUL.SHF",
+          7377
+        ],
+        [
+          "A.DCE",
+          6657
+        ],
+        [
+          "AL.DCE",
+          6657
+        ],
+        [
+          "M.DCE",
+          6298
+        ],
+        [
+          "ML.DCE",
+          6298
+        ]
+      ]
+    },
+    "bigquant": {
+      "source_rows": 2542167,
+      "recognized_exchange_rows": 2542167,
+      "unrecognized_exchange_rows": 0,
+      "translated_rows_before_dedupe": 2317074,
+      "translated_unique_instrument_date_rows": 2096170,
+      "zero_candidate_rows": 225093,
+      "multi_candidate_rows": 0,
+      "duplicate_translated_rows": 220904,
+      "conflict_instrument_date_groups": 0
+    },
+    "merge": {
+      "merged_rows": 2353494,
+      "rows_with_limit_prices": 2095925,
+      "rows_without_limit_prices": 257569,
+      "output_files": 94,
+      "output_rows_by_exchange": {
+        "CFFEX": 66860,
+        "CZCE": 652523,
+        "DCE": 741852,
+        "GFEX": 22361,
+        "INE": 96979,
+        "SHFE": 772919
+      }
+    },
+    "still_skipped_empty_file_count": 4733,
+    "still_skipped_empty_file_sample": [
+      "db\\market\\daily_snapshots\\bar_1d\\bar_1d_tushare\\raw\\fut_daily\\exchange=CZCE\\trade_date=19901012.csv",
+      "db\\market\\daily_snapshots\\bar_1d\\bar_1d_tushare\\raw\\fut_daily\\exchange=CZCE\\trade_date=19901015.csv",
+      "db\\market\\daily_snapshots\\bar_1d\\bar_1d_tushare\\raw\\fut_daily\\exchange=CZCE\\trade_date=19901016.csv",
+      "db\\market\\daily_snapshots\\bar_1d\\bar_1d_tushare\\raw\\fut_daily\\exchange=CZCE\\trade_date=19901017.csv",
+      "db\\market\\daily_snapshots\\bar_1d\\bar_1d_tushare\\raw\\fut_daily\\exchange=CZCE\\trade_date=19901018.csv",
+      "db\\market\\daily_snapshots\\bar_1d\\bar_1d_tushare\\raw\\fut_daily\\exchange=CZCE\\trade_date=19901019.csv",
+      "db\\market\\daily_snapshots\\bar_1d\\bar_1d_tushare\\raw\\fut_daily\\exchange=CZCE\\trade_date=19901022.csv",
+      "db\\market\\daily_snapshots\\bar_1d\\bar_1d_tushare\\raw\\fut_daily\\exchange=CZCE\\trade_date=19901023.csv",
+      "db\\market\\daily_snapshots\\bar_1d\\bar_1d_tushare\\raw\\fut_daily\\exchange=CZCE\\trade_date=19901024.csv",
+      "db\\market\\daily_snapshots\\bar_1d\\bar_1d_tushare\\raw\\fut_daily\\exchange=CZCE\\trade_date=19901025.csv"
+    ]
+  },
+  "non_shfe_side_effects": [],
+  "shfe_before_after": {
+    "SHFE_AD.parquet": {
+      "old_rows": 2824,
+      "new_rows": 2824,
+      "added_instrument_date": 0,
+      "removed_instrument_date": 0,
+      "added_samples": [],
+      "removed_samples": [],
+      "changed_value_columns": {},
+      "rows_on_target_date": 0,
+      "instruments_on_target_date": 0,
+      "rows_without_limit_prices": 0
+    },
+    "SHFE_AG.parquet": {
+      "old_rows": 41034,
+      "new_rows": 41046,
+      "added_instrument_date": 12,
+      "removed_instrument_date": 0,
+      "added_samples": [
+        {
+          "instrument": "AG2506",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AG2507",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AG2508",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AG2509",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AG2510",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AG2511",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AG2512",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AG2601",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AG2602",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AG2603",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AG2604",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AG2605",
+          "date": "2025-05-26"
+        }
+      ],
+      "removed_samples": [],
+      "changed_value_columns": {},
+      "rows_on_target_date": 12,
+      "instruments_on_target_date": 12,
+      "rows_without_limit_prices": 0
+    },
+    "SHFE_AL.parquet": {
+      "old_rows": 78445,
+      "new_rows": 78457,
+      "added_instrument_date": 12,
+      "removed_instrument_date": 0,
+      "added_samples": [
+        {
+          "instrument": "AL2506",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AL2507",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AL2508",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AL2509",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AL2510",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AL2511",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AL2512",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AL2601",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AL2602",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AL2603",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AL2604",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AL2605",
+          "date": "2025-05-26"
+        }
+      ],
+      "removed_samples": [],
+      "changed_value_columns": {},
+      "rows_on_target_date": 12,
+      "instruments_on_target_date": 12,
+      "rows_without_limit_prices": 30467
+    },
+    "SHFE_AO.parquet": {
+      "old_rows": 8560,
+      "new_rows": 8572,
+      "added_instrument_date": 12,
+      "removed_instrument_date": 0,
+      "added_samples": [
+        {
+          "instrument": "AO2506",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AO2507",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AO2508",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AO2509",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AO2510",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AO2511",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AO2512",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AO2601",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AO2602",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AO2603",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AO2604",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AO2605",
+          "date": "2025-05-26"
+        }
+      ],
+      "removed_samples": [],
+      "changed_value_columns": {},
+      "rows_on_target_date": 12,
+      "instruments_on_target_date": 12,
+      "rows_without_limit_prices": 0
+    },
+    "SHFE_AU.parquet": {
+      "old_rows": 41186,
+      "new_rows": 41194,
+      "added_instrument_date": 8,
+      "removed_instrument_date": 0,
+      "added_samples": [
+        {
+          "instrument": "AU2506",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AU2507",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AU2508",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AU2510",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AU2512",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AU2602",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AU2604",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "AU2606",
+          "date": "2025-05-26"
+        }
+      ],
+      "removed_samples": [],
+      "changed_value_columns": {},
+      "rows_on_target_date": 8,
+      "instruments_on_target_date": 8,
+      "rows_without_limit_prices": 5625
+    },
+    "SHFE_BR.parquet": {
+      "old_rows": 8168,
+      "new_rows": 8180,
+      "added_instrument_date": 12,
+      "removed_instrument_date": 0,
+      "added_samples": [
+        {
+          "instrument": "BR2506",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "BR2507",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "BR2508",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "BR2509",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "BR2510",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "BR2511",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "BR2512",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "BR2601",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "BR2602",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "BR2603",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "BR2604",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "BR2605",
+          "date": "2025-05-26"
+        }
+      ],
+      "removed_samples": [],
+      "changed_value_columns": {},
+      "rows_on_target_date": 12,
+      "instruments_on_target_date": 12,
+      "rows_without_limit_prices": 0
+    },
+    "SHFE_BU.parquet": {
+      "old_rows": 41093,
+      "new_rows": 41109,
+      "added_instrument_date": 16,
+      "removed_instrument_date": 0,
+      "added_samples": [
+        {
+          "instrument": "BU2506",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "BU2507",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "BU2508",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "BU2509",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "BU2510",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "BU2511",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "BU2512",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "BU2601",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "BU2602",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "BU2603",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "BU2604",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "BU2605",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "BU2606",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "BU2609",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "BU2612",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "BU2703",
+          "date": "2025-05-26"
+        }
+      ],
+      "removed_samples": [],
+      "changed_value_columns": {},
+      "rows_on_target_date": 16,
+      "instruments_on_target_date": 16,
+      "rows_without_limit_prices": 0
+    },
+    "SHFE_CU.parquet": {
+      "old_rows": 82162,
+      "new_rows": 82174,
+      "added_instrument_date": 12,
+      "removed_instrument_date": 0,
+      "added_samples": [
+        {
+          "instrument": "CU2506",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "CU2507",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "CU2508",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "CU2509",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "CU2510",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "CU2511",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "CU2512",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "CU2601",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "CU2602",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "CU2603",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "CU2604",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "CU2605",
+          "date": "2025-05-26"
+        }
+      ],
+      "removed_samples": [],
+      "changed_value_columns": {},
+      "rows_on_target_date": 12,
+      "instruments_on_target_date": 12,
+      "rows_without_limit_prices": 34180
+    },
+    "SHFE_FU.parquet": {
+      "old_rows": 59700,
+      "new_rows": 59712,
+      "added_instrument_date": 12,
+      "removed_instrument_date": 0,
+      "added_samples": [
+        {
+          "instrument": "FU2506",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "FU2507",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "FU2508",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "FU2509",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "FU2510",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "FU2511",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "FU2512",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "FU2601",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "FU2602",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "FU2603",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "FU2604",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "FU2605",
+          "date": "2025-05-26"
+        }
+      ],
+      "removed_samples": [],
+      "changed_value_columns": {},
+      "rows_on_target_date": 12,
+      "instruments_on_target_date": 12,
+      "rows_without_limit_prices": 14517
+    },
+    "SHFE_HC.parquet": {
+      "old_rows": 35657,
+      "new_rows": 35669,
+      "added_instrument_date": 12,
+      "removed_instrument_date": 0,
+      "added_samples": [
+        {
+          "instrument": "HC2506",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "HC2507",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "HC2508",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "HC2509",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "HC2510",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "HC2511",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "HC2512",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "HC2601",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "HC2602",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "HC2603",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "HC2604",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "HC2605",
+          "date": "2025-05-26"
+        }
+      ],
+      "removed_samples": [],
+      "changed_value_columns": {},
+      "rows_on_target_date": 12,
+      "instruments_on_target_date": 12,
+      "rows_without_limit_prices": 0
+    },
+    "SHFE_NI.parquet": {
+      "old_rows": 32694,
+      "new_rows": 32706,
+      "added_instrument_date": 12,
+      "removed_instrument_date": 0,
+      "added_samples": [
+        {
+          "instrument": "NI2506",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "NI2507",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "NI2508",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "NI2509",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "NI2510",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "NI2511",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "NI2512",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "NI2601",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "NI2602",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "NI2603",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "NI2604",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "NI2605",
+          "date": "2025-05-26"
+        }
+      ],
+      "removed_samples": [],
+      "changed_value_columns": {},
+      "rows_on_target_date": 12,
+      "instruments_on_target_date": 12,
+      "rows_without_limit_prices": 0
+    },
+    "SHFE_OP.parquet": {
+      "old_rows": 2138,
+      "new_rows": 2138,
+      "added_instrument_date": 0,
+      "removed_instrument_date": 0,
+      "added_samples": [],
+      "removed_samples": [],
+      "changed_value_columns": {},
+      "rows_on_target_date": 0,
+      "instruments_on_target_date": 0,
+      "rows_without_limit_prices": 0
+    },
+    "SHFE_PB.parquet": {
+      "old_rows": 44174,
+      "new_rows": 44186,
+      "added_instrument_date": 12,
+      "removed_instrument_date": 0,
+      "added_samples": [
+        {
+          "instrument": "PB2506",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "PB2507",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "PB2508",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "PB2509",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "PB2510",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "PB2511",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "PB2512",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "PB2601",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "PB2602",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "PB2603",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "PB2604",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "PB2605",
+          "date": "2025-05-26"
+        }
+      ],
+      "removed_samples": [],
+      "changed_value_columns": {},
+      "rows_on_target_date": 12,
+      "instruments_on_target_date": 12,
+      "rows_without_limit_prices": 0
+    },
+    "SHFE_RB.parquet": {
+      "old_rows": 49989,
+      "new_rows": 50001,
+      "added_instrument_date": 12,
+      "removed_instrument_date": 0,
+      "added_samples": [
+        {
+          "instrument": "RB2506",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "RB2507",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "RB2508",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "RB2509",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "RB2510",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "RB2511",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "RB2512",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "RB2601",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "RB2602",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "RB2603",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "RB2604",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "RB2605",
+          "date": "2025-05-26"
+        }
+      ],
+      "removed_samples": [],
+      "changed_value_columns": {},
+      "rows_on_target_date": 12,
+      "instruments_on_target_date": 12,
+      "rows_without_limit_prices": 2007
+    },
+    "SHFE_RU.parquet": {
+      "old_rows": 65595,
+      "new_rows": 65605,
+      "added_instrument_date": 10,
+      "removed_instrument_date": 0,
+      "added_samples": [
+        {
+          "instrument": "RU2506",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "RU2507",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "RU2508",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "RU2509",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "RU2510",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "RU2511",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "RU2601",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "RU2603",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "RU2604",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "RU2605",
+          "date": "2025-05-26"
+        }
+      ],
+      "removed_samples": [],
+      "changed_value_columns": {},
+      "rows_on_target_date": 10,
+      "instruments_on_target_date": 10,
+      "rows_without_limit_prices": 25605
+    },
+    "SHFE_SN.parquet": {
+      "old_rows": 32694,
+      "new_rows": 32706,
+      "added_instrument_date": 12,
+      "removed_instrument_date": 0,
+      "added_samples": [
+        {
+          "instrument": "SN2506",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SN2507",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SN2508",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SN2509",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SN2510",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SN2511",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SN2512",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SN2601",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SN2602",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SN2603",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SN2604",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SN2605",
+          "date": "2025-05-26"
+        }
+      ],
+      "removed_samples": [],
+      "changed_value_columns": {},
+      "rows_on_target_date": 12,
+      "instruments_on_target_date": 12,
+      "rows_without_limit_prices": 0
+    },
+    "SHFE_SP.parquet": {
+      "old_rows": 21656,
+      "new_rows": 21668,
+      "added_instrument_date": 12,
+      "removed_instrument_date": 0,
+      "added_samples": [
+        {
+          "instrument": "SP2506",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SP2507",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SP2508",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SP2509",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SP2510",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SP2511",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SP2512",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SP2601",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SP2602",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SP2603",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SP2604",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SP2605",
+          "date": "2025-05-26"
+        }
+      ],
+      "removed_samples": [],
+      "changed_value_columns": {},
+      "rows_on_target_date": 12,
+      "instruments_on_target_date": 12,
+      "rows_without_limit_prices": 0
+    },
+    "SHFE_SS.parquet": {
+      "old_rows": 19424,
+      "new_rows": 19436,
+      "added_instrument_date": 12,
+      "removed_instrument_date": 0,
+      "added_samples": [
+        {
+          "instrument": "SS2506",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SS2507",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SS2508",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SS2509",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SS2510",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SS2511",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SS2512",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SS2601",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SS2602",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SS2603",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SS2604",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "SS2605",
+          "date": "2025-05-26"
+        }
+      ],
+      "removed_samples": [],
+      "changed_value_columns": {},
+      "rows_on_target_date": 12,
+      "instruments_on_target_date": 12,
+      "rows_without_limit_prices": 0
+    },
+    "SHFE_WR.parquet": {
+      "old_rows": 49475,
+      "new_rows": 49487,
+      "added_instrument_date": 12,
+      "removed_instrument_date": 0,
+      "added_samples": [
+        {
+          "instrument": "WR2506",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "WR2507",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "WR2508",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "WR2509",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "WR2510",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "WR2511",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "WR2512",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "WR2601",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "WR2602",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "WR2603",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "WR2604",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "WR2605",
+          "date": "2025-05-26"
+        }
+      ],
+      "removed_samples": [],
+      "changed_value_columns": {},
+      "rows_on_target_date": 12,
+      "instruments_on_target_date": 12,
+      "rows_without_limit_prices": 2021
+    },
+    "SHFE_ZN.parquet": {
+      "old_rows": 56037,
+      "new_rows": 56049,
+      "added_instrument_date": 12,
+      "removed_instrument_date": 0,
+      "added_samples": [
+        {
+          "instrument": "ZN2506",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "ZN2507",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "ZN2508",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "ZN2509",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "ZN2510",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "ZN2511",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "ZN2512",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "ZN2601",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "ZN2602",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "ZN2603",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "ZN2604",
+          "date": "2025-05-26"
+        },
+        {
+          "instrument": "ZN2605",
+          "date": "2025-05-26"
+        }
+      ],
+      "removed_samples": [],
+      "changed_value_columns": {},
+      "rows_on_target_date": 12,
+      "instruments_on_target_date": 12,
+      "rows_without_limit_prices": 8058
+    }
+  },
+  "shfe_totals": {
+    "files": 20,
+    "added_instrument_date": 214,
+    "removed_instrument_date": 0,
+    "changed_value_columns": []
+  },
+  "cleaned_dir": "db/market/daily_snapshots/bar_1d/bar_1d_tushare/cleaned",
+  "shfe_baseline_dir": "db/market/daily_snapshots/bar_1d/bar_1d_tushare/raw/20261006_fill_SHFE_missing_on_2025-05-26/backup_before_rebuild/SHFE_parquet",
+  "reused_temp_rebuild": true,
+  "status": "ok",
+  "backed_up_files": [
+    "SHFE_AD.parquet",
+    "SHFE_AG.parquet",
+    "SHFE_AL.parquet",
+    "SHFE_AO.parquet",
+    "SHFE_AU.parquet",
+    "SHFE_BR.parquet",
+    "SHFE_BU.parquet",
+    "SHFE_CU.parquet",
+    "SHFE_FU.parquet",
+    "SHFE_HC.parquet",
+    "SHFE_NI.parquet",
+    "SHFE_OP.parquet",
+    "SHFE_PB.parquet",
+    "SHFE_RB.parquet",
+    "SHFE_RU.parquet",
+    "SHFE_SN.parquet",
+    "SHFE_SP.parquet",
+    "SHFE_SS.parquet",
+    "SHFE_WR.parquet",
+    "SHFE_ZN.parquet"
+  ],
+  "backup_dir": "db/market/daily_snapshots/bar_1d/bar_1d_tushare/raw/20261006_fill_SHFE_missing_on_2025-05-26/backup_before_rebuild/SHFE_parquet",
+  "overwritten_files": [
+    "SHFE_AD.parquet",
+    "SHFE_AG.parquet",
+    "SHFE_AL.parquet",
+    "SHFE_AO.parquet",
+    "SHFE_AU.parquet",
+    "SHFE_BR.parquet",
+    "SHFE_BU.parquet",
+    "SHFE_CU.parquet",
+    "SHFE_FU.parquet",
+    "SHFE_HC.parquet",
+    "SHFE_NI.parquet",
+    "SHFE_OP.parquet",
+    "SHFE_PB.parquet",
+    "SHFE_RB.parquet",
+    "SHFE_RU.parquet",
+    "SHFE_SN.parquet",
+    "SHFE_SP.parquet",
+    "SHFE_SS.parquet",
+    "SHFE_WR.parquet",
+    "SHFE_ZN.parquet"
+  ],
+  "audit_md_refreshed": true,
+  "temp_rebuild_dir": "db/market/daily_snapshots/bar_1d/bar_1d_tushare/raw/20261006_fill_SHFE_missing_on_2025-05-26/_full_rebuild_temp"
+}
