@@ -30,16 +30,11 @@ class DecisionLedger:
         """返回所记录的权重数据。
         返回Series, Index[timestamp, product]
         """
-        weights_list: list[pd.Series] = []
-        for record in self._book:
-            idx = pd.MultiIndex.from_arrays(
-                [[record.timestamp]*len(record.weights), record.weights.index],
-                names=['timestamp', 'product']
-            )
-            weights = record.weights.copy()
-            weights.index = idx 
-            weights_list.append(weights)
-        return pd.concat(weights_list, axis=0).rename('weight')
+        return pd.concat(
+            [record.weights for record in self._book],
+            keys=[record.timestamp for record in self._book], # 在最外侧新增一层索引
+            axis=0
+        ).rename('weight').rename_axis(['timestamp', 'product'])
 
     @property
     def warnings(self, ) -> tuple[str,...]:

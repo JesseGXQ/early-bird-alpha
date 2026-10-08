@@ -88,9 +88,11 @@ def _eligible(products, flags=None) -> pd.Series:
 
 
 def _ret(products) -> pd.Series:
-    idx = pd.MultiIndex.from_product(
-        [[pd.Timestamp('2024-01-01')], products], names=list(INDEX_NAMES))
-    return pd.Series(0.0, index=idx)
+    """当期收益率：Index[product]。时间戳由 update(timestamp=...) 单独传入。"""
+    return pd.Series(0.0, index=products)
+
+
+_RET_TS = pd.Timestamp('2024-01-01')
 
 
 def _same(left: pd.Series, right: pd.Series) -> None:
@@ -305,7 +307,8 @@ def test_ts_update_gross_one_and_missing_signal() -> None:
     signal = pd.Series({'A': 2.0, 'B': np.nan})
 
     result = machine.update(
-        True, _eligible(products), signal, _ret(products)).weights
+        True, _eligible(products), signal, _ret(products),
+        timestamp=_RET_TS).weights
 
     _same(result, pd.Series({'A': 1.0, 'B': 0.0}))
     assert result.abs().sum() == pytest.approx(1.0)
@@ -317,11 +320,12 @@ def test_ts_freeze_and_forced_exit() -> None:
     _stub_uniform_vol(machine, {'A': 0.02, 'B': 0.01})
     signal = pd.Series({'A': 2.0, 'B': -1.5})
     base = machine.update(
-        True, _eligible(products), signal, _ret(products)).weights
+        True, _eligible(products), signal, _ret(products),
+        timestamp=_RET_TS).weights
 
     frozen = machine.update(
         False, _eligible(products, [True, False]), signal,
-        _ret(products)).weights
+        _ret(products), timestamp=_RET_TS).weights
     expected = base.copy()
     expected['B'] = 0.0
     _same(frozen, expected)
@@ -334,7 +338,8 @@ def test_ts_all_invalid_goes_flat() -> None:
     signal = pd.Series({'A': 1.0, 'B': 1.0})
 
     result = machine.update(
-        True, _eligible(products), signal, _ret(products)).weights
+        True, _eligible(products), signal, _ret(products),
+        timestamp=_RET_TS).weights
     _same(result, pd.Series(0.0, index=products))
 
 
@@ -384,7 +389,8 @@ def test_ts_target_vol_update_flattens_and_records_warning() -> None:
     signal = pd.Series({'A': 2.0, 'B': -1.5})
 
     current = machine.update(
-        True, _eligible(products), signal, _ret(products))
+        True, _eligible(products), signal, _ret(products),
+        timestamp=_RET_TS)
 
     _same(current.weights, pd.Series(0.0, index=products))
     assert 'cov_failed' in current.warnings

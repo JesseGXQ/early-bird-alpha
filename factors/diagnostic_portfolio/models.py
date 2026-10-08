@@ -309,9 +309,9 @@ class RiskConfig:
         滚动样本协方差回看窗口长度；目标波动率配方必填，默认 None。
     covariance_min_periods : int or None, optional
         协方差每个品种所需最少有效观测数；与 covariance_lookback 必须
-        同时提供或同时为 None，默认 None。
+        同时提供或同时为 None（目标波动率配方必填），默认 None。
     target_volatility : float or None, optional
-        年化目标波动率，ts_inv_vol_target_vol 必填且为正数，默认 None。
+        年化目标波动率，目标波动率配方必填且为正数，默认 None。
 
     Notes
     -----
@@ -402,8 +402,13 @@ class ConstraintConfig:
     -----
     max_volatility_scaler 只约束目标波动率缩放倍数，防止过低或不稳定的
     事前风险估计造成异常放大；max_gross 约束最终绝对权重之和，是研究层
-    的 gross 名义敞口上限。基础组合 gross=1 时二者在数值上可能重合，
-    但分别表达“风险模型保护”和“组合敞口保护”，不能混用。
+    的 gross 名义敞口上限。**权重缩放前，若生成基础权重时采用 gross=1 ，
+    则组合最终的 gross <= min(max_volatility_scalar，max_gross)**。
+    例如 max_volatility_scalar = 2, max_gross = 3，则组合最终 gross 不会
+    大于2。
+
+    另一方面， max_volatility_scalr 和 max_gross 分别表示
+    “风险模型保护”和“组合敞口保护”，不能混用。
 
     """
 
@@ -587,6 +592,7 @@ class DiagnosticPortfolioSpec:
         按板块分类做收益贡献归因时，所用的板块列名称。
     missing_return_policy: {'raise', 'default_to_zero_and_warning'}, optional
         缺失收益率政策（对齐后的品种权重不为0，但收益率缺失时如何处理）。
+        默认为 'raise'。
         当为 'raise' 时抛出异常，直接中止实验；当为
         'default_to_zero_and_warning' 时，将缺失的收益率用0填充。
 

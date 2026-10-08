@@ -33,9 +33,10 @@ def _append(mgr: DiagnosticPortfolioRiskManager,
             values: pd.DataFrame) -> None:
     """按时间戳逐期 append 收益。values: Index[timestamp], columns=product。"""
     for ts, row in values.iterrows():
-        idx = pd.MultiIndex.from_product(
-            [[pd.Timestamp(ts)], list(row.index)], names=list(INDEX_NAMES))
-        mgr.append(pd.Series(row.to_numpy(dtype=float), index=idx))
+        mgr.append(
+            pd.Series(row.to_numpy(dtype=float), index=row.index),
+            pd.Timestamp(ts),
+        )
 
 
 def _wide(rows: dict[str, list[float]],
@@ -85,15 +86,59 @@ def test_ex_ante_volatility_uses_last_lookback_window() -> None:
     assert vol['B'] == pytest.approx(0.04 / np.sqrt(2.0))
 
 
-def test_return_to_series_keeps_only_last_lag() -> None:
+def test_return_window_keeps_only_last_lag() -> None:
+    """回看窗口只保留最后 lag 期，且行序为时间升序。"""
     mgr = DiagnosticPortfolioRiskManager(_config())
     _append(mgr, _wide({
         'A': [0.01, 0.02, 0.03], 'B': [0.01, 0.02, 0.03]}))
 
-    series = mgr._return_to_series(lag=2)
+    window = mgr._return_window(lag=2)
 
-    timestamps = series.index.get_level_values('timestamp').unique()
-    assert list(timestamps) == list(pd.to_datetime(['2024-01-02', '2024-01-03']))
+    assert list(window.index) == list(
+        pd.to_datetime(['2024-01-02', '2024-01-03']))
+
+
+def test_return_window_shape_and_labels() -> None:
+    """窗口矩阵的形状、行列顺序与索引命名。"""
+    mgr = DiagnosticPortfolioRiskManager(_config())
+    _append(mgr, _wide({
+        'A': [0.01, 0.02, 0.03], 'B': [0.04, 0.05, 0.06]}))
+
+    window = mgr._return_window(lag=3)
+
+    assert window.shape == (3, 2)
+    assert list(window.columns) == ['A', 'B']
+    assert window.index.name == 'timestamp'
+    assert window.columns.name == 'product'
+    assert window.to_numpy()[0].tolist() == [0.01, 0.04]
+    assert window.to_numpy()[2].tolist() == [0.03, 0.06]
+
+
+def test_return_window_keeps_nan_and_row_order() -> None:
+    """缺失值保留为 NaN；行序跟随 append 的时间顺序，不做重排。"""
+    mgr = DiagnosticPortfolioRiskManager(_config())
+    for timestamp, a in (('2024-01-01', 0.01), ('2024-01-02', np.nan),
+                         ('2024-01-03', 0.03)):
+        mgr.append(pd.Series({'A': a, 'B': 0.02}, index=['A', 'B']),
+                   pd.Timestamp(timestamp))
+
+    window = mgr._return_window(lag=3)
+
+    assert window.loc[pd.Timestamp('2024-01-02'), 'A'] != \
+        window.loc[pd.Timestamp('2024-01-02'), 'A']  # 即确为 NaN
+    assert window['A'].tolist()[0] == 0.01
+    assert window['A'].tolist()[2] == 0.03
+
+
+def test_append_rejects_inconsistent_product_index() -> None:
+    """各期品种索引必须一致，否则窗口矩阵无法按列对齐。"""
+    mgr = DiagnosticPortfolioRiskManager(_config())
+    mgr.append(pd.Series({'A': 0.01, 'B': 0.02}, index=['A', 'B']),
+               pd.Timestamp('2024-01-01'))
+
+    with pytest.raises(ValueError, match='品种索引'):
+        mgr.append(pd.Series({'A': 0.01, 'C': 0.02}, index=['A', 'C']),
+                   pd.Timestamp('2024-01-02'))
 
 
 # ============================================================

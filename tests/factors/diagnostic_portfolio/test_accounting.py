@@ -137,7 +137,8 @@ def test_compute_contribution_weight_times_next_return() -> None:
         index=idx,
     )
 
-    contributions = compute_contribution(aligned_df)
+    contributions, _, _ = compute_contribution(
+        aligned_df, missing_return_policy='raise')
 
     expected = pd.Series(
         [0.5 * 0.02, -0.5 * -0.01, 0.2 * -0.01, 0.0 * 0.03], index=idx)
@@ -157,9 +158,11 @@ def test_contribution_zero_weight_missing_return_is_zero() -> None:
         index=idx,
     )
 
-    contributions = compute_contribution(aligned_df)
+    contributions, warnings, _ = compute_contribution(
+        aligned_df, missing_return_policy='raise')
 
     assert contributions.tolist() == [0.0, 0.004]
+    assert warnings == ()
 
 
 def test_contribution_nonzero_weight_missing_return_raises() -> None:
@@ -175,7 +178,7 @@ def test_contribution_nonzero_weight_missing_return_raises() -> None:
     )
 
     with pytest.raises(ValueError, match='下一期收益为缺失'):
-        compute_contribution(aligned_df)
+        compute_contribution(aligned_df, missing_return_policy='raise')
 
 
 def test_contribution_keeps_ineligible_rows_and_timestamps() -> None:
@@ -191,11 +194,37 @@ def test_contribution_keeps_ineligible_rows_and_timestamps() -> None:
         index=idx,
     )
 
-    contributions = compute_contribution(aligned_df)
+    contributions, _, _ = compute_contribution(
+        aligned_df, missing_return_policy='raise')
 
     assert len(contributions) == len(idx)
     assert contributions.index.equals(idx)
     assert contributions.tolist() == [0.005, 0.0, 0.0, 0.0]
+
+
+def test_contribution_nonzero_weight_missing_return_zero_fills() -> None:
+    """策略 default_to_zero_and_warning：缺失收益按 0 填充并留痕，不报错。"""
+    idx = _multi_index(['2024-01-01'], ['A', 'B'])
+    aligned_df = pd.DataFrame(
+        {
+            'true_return': [np.nan, 0.01],
+            'eligible': [True, True],
+            'weight': [0.1, 0.4],
+        },
+        index=idx,
+    )
+
+    contributions, warnings, metadata = compute_contribution(
+        aligned_df, missing_return_policy='default_to_zero_and_warning')
+
+    assert contributions.tolist() == [0.0, 0.004]
+    assert len(warnings) == 1
+    assert warnings[0].startswith(
+        'MISSING_RETURN_ZERO_FILLED:policy=default_to_zero_and_warning')
+    assert 'cells=1' in warnings[0] and 'products=1' in warnings[0]
+    raw = metadata['missing_return_0_filled_raw_entries']
+    assert len(raw) == 1 and raw.index.equals(
+        idx[[0]]) and raw['weight'].tolist() == [0.1]
 
 
 def test_compute_portfolio_returns_gross_cost_and_net() -> None:

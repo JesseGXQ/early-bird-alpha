@@ -63,6 +63,77 @@ def align_inputs(
     ).reindex(true_return_series.index)
     return experiment_panel.sort_index(level=['timestamp','product'])
 
+@dataclass(frozen=True)
+class PanelAxes:
+    """把 ragged long panel 展开成的三个宽表视图。
+
+    每个宽表都是 Index[timestamp] x columns[product] 的完整矩形，
+    品种在该时点无数据的位置为缺失值。
+    """
+
+    signal: pd.DataFrame
+    eligible: pd.DataFrame
+    true_return: pd.DataFrame
+
+
+def build_panel_axes(
+        panel: pd.DataFrame,
+        timeline: pd.DatetimeIndex,
+        products: list[str],
+) -> PanelAxes:
+    """把 ragged long panel 一次性展开成 (timestamp, product) 宽表。
+
+    展开后每个时点的行就是全品种对齐好的切片，与
+    :meth:`WeightStateMachine._align_index` 逐期 reindex 的结果一致；
+    差异仅在于原本「不存在的 (时点, 品种) 组合」在这里是显式的缺失值。
+    这样实验主循环里就不必逐期做 ``xs`` / ``reset_index`` / ``droplevel``，
+    也不必逐期 reindex。
+
+    Parameters
+    ----------
+    panel : pd.DataFrame
+        研究主面板，Index[timestamp, product]，含 true_return / eligible /
+        signal 三列。
+    timeline : pd.DatetimeIndex
+        全局时间轴；宽表的行索引与之完全一致。
+    products : list of str
+        参与组合的全部品种代码；宽表的列索引与之完全一致。
+
+    Returns
+    -------
+    PanelAxes
+        三个宽表视图，行索引为 timeline、列索引为 products。
+
+    Raises
+    ------
+    ValueError
+        当 panel 索引不唯一、或索引层级名不是 timestamp/product 时抛出。
+
+    Notes
+    -----
+    ``eligible`` 经 unstack 后缺失格为 NaN，使 bool 列退化为 object dtype，
+    这里显式还原为 bool，以满足下游把它当掩码使用的要求。
+
+    """
+    if not panel.index.is_unique:
+        raise ValueError('研究主面板索引必须唯一，才能展开成宽表。')
+    if list(panel.index.names) != list(INDEX_NAMES):
+        raise ValueError(
+            f'研究主面板索引层级名必须为 {list(INDEX_NAMES)}，'
+            f'实际为 {list(panel.index.names)}。')
+
+    def _wide(column: str) -> pd.DataFrame:
+        return panel[column].unstack(level='product')\
+            .reindex(index=timeline, columns=products)
+
+    eligible = _wide('eligible').fillna(False).astype(bool)
+    return PanelAxes(
+        signal=_wide('signal'),
+        eligible=eligible,
+        true_return=_wide('true_return'),
+    )
+
+
 def build_global_timeline(panel: pd.DataFrame) -> pd.DatetimeIndex:
     """构造全局时间轴。""" # 注意，下面的实现目前不严谨：如果panel在某个日期，所有品种都没有数据，那么依然得不到完整的时间轴。真正的权威时间轴，要向交易日历索取。
     timeline = panel.index.get_level_values('timestamp')\
@@ -176,19 +247,23 @@ class DiagnosticPortfolioExperimentRunner:
         # 新建决策记账本
         ledger = DecisionLedger()
 
+        # 一次性把 ragged long panel 展开成 (timestamp, product) 宽表，
+        # 使主循环内只需按行取全品种对齐好的切片。
+        axes = build_panel_axes(
+            panel=panel, timeline=timeline, products=products)
+
         for timestamp in timeline[:-1]:
             rebalance: bool = rebalance_flags.at[timestamp]
-            _data = panel.xs(
-                timestamp, level='timestamp', drop_level=False)
-            eligible = _data.reset_index(level='timestamp', drop=True)['eligible'] # Index[product]
-            signal = _data.droplevel(level='timestamp')['signal'] # Index[product]
-            ret = _data['true_return'] # MultiIndex[timestamp, product]
+            eligible = axes.eligible.loc[timestamp] # Index[product], bool
+            signal = axes.signal.loc[timestamp] # Index[product]，缺失为 NaN
+            ret = axes.true_return.loc[timestamp] # Index[product]，缺失为 NaN
             # 更新权重状态机，得到新一期权重
             current_weights = machine.update(
                 rebalance=rebalance, 
                 eligible=eligible,
                 signal=signal,
-                ret=ret
+                ret=ret,
+                timestamp=timestamp 
             )
             weights, warnings, weight_meta = (
                 current_weights.weights, 

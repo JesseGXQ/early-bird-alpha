@@ -62,6 +62,7 @@ class WeightStateMachine(ABC):
         """
         self._spec = spec
         self._products = sorted(products)
+        self._products_index: pd.Index = pd.Index(self._products)
         self._weight_history: list[pd.Series] = []
         self._last_weights: pd.Series = self._flat_positions()
 
@@ -84,14 +85,28 @@ class WeightStateMachine(ABC):
         """将品种池和信号两个Series的索引对齐到所有品种，暴露出
         缺失的那些。品种池缺失的品种用False（不在池内），信号缺失的不填充，
         保持NaN。
+
+        Parameters
+        ------
+        eligible: pd.Series
+            品种池准入。
+        signal: pd.Series
+            信号。
+        
+        Returns
+        ------
+        tuple[pd.Series[bool], pd.Series]
+            索引对齐到所有品种的(eligible, signal)
         
         Notes
         -----
-        由于各品种生命周期的差异，研究主面板是 ragged long panel，早期必然只有
-        很少的某些品种。
-        
-        所有子类的 `update()` 方法开头必须调用此方法。
+        输入本来就已对齐到全部品种时直接原样返回（reindex 到等价索引是纯
+        浪费）。实验主循环通过 :func:`build_panel_axes` 预先展开宽表，喂进来
+        的就是这种已对齐的切片，因此这条快路径是常态路径。
         """
+        if (eligible.index.equals(self._products_index)
+                and signal.index.equals(self._products_index)):
+            return eligible, signal
         return (
             eligible.reindex(self._products, fill_value=False).astype(bool),
             signal.reindex(self._products)
@@ -99,14 +114,31 @@ class WeightStateMachine(ABC):
 
 
     def _apply_universe(self, eligible: pd.Series[bool]) -> pd.Series:
-        """应用品种池：在上一期权重Series中，将本期已不在品种池内的设为 0 。"""
-        assert len(eligible.index) == len(self._products)
-        return self._last_weights.where(eligible, 0.0)
+        """应用品种池：在上一期权重Series中，将本期已不在品种池内的设为 0 。
+
+        Notes
+        -----
+        内部按**位置**取数（``np.where``），不走 ``Series.where`` 的标签对齐
+        与 block-manager 分派，因此要求 ``eligible`` 与 ``self._last_weights``
+        的索引**标签与顺序完全一致**。这由 :meth:`_align_index` 保证（其快慢
+        两条路径都会把 ``eligible`` 对齐到 ``self._products``），断言在此显式
+        复核，不依赖上游隐含约定。
+
+        填充值取整数 ``0`` 而非 ``0.0``：``np.where`` 会把 ``0.0`` 提升为
+        float64，从而把整数权重悄悄改成浮点；``0`` 则保持原 dtype。
+
+        """
+        assert eligible.index.equals(self._last_weights.index), \
+            '品种池索引必须与上一期权重索引标签及顺序完全一致。'
+        values = np.where(eligible.to_numpy(), self._last_weights.to_numpy(), 0)
+        return pd.Series(values, index=self._last_weights.index,
+                         name=self._last_weights.name, copy=False)
 
     @abstractmethod
     def update(self, rebalance: bool, 
                eligible: pd.Series[bool], signal: pd.Series,
-               ret: pd.Series | None) -> CurrentWeight:
+               ret: pd.Series | None,
+               *, timestamp: pd.Timestamp | None = None) -> CurrentWeight:
         """按品种池、信号与约束，更新当期目标权重并返回。
 
         Parameters
@@ -117,8 +149,12 @@ class WeightStateMachine(ABC):
             品种池准入条件，Index[product]。
         signal : pd.Series
             各品种的当期信号值，Index[product]。
-        ret: pd.Series
-            各品种的当期收益率。MultiIndex[timestamp, product]
+        ret: pd.Series or None
+            各品种的当期收益率，Index[product]，允许包含 NaN。
+        timestamp: pd.Timestamp, optional
+            当期时间戳。``ret`` 本身不携带时间戳，需要收益率历史的实现
+            （如 :class:`TSInverseVolatilityWeightMachine`）必须传入；
+            不关心的实现可以忽略。
 
         Returns
         -------
@@ -200,7 +236,8 @@ class MarketRankLSWeightStateMachine(WeightStateMachine):
 
     def update(self, rebalance: bool, 
                eligible: pd.Series, signal: pd.Series, 
-               ret: pd.Series | None = None
+               ret: pd.Series | None = None,
+               *, timestamp: pd.Timestamp | None = None
     ) -> CurrentWeight:
         """按品种池、信号与单品种上限，更新当期目标权重并返回。
 
@@ -394,10 +431,17 @@ class TSInverseVolatilityWeightMachine(WeightStateMachine):
         )
 
     def update(self, rebalance: bool, eligible: pd.Series, signal: pd.Series, 
-               ret: pd.Series | None) -> CurrentWeight: # ret 必须是 MultiIndex[timestamp, product]
-        assert isinstance(ret, pd.Series)
-        assert isinstance(ret.index, pd.MultiIndex)
-        self._risk_manager.append(ret=ret) # 将收益率series转交给 risk manager
+               ret: pd.Series | None = None,
+               *, timestamp: pd.Timestamp | None = None
+    ) -> CurrentWeight: # ret 必须是 Index[product]，timestamp 是当期时间戳
+        if ret is None:
+            raise ValueError(
+                'ts_inv_vol 收获范式需要当期收益率，但 ret 为 None。')
+        if timestamp is None:
+            raise ValueError(
+                'ts_inv_vol 收获范式需要当期时间戳来归档收益率，'
+                '但 timestamp 为 None。')
+        self._risk_manager.append(ret=ret, timestamp=timestamp) # 收益率转交给 risk manager
 
         self._validate_input_index(signal, eligible)
         eligible, signal = self._align_index(eligible, signal)
@@ -486,7 +530,8 @@ class TSInverseVolatilityWeightMachine(WeightStateMachine):
         return lambda_clipped * weights, vol_result
 
     def _gen_base_weight(self, signal: pd.Series) -> pd.Series: # signal 为在品种池内且无缺失
-        """在 profile 为 ts_inv_vol_gross_one 下，根据信号，生成基础权重：
+        """
+        根据信号，生成各品种的基础权重：
         头尾部对称 clip -> scaled by ex ante vol -> scaled to gross = 1
         """
         assert self._spec.clip_bound is not None
