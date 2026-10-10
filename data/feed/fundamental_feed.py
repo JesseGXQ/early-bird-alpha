@@ -35,6 +35,12 @@ WAREHOUSE_RECEIPT_AGGREGATED_COLUMNS = [
     "unit",
 ]
 
+# 仓单源端在明细里夹带的分地区小计行。这些行的 warehouse 是“合计”或“总计”，
+# 其数值等于同一 area 下仓库明细之和，并非独立的仓库记录；若与明细一起加总会
+# 重复计数（AG 有 1040 个交易日的日度加总因此恰好翻倍）。全库扫描确认小计标签
+# 只有这两种，其余形近标签（小计/总/总量/汇总/总数/sum/total）均不存在。
+WAREHOUSE_RECEIPT_SUBTOTAL_WAREHOUSES = ("合计", "总计")
+
 UnitConversionKey = tuple[str, str, str]
 
 
@@ -69,7 +75,8 @@ class FundamentalFeed:
             结束交易日；None 表示不限制。
         aggregate : bool, default False
             False 返回仓库级明细；True 将查询区间内全部记录先统一单位，
-            再按“品种-交易日”加总。
+            再按“品种-交易日”加总。加总会自动剔除 warehouse 为“合计”或
+            “总计”的分地区小计行，避免明细被重复计入；明细接口不受影响。
         agg_unit_conversions : Mapping[tuple[str, str, str], float] or None
             聚合时采用的单位转换规则。键依次为
             ``(品种代码, 原单位, 目标单位)``，值为原数量乘以的转换系数。
@@ -93,6 +100,12 @@ class FundamentalFeed:
         -----
         单位统一针对完整查询区间执行，而不是仅处理同一天内共存的单位。
         这可以避免 AU 等品种在不同日期切换单位后形成量纲不一致的时间序列。
+
+        仓单源端在明细中夹带了 warehouse 为“合计”“总计”的行，其数值等于同一
+        area 下仓库明细之和，是分地区小计而非独立仓库记录。aggregate=True 时
+        这些行会被剔除，否则日度加总会重复计数（AG 曾因此恰好翻倍）。它们只凭
+        warehouse 标签识别，不依赖 area 等可能缺失的字段。aggregate=False 时
+        原样返回，便于调用方自行核对小计。
         """
         if start_date is not None and end_date is not None and start_date > end_date:
             raise ValueError(f"start_date {start_date} 不能晚于 end_date {end_date}。")
@@ -139,11 +152,22 @@ class FundamentalFeed:
         df: pd.DataFrame,
         agg_unit_conversions: Mapping[UnitConversionKey, float] | None,
     ) -> pd.DataFrame:
-        """统一查询区间内的计量单位，再按品种和交易日加总。"""
+        """统一查询区间内的计量单位，再按品种和交易日加总。
+
+        加总前先剔除源端夹带的分地区小计行（warehouse 为“合计”或“总计”），
+        它们不是独立仓库记录，与明细一同加总会重复计数。
+        """
         if df.empty:
             return (
                 df.reindex(columns=WAREHOUSE_RECEIPT_AGGREGATED_COLUMNS)
                 .reset_index(drop=True)
+            )
+
+        df = self._exclude_subtotal_rows(df)
+        if df.empty:
+            raise ValueError(
+                f"品种 {self.product} 在查询区间内只有“合计”“总计”小计行，"
+                "剔除后没有可加总的仓库明细。"
             )
 
         self._validate_aggregate_identity(df)
@@ -191,6 +215,20 @@ class FundamentalFeed:
         result.sort_values("trading_date", kind="stable", inplace=True)
         result.reset_index(drop=True, inplace=True)
         return result
+
+    @staticmethod
+    def _exclude_subtotal_rows(df: pd.DataFrame) -> pd.DataFrame:
+        """剔除仓单源端夹带的分地区小计行。
+
+        “合计”行的数值等于同一 ``area`` 下仓库明细之和，是分地区小计而非全国
+        总计，也不是独立仓库记录。加总时若保留它们，明细与小计会被重复计入。
+        仅剔除 warehouse 命中固定小计标签的行，不依赖 ``area`` 等可能缺失的字段。
+        """
+        warehouses = df["warehouse"].astype("string")
+        is_subtotal = warehouses.isin(WAREHOUSE_RECEIPT_SUBTOTAL_WAREHOUSES)
+        if not is_subtotal.any():
+            return df
+        return df.loc[~is_subtotal].copy()
 
     def _validate_aggregate_identity(self, df: pd.DataFrame) -> None:
         """确保聚合结果中的品种身份字段具有唯一且非空的取值。"""
