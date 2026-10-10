@@ -107,6 +107,11 @@ class ProductMetaManager:
             max_margin_side_algorithm=bool(raw['max_margin_side_algorithm']),
             combination_type=int(raw['combination_type']),
             list_date=date.fromisoformat(str(raw['list_date'])),
+            # 只有因品种更换代码而退市的品种才写入 delist_date（取最后一个合约的最后交易日）；
+            # 仍在市的品种 YAML 里没有这个键，此处统一归一为 None。
+            delist_date=(
+                date.fromisoformat(str(raw['delist_date'])) if raw.get('delist_date') else None
+            ),
         )
 
     def get_price_tick(self, product: str, trading_date: date) -> PriceTickRule:

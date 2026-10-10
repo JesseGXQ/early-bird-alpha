@@ -8,6 +8,7 @@ combination_type: 0
 last_contract_deliv_YYYYMM: '201305'
 successor: WH
 list_date: 2003-03-28
+delist_date: 2013-05-23
 
 # -------------------- price tick rule --------------------
 price_tick_history:

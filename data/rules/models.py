@@ -28,7 +28,15 @@ class StaticMeta:
         组合类型。
     list_date: datetime.date
         品种上市日期。
-    
+    delist_date: datetime.date | None
+        品种退市日期。
+
+        **注意口径**：这里的“退市”专指**品种更换代码**（例如郑商所 WS 换 WH、ME 换 MA）导致的旧代码不再使用，
+        取值等于**该品种最后一个合约的最后交易日**（`InstrumentRegistry.last_trade_date`），
+        而不是交易所公告的挂牌终止日，也不是最后一个合约的最后交割日（`end_deliv_date`）。
+
+        取值为 ``None`` 表示该品种仍在市，其旧代码未被新代码替代。
+
     """
     product: str
     exchange: str
@@ -39,6 +47,7 @@ class StaticMeta:
     max_margin_side_algorithm: bool
     combination_type: int
     list_date: date
+    delist_date: date | None
 
 @dataclass(frozen=True)
 class PriceTickRule:

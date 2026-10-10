@@ -8,6 +8,7 @@ combination_type: 0
 last_contract_deliv_YYYYMM: '201604'
 successor: ZC
 list_date: 2013-09-26
+delist_date: 2016-04-08
 
 # -------------------- price tick rule --------------------
 price_tick_history:
