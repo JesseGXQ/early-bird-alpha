@@ -1,6 +1,7 @@
 """Carry 类因子。"""
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any, Literal, Mapping
 
 import numpy as np
@@ -9,6 +10,8 @@ import pandas as pd
 from factors.library.base import Factor
 from factors.models import (DataRequirement, FactorState, 
                             IncrementalFactorResult, INDEX_NAMES)
+
+logger = logging.getLogger(__name__)
 
 
 type _RY_COMBO = Literal[
@@ -79,6 +82,8 @@ class RollYieldFactor(Factor):
         pd.Series
             因子值Series。MultiIndex[timestamp, product]
         """
+        self.warnings.clear() # 每次批量计算前清空上一轮累积的警告
+
         term_df = data.copy()
 
         term_df['days_to_last_trade'] = (
@@ -109,12 +114,17 @@ class RollYieldFactor(Factor):
                     f'根据 combination ={self.combination} 选择合约时出错。'
                     f'错误原因为 {msg}'
                 )
+                rst_dict[(ts,prod)] = np.nan
                 continue
 
             roll_yield = self._compute_roll_yield(df, near, far)
             rst_dict[(ts,prod)] = roll_yield
 
         idx = pd.MultiIndex.from_tuples(rst_dict.keys(), names=INDEX_NAMES)
+        if self.warnings: # 汇总提示，避免刷屏；具体明细见 self.warnings
+            logger.warning(
+                f'【{self.name}】本次计算共记录 {len(self.warnings)} 条警告，'
+                f'明细见该因子的 warnings 属性。')
         return pd.Series(rst_dict.values(), index=idx, name=self.name)
 
     def _compute_roll_yield(self, df: pd.DataFrame, near: str, far: str) -> float:
@@ -137,11 +147,11 @@ class RollYieldFactor(Factor):
         """
         根据 combination ，选择并返回 (近月合约，远月合约)。
         当出错时，返回 `(None, None, error_msg)`。
-        出错条件：近月=主力；找不到次主力（到期日晚于主力，持仓量小于主力）。
+        出错条件：当期无主力；近月=主力；找不到次主力（到期日晚于主力，持仓量小于等于主力）。
         """
-        def assert_has_dominant(df):
-            assert df['is_dominant'].any(), \
-                  '主力合约缺失，无法选出 combination 为 near_dominant 时的远月合约。'
+        def has_dominant(df: pd.DataFrame) -> bool:
+            """判断当前截面是否存在主力合约。"""
+            return bool(df['is_dominant'].any())
 
         assert len(df) > 1 # 该方法必须要求至少两个合约
 
@@ -153,7 +163,8 @@ class RollYieldFactor(Factor):
             far  = df.index[df['lifespan_rank'] == 2][0]
 
         elif self.combination == 'near_dominant':
-            assert_has_dominant(df)
+            if not has_dominant(df):
+                return None, None, 'error: 当期无主力'
             near = df.index[df['lifespan_rank'] == 1][0]
             far  = df.index[df['is_dominant']][0]
             if near == far: # 近月合约就是主力，此时近月=远月
@@ -165,7 +176,8 @@ class RollYieldFactor(Factor):
 
         elif self.combination == 'dominant_secondary': 
             # 选出到期日晚于主力，持仓量小于等于主力的合约中，持仓量最大的那张
-            assert_has_dominant(df)
+            if not has_dominant(df):
+                return None, None, 'error: 当期无主力'
             near = df.index[df['is_dominant']][0]
             lifespan_rank_dom = df.loc[df['is_dominant'], 'lifespan_rank'].squeeze()
             oi_dom = df.loc[df['is_dominant'], 'OpenInterest'].squeeze()
