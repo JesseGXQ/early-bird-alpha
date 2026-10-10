@@ -822,5 +822,83 @@ class ProductCalendar:
             for instrument, trading_date, t in zip(instruments, trading_dates, t_s)
         ])
 
+    def _validate_date_in_life_cycle(self, trading_date: date, ) -> None:
+        """检验 trading_date 是否属于品种生命周期以内。
+        即大于等于品种上市日期， 且小于等于品种退市日期。"""
+        meta = self.meta_manager.get_static_meta(product=self.product)
+        list_date = meta.list_date
+        delist_date = meta.delist_date
+        if delist_date is None:
+            end_before_delist = True
+        else:
+            end_before_delist = trading_date <= delist_date
+        start_after_list = trading_date >= list_date
+        if not start_after_list:
+            raise ValueError(
+                f'交易日必须大于等于品种 {self.product} 的上市日期 {list_date}，'
+                f'现在为 {trading_date}。'
+            )
+        if not end_before_delist:
+            raise ValueError(
+                f'交易日必须小于等于品种 {self.product} 的退市日期 {delist_date}，'
+                f'现在为 {trading_date}。'
+            )
+        
+
+    def get_trading_dates_in_date_range(
+            self, 
+            start_date: date,
+            end_date: date,
+            check_input_using_lifecycle: bool = True
+    ) -> pd.DatetimeIndex:
+        """获取选定日期范围（start_date, end_date) 内，
+        品种在交易日历中的所有交易日。"""
+        if check_input_using_lifecycle:
+            self._validate_date_in_life_cycle(trading_date=start_date)
+            self._validate_date_in_life_cycle(trading_date=end_date)
+        
+        meta = self.meta_manager.get_static_meta(product=self.product)
+        list_date = meta.list_date
+        delist_date = meta.delist_date
+
+        slice_start = max(list_date, start_date)
+        slice_end = min(delist_date, end_date) if delist_date is not None else end_date
+
+        if pd.Timestamp(slice_start) < self.exchange_trading_dates[0]:
+            raise ValueError(f'切片开始日期为 {slice_start}，'
+                             f'早于交易日历最早日期 {self.exchange_trading_dates[0].date()}')
+        if pd.Timestamp(slice_end) > self.exchange_trading_dates[-1]:
+            raise ValueError(f'切片截止日期为 {slice_end}，'
+                             f'晚于交易日历最晚日期 {self.exchange_trading_dates[-1].date()}') 
+
+        return self.exchange_trading_dates[
+            self.exchange_trading_dates.slice_indexer(
+                start=slice_start, end=slice_end)
+        ] 
+
+    def get_trading_timestamps_in_date_range(
+            self, 
+            start_date: date, 
+            end_date: date,
+            freq: str,
+            check_input_using_lifecycle: bool = True
+    ) -> pd.DatetimeIndex:
+        """获取选定日期范围内，特定频率下，品种的完美（无空缺）交易时间戳。"""
+        if freq == '1d':
+            return self.get_trading_dates_in_date_range(
+                start_date=start_date,
+                end_date=end_date,
+                check_input_using_lifecycle=check_input_using_lifecycle
+            )
+        ...
+            
+
+        
+
+
+
+
+
+        
 
     
