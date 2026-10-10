@@ -33,7 +33,7 @@ class BarAggregator:
 
     Methods
     ------
-    aggregate(raw_df, freq, add_trading_date_col)
+    aggregate(raw_df, freq, view)
         核心降频采样运算。
     
     """

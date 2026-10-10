@@ -116,6 +116,71 @@ def test_feed_aggregates_single_unit_by_product_and_trading_date():
     assert result.loc[0, "unit"] == "吨"
 
 
+def test_feed_excludes_subtotal_rows_from_aggregation():
+    # “合计”是分地区小计，不是独立仓库记录；与明细一同加总会重复计数。
+    frame = make_frame().iloc[[0, 1]].copy()
+    frame["trading_date"] = pd.Timestamp("2026-01-05")
+    subtotal = frame.iloc[[0]].copy()
+    subtotal["warehouse"] = "合计"
+    subtotal["receipt_quantity"] = 30
+    frame = pd.concat([frame, subtotal], ignore_index=True)
+    feed = FundamentalFeed("ZN", FrameLoader(frame))
+
+    result = feed.get_warehouse_receipt_data(aggregate=True)
+
+    assert len(result) == 1
+    # 20 + 10，而非再叠加合计行的 30
+    assert result.loc[0, "receipt_quantity"] == 30
+    assert result.loc[0, "previous_receipt_quantity"] == 30
+
+
+def test_feed_excludes_grand_total_rows_from_aggregation():
+    frame = make_frame().iloc[[0]].copy()
+    grand_total = frame.copy()
+    grand_total["warehouse"] = "总计"
+    grand_total["receipt_quantity"] = 999
+    feed = FundamentalFeed("ZN", FrameLoader(pd.concat([frame, grand_total])))
+
+    result = feed.get_warehouse_receipt_data(aggregate=True)
+
+    assert result.loc[0, "receipt_quantity"] == 20
+
+
+def test_feed_keeps_subtotal_rows_in_detail_output():
+    frame = make_frame().iloc[[0]].copy()
+    subtotal = frame.copy()
+    subtotal["warehouse"] = "合计"
+    feed = FundamentalFeed("ZN", FrameLoader(pd.concat([frame, subtotal])))
+
+    result = feed.get_warehouse_receipt_data(aggregate=False)
+
+    assert sorted(result["warehouse"].tolist()) == ["乙仓", "合计"]
+
+
+def test_feed_rejects_aggregation_when_only_subtotal_rows_remain():
+    frame = make_frame().iloc[[0]].copy()
+    frame["warehouse"] = "合计"
+    feed = FundamentalFeed("ZN", FrameLoader(frame))
+
+    with pytest.raises(ValueError, match="只有“合计”“总计”小计行"):
+        feed.get_warehouse_receipt_data(aggregate=True)
+
+
+def test_feed_aggregation_ignores_subtotal_warehouses_with_different_area():
+    # 剔除只依据 warehouse 标签，不依赖 area 是否缺失。
+    frame = make_frame().iloc[[0, 1]].copy()
+    frame["trading_date"] = pd.Timestamp("2026-01-05")
+    subtotal = frame.iloc[[0]].copy()
+    subtotal["warehouse"] = "合计"
+    subtotal["area"] = pd.NA
+    subtotal["receipt_quantity"] = 20
+    feed = FundamentalFeed("ZN", FrameLoader(pd.concat([frame, subtotal])))
+
+    result = feed.get_warehouse_receipt_data(aggregate=True)
+
+    assert result.loc[0, "receipt_quantity"] == 30
+
+
 def test_feed_rejects_multi_unit_aggregation_without_conversion():
     feed = FundamentalFeed("ZN", FrameLoader(make_multi_unit_frame()))
 

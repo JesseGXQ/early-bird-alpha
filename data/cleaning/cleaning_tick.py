@@ -53,7 +53,9 @@ class InstrumentCodeTranslator(FilterBase):
         unique_InstrumentID_TradingDay_pairs = cleaned_df[['InstrumentID', 'TradingDay']].dropna().drop_duplicates().to_records(index=False)
         _data = []
         for instrument_id, trading_day in unique_InstrumentID_TradingDay_pairs:
-            trading_date = pd.to_datetime(trading_day).date()
+            # TICK 原始数据中 TradingDay 为整型 YYYYMMDD，必须先转成字符串再解析；
+            # 否则 pd.to_datetime 会把整数当作 epoch 纳秒时间戳，解析出 1970-01-01。
+            trading_date = pd.to_datetime(str(trading_day)).date()
             assert isinstance(trading_date, date)
             internal_code = self.registry_manager.translate_code('exchange_to_internal', instrument_id, trading_date)
             _data.append((internal_code, trading_day, instrument_id))

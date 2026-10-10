@@ -80,7 +80,7 @@ def test_bar_aggregator(meta_manager, rule_service, exchange_calendar_manager):
     print(_select_time_window(standard_df, display_start, display_end).index)
 
     try:
-        result = aggregator.aggregate(raw_df=raw_df, freq='5min', add_trading_date_col=True)
+        result = aggregator.aggregate(raw_df=raw_df, freq='5min')
     except Exception as exc:
         print('\n[BarAggregator Test] aggregate(freq="5min") 执行失败：')
         print(f'{type(exc).__name__}: {exc}')

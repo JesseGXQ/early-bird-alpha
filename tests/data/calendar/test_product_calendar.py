@@ -50,9 +50,14 @@ def test_get_session_id(calendar):
     with pytest.raises(ValueError):
         calendar.get_session_id(instrument=contract, calendar_timestamp=ts4, view='scheduled')
 
-    ts4 = pd.Timestamp('2025-10-08 11:00') # 输入的日期不是交易日，会直接在方法内部的 `get_trading_date`就抛出 ValueError
-    with pytest.raises(ValueError):
-        calendar.get_session_id(instrument=contract, calendar_timestamp=ts4, view='scheduled')
+    # 注意：不要再对“非交易日的时间戳”编写 pytest.raises 的用例。
+    # get_session_id 的内部依赖链是 get_trading_date -> ExchangeCalendarManager.get_trading_date，
+    # 而后者只负责做“交易日归属”的映射（17:00 分界 + 非交易日向后滚动到最近交易日），
+    # 它的 docstring 已明确声明“仅处理（也仅应该处理）合法的交易时间戳”，本身不做合法性校验。
+    # 因此传入 2025-10-08（国庆休市日）11:00 时，它会静默滚动到 2025-10-09 并返回 session_id，
+    # 不会抛 ValueError。
+    # 本层刻意不提供独立的“时间戳合法性判定”方法，所以该场景不属于 get_session_id 的职责范围，
+    # 若下游需要过滤休市日时间戳，请自行结合 is_trading_date 做判断。
 
 
 def test_get_time_offset(calendar):

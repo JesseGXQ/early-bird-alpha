@@ -106,11 +106,16 @@ def test_price_limit_filter_limit_down():
 # 3. 测试 InstrumentCodeTranslator
 # ==========================================
 
-def test_instrument_code_translator(registry_manager):
+def test_instrument_code_translator(meta_manager, registry_manager):
     """
     测试合约代码翻译器。
     """
-    translator = InstrumentCodeTranslator(registry_manager=registry_manager)
+    # AP(苹果) 属于郑商所，走 CZCE 3 位 -> 4 位补全的翻译分支
+    translator = InstrumentCodeTranslator(
+        meta_manager=meta_manager,
+        registry_manager=registry_manager,
+        product='ap'
+    )
 
     test_df = pd.DataFrame({
         'InstrumentID': ['AP805'],
@@ -215,7 +220,11 @@ def test_pipeline(exchange_calendar_manager, meta_manager, rule_service, registr
     # 3. 组装完整清洗流水线
     # ----------------------------------------------------------
     pipeline = CleaningPipeline()
-    pipeline.add_filter(InstrumentCodeTranslator(registry_manager=registry_manager))
+    pipeline.add_filter(InstrumentCodeTranslator(
+        meta_manager=meta_manager,
+        registry_manager=registry_manager,
+        product='rb'
+    ))
     pipeline.add_filter(DataEnricherPriceLimit(
         product='RB',
         daily_snapshot_manager=daily_snapshot_manager
