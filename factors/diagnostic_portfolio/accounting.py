@@ -12,29 +12,43 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class DecisionRecord:
+    """单期决策记录（权重已由调用方写入矩阵，此处只保留旁路信息）。
+
+    Notes
+    -----
+    权重本身不再逐期留存：权重机已改为返回 ``np.ndarray``，由实验运行器直接
+    写入 ``(T, P)`` 矩阵，再一次性展开成权重序列（见
+    :func:`build_weights_series`）。逐期留存 7000 多个 Series 既无消费者，
+    也是纯粹的对象开销。
+    """
+
     timestamp: pd.Timestamp
-    weights: pd.Series
     rebalance: bool
     weight_warnings: tuple[str, ...]
     weight_meta: WeightMeta
+
 
 class DecisionLedger:
 
     def __init__(self):
         self._book: list[DecisionRecord] = []
+        self._warnings_rows: list[
+            tuple[pd.Timestamp | None, tuple[str, ...]]] = []
+        self._meta_rows: list[tuple[pd.Timestamp | None, WeightMeta]] = []
 
     def append(self, record: DecisionRecord) -> None:
         self._book.append(record)
 
-    def to_weights_series(self,) -> pd.Series:
-        """返回所记录的权重数据。
-        返回Series, Index[timestamp, product]
-        """
-        return pd.concat(
-            [record.weights for record in self._book],
-            keys=[record.timestamp for record in self._book], # 在最外侧新增一层索引
-            axis=0
-        ).rename('weight').rename_axis(['timestamp', 'product'])
+    def append_warnings(self, warnings: tuple[str, ...], *,
+                        timestamp: pd.Timestamp) -> None:
+        """只登记某一期的警告（权重已由调用方写入矩阵时使用）。"""
+        if warnings:
+            self._warnings_rows.append((timestamp, warnings))
+
+    def append_meta(self, meta: WeightMeta, *,
+                    timestamp: pd.Timestamp) -> None:
+        """只登记某一期的元数据（权重已由调用方写入矩阵时使用）。"""
+        self._meta_rows.append((timestamp, meta))
 
     @property
     def warnings(self, ) -> tuple[str,...]:
@@ -42,9 +56,11 @@ class DecisionLedger:
         warnings: list[str] = []
         for record in self._book:
             if record.weight_warnings:
-                _text = f'{record.timestamp.isoformat()} : ' + \
-                f'{"；".join(record.weight_warnings)}' # looks like： 2025-01-02T00:00:00 : 警告1；警告2；警告3
-                warnings.append(_text)
+                warnings.append(_format_warning(record.timestamp,
+                                                record.weight_warnings))
+        for timestamp, group in self._warnings_rows:
+            if group:
+                warnings.append(_format_warning(timestamp, group))
         return tuple(warnings)
 
     @property
@@ -59,22 +75,28 @@ class DecisionLedger:
             - 'covariance_estimation': pd.DataFrame(Index[timestamp]) or None, 
 
         """
-        re_dict = {}
+        metas = [record.weight_meta for record in self._book]
+        metas.extend(meta for _, meta in self._meta_rows)
+        stamps = [record.timestamp for record in self._book]
+        stamps.extend(ts for ts, _ in self._meta_rows)
 
-        # 1. weight_meta
         rows: list[pd.DataFrame] = []
-        for record in self._book:
-            m = record.weight_meta.cov_mat_estimation_meta
+        for timestamp, meta in zip(stamps, metas):
+            m = meta.cov_mat_estimation_meta
             if isinstance(m, pd.Series):
-                row = m.rename(record.timestamp).to_frame().T
-                rows.append(row)
-        if rows:
-            cov_est_meta_df = pd.concat(rows, axis=0)
-        else:
-            cov_est_meta_df = None
-        re_dict['covariance_estimation'] = cov_est_meta_df
+                rows.append(m.rename(timestamp).to_frame().T)
+        cov_est_meta_df = pd.concat(rows, axis=0) if rows else None
+        return {'covariance_estimation': cov_est_meta_df}
 
-        return re_dict
+
+def _format_warning(timestamp: pd.Timestamp | None,
+                    group: tuple[str, ...]) -> str:
+    """把单期警告格式化成一个条目。
+
+    looks like： 2025-01-02T00:00:00 : 警告1；警告2；警告3
+    """
+    prefix = f'{timestamp.isoformat()} : ' if timestamp is not None else ''
+    return f'{prefix}{"；".join(group)}'
 
 def compute_weight_changes_turnover_cost(
         weights: pd.Series, cost_config: CostConfig) \

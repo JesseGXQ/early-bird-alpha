@@ -64,30 +64,39 @@ def align_inputs(
     return experiment_panel.sort_index(level=['timestamp','product'])
 
 @dataclass(frozen=True)
-class PanelAxes:
-    """把 ragged long panel 展开成的三个宽表视图。
+class PanelArrays:
+    """把 ragged long panel 展开成的三个 ``(T, P)`` 矩阵。
 
-    每个宽表都是 Index[timestamp] x columns[product] 的完整矩形，
-    品种在该时点无数据的位置为缺失值。
+    行对应 ``timestamps``，列对应 ``products``；品种在该时点无数据的位置为
+    缺失值（``eligible`` 为 False）。
     """
 
-    signal: pd.DataFrame
-    eligible: pd.DataFrame
-    true_return: pd.DataFrame
+    signal: np.ndarray      # (T, P) float64
+    eligible: np.ndarray    # (T, P) bool
+    true_return: np.ndarray # (T, P) float64
+    timestamps: pd.DatetimeIndex
+    products: pd.Index
+
+    @property
+    def n_timestamps(self) -> int:
+        return self.signal.shape[0]
+
+    @property
+    def n_products(self) -> int:
+        return self.signal.shape[1]
 
 
-def build_panel_axes(
+def build_panel_arrays(
         panel: pd.DataFrame,
         timeline: pd.DatetimeIndex,
         products: list[str],
-) -> PanelAxes:
-    """把 ragged long panel 一次性展开成 (timestamp, product) 宽表。
+) -> PanelArrays:
+    """把 ragged long panel 一次性展开成 ``(timestamp, product)`` 矩阵。
 
-    展开后每个时点的行就是全品种对齐好的切片，与
-    :meth:`WeightStateMachine._align_index` 逐期 reindex 的结果一致；
-    差异仅在于原本「不存在的 (时点, 品种) 组合」在这里是显式的缺失值。
-    这样实验主循环里就不必逐期做 ``xs`` / ``reset_index`` / ``droplevel``，
-    也不必逐期 reindex。
+    展开后每个时点的一行就是全品种对齐好的切片，与权重机逐期 reindex 的
+    结果一致；差异仅在于原本「不存在的 (时点, 品种) 组合」在这里是显式的
+    缺失值。这样实验主循环里就不必逐期做 ``xs`` / ``reset_index`` /
+    ``droplevel``，也不必逐期 reindex，主循环内只做 numpy 切片。
 
     Parameters
     ----------
@@ -95,14 +104,14 @@ def build_panel_axes(
         研究主面板，Index[timestamp, product]，含 true_return / eligible /
         signal 三列。
     timeline : pd.DatetimeIndex
-        全局时间轴；宽表的行索引与之完全一致。
+        全局时间轴；矩阵的行顺序与之完全一致。
     products : list of str
-        参与组合的全部品种代码；宽表的列索引与之完全一致。
+        参与组合的全部品种代码；矩阵的列顺序与之完全一致。
 
     Returns
     -------
-    PanelAxes
-        三个宽表视图，行索引为 timeline、列索引为 products。
+    PanelArrays
+        三个矩阵视图。
 
     Raises
     ------
@@ -112,26 +121,64 @@ def build_panel_axes(
     Notes
     -----
     ``eligible`` 经 unstack 后缺失格为 NaN，使 bool 列退化为 object dtype，
-    这里显式还原为 bool，以满足下游把它当掩码使用的要求。
+    这里直接取成 bool 数组，以满足下游把它当掩码使用的要求。
 
     """
     if not panel.index.is_unique:
-        raise ValueError('研究主面板索引必须唯一，才能展开成宽表。')
+        raise ValueError('研究主面板索引必须唯一，才能展开成矩阵。')
     if list(panel.index.names) != list(INDEX_NAMES):
         raise ValueError(
             f'研究主面板索引层级名必须为 {list(INDEX_NAMES)}，'
             f'实际为 {list(panel.index.names)}。')
 
-    def _wide(column: str) -> pd.DataFrame:
+    def _matrix(column: str) -> np.ndarray:
         return panel[column].unstack(level='product')\
-            .reindex(index=timeline, columns=products)
+            .reindex(index=timeline, columns=products).to_numpy()
 
-    eligible = _wide('eligible').fillna(False).astype(bool)
-    return PanelAxes(
-        signal=_wide('signal'),
-        eligible=eligible,
-        true_return=_wide('true_return'),
+    return PanelArrays(
+        signal=_matrix('signal'),
+        eligible=_matrix('eligible').astype(bool),
+        true_return=_matrix('true_return'),
+        timestamps=timeline,
+        products=pd.Index(products, name=INDEX_NAMES[1]),
     )
+
+
+def build_weights_series(
+        weights_matrix: np.ndarray,
+        timestamps: pd.DatetimeIndex,
+        products: pd.Index,
+) -> pd.Series:
+    """把 ``(T, P)`` 权重矩阵一次性展开成 ``Index[timestamp, product]`` 的 Series。
+
+    等价于逐期构造 MultiIndex 再 ``concat``，但只做一次 levels/codes 组装，
+    不经过 MultiIndex 与 Series 的反复重建。
+
+    Parameters
+    ----------
+    weights_matrix : np.ndarray
+        ``(T, P)`` 的权重矩阵。
+    timestamps : pd.DatetimeIndex
+        行时间戳。
+    products : pd.Index
+        列品种。
+
+    Returns
+    -------
+    pd.Series
+        dtype float64、name 为 ``'weight'`` 的权重序列。
+
+    """
+    n_t, n_p = weights_matrix.shape
+    multi_index = pd.MultiIndex(
+        levels=[pd.DatetimeIndex(timestamps, name=INDEX_NAMES[0]), products],
+        codes=[np.repeat(np.arange(n_t, dtype=np.intp), n_p),
+               np.tile(np.arange(n_p, dtype=np.intp), n_t)],
+        names=list(INDEX_NAMES),
+        verify_integrity=False,
+    )
+    return pd.Series(
+        weights_matrix.ravel(), index=multi_index, name='weight', copy=False)
 
 
 def build_global_timeline(panel: pd.DataFrame) -> pd.DatetimeIndex:
@@ -244,40 +291,34 @@ class DiagnosticPortfolioExperimentRunner:
         assert len(timeline) - 1 == len(rebalance_flags)
         # 启动权重状态机
         machine = self._start_machine(products=products)
-        # 新建决策记账本
+
+        # 一次性把 ragged long panel 展开成 (timestamp, product) 矩阵，
+        # 使主循环内只需按行做 numpy 切片，不产生任何 pandas 索引开销。
+        arrays = build_panel_arrays(
+            panel=panel, timeline=timeline, products=products)
+        n_decisions = arrays.n_timestamps - 1
+
+        weights_matrix = np.empty(
+            (n_decisions, arrays.n_products), dtype=float)
         ledger = DecisionLedger()
 
-        # 一次性把 ragged long panel 展开成 (timestamp, product) 宽表，
-        # 使主循环内只需按行取全品种对齐好的切片。
-        axes = build_panel_axes(
-            panel=panel, timeline=timeline, products=products)
-
-        for timestamp in timeline[:-1]:
-            rebalance: bool = rebalance_flags.at[timestamp]
-            eligible = axes.eligible.loc[timestamp] # Index[product], bool
-            signal = axes.signal.loc[timestamp] # Index[product]，缺失为 NaN
-            ret = axes.true_return.loc[timestamp] # Index[product]，缺失为 NaN
-            # 更新权重状态机，得到新一期权重
+        for i, timestamp in enumerate(timeline[:-1]):
+            rebalance: bool = bool(rebalance_flags.iat[i])
             current_weights = machine.update(
-                rebalance=rebalance, 
-                eligible=eligible,
-                signal=signal,
-                ret=ret,
-                timestamp=timestamp 
+                rebalance=rebalance,
+                eligible=arrays.eligible[i],
+                signal=arrays.signal[i],
+                ret=arrays.true_return[i],
+                timestamp=timestamp,
             )
-            weights, warnings, weight_meta = (
-                current_weights.weights, 
-                current_weights.warnings, 
-                current_weights.metadata
-            )
-            # 记录该时间戳的权重、再平衡标记和其他数据
-            record = DecisionRecord(
-                timestamp=timestamp, weights=weights, rebalance=rebalance,
-                weight_warnings=warnings, weight_meta=weight_meta
-            )
-            ledger.append(record)
+            weights_matrix[i] = current_weights.weights
+            # 只记账警告与元数据；权重已进矩阵，无需逐期留 Series
+            ledger.append_warnings(current_weights.warnings,
+                                   timestamp=timestamp)
+            ledger.append_meta(current_weights.metadata, timestamp=timestamp)
 
-        weights = ledger.to_weights_series()
+        weights = build_weights_series(
+            weights_matrix, arrays.timestamps[:-1], arrays.products)
         warnings_ledger = ledger.warnings
         metadata_ledger = ledger.metadata
 

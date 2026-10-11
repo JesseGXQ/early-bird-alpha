@@ -526,89 +526,82 @@ def test_performance_empty_returns() -> None:
 
 
 # ============================================================
-# DecisionLedger：权重/警告/协方差元数据记账
+# build_weights_series / DecisionLedger 记账
 # ============================================================
-def test_decision_ledger_to_weights_series() -> None:
-    """决策记录册输出 MultiIndex[timestamp, product] 权重。"""
-    from factors.diagnostic_portfolio.accounting import (
-        DecisionLedger, DecisionRecord)
-    from factors.diagnostic_portfolio.weights import WeightMeta
+def test_build_weights_series_multiindex() -> None:
+    """权重矩阵一次性展开成 MultiIndex[timestamp, product] 权重。"""
+    from factors.diagnostic_portfolio.experiment import build_weights_series
 
-    ts0 = pd.Timestamp('2024-01-01')
-    ts1 = pd.Timestamp('2024-01-02')
-    ledger = DecisionLedger()
-    ledger.append(DecisionRecord(
-        timestamp=ts0, weights=pd.Series([0.5, -0.5], index=['A', 'B']),
-        rebalance=True, weight_warnings=(), weight_meta=WeightMeta(None)))
-    ledger.append(DecisionRecord(
-        timestamp=ts1, weights=pd.Series([0.2, -0.2], index=['A', 'B']),
-        rebalance=False, weight_warnings=(), weight_meta=WeightMeta(None)))
+    stamps = pd.DatetimeIndex(['2024-01-01', '2024-01-02'])
+    products = pd.Index(['A', 'B'], name='product')
+    matrix = np.array([[0.5, -0.5], [0.2, -0.2]])
 
-    weights = ledger.to_weights_series()
+    weights = build_weights_series(matrix, stamps, products)
 
     assert tuple(weights.index.names) == ('timestamp', 'product')
     assert weights.index.is_unique
+    assert weights.name == 'weight'
     assert weights.tolist() == [0.5, -0.5, 0.2, -0.2]
+
+
+def test_build_weights_series_matches_row_wise_concat() -> None:
+    """与逐期构造 MultiIndex 再 concat 的结果逐值相同。"""
+    from factors.diagnostic_portfolio.experiment import build_weights_series
+
+    stamps = pd.DatetimeIndex(['2024-01-01', '2024-01-02', '2024-01-03'])
+    products = pd.Index(['A', 'B', 'C'], name='product')
+    matrix = np.array([[0.5, -0.5, 0.0],
+                       [0.2, -0.2, 0.0],
+                       [0.1, -0.1, 0.0]])
+
+    got = build_weights_series(matrix, stamps, products)
+    expected = pd.concat(
+        [pd.Series(row, index=products) for row in matrix],
+        keys=stamps, axis=0
+    ).rename('weight').rename_axis(['timestamp', 'product'])
+
+    pd.testing.assert_series_equal(got, expected)
 
 
 def test_decision_ledger_warnings_prefix_timestamp() -> None:
     """回归：警告需带决策时点前缀，且空警告记录被跳过。"""
-    from factors.diagnostic_portfolio.accounting import (
-        DecisionLedger, DecisionRecord)
+    from factors.diagnostic_portfolio.accounting import DecisionLedger
     from factors.diagnostic_portfolio.weights import WeightMeta
 
     ts = pd.Timestamp('2024-01-02')
     ledger = DecisionLedger()
-    ledger.append(DecisionRecord(
-        timestamp=pd.Timestamp('2024-01-01'),
-        weights=pd.Series([0.0], index=['A']),
-        rebalance=True, weight_warnings=(), weight_meta=WeightMeta(None)))
-    ledger.append(DecisionRecord(
-        timestamp=ts, weights=pd.Series([0.0], index=['A']),
-        rebalance=True, weight_warnings=('w1', 'w2'),
-        weight_meta=WeightMeta(None)))
+    ledger.append_warnings((), timestamp=pd.Timestamp('2024-01-01'))
+    ledger.append_warnings(('w1', 'w2'), timestamp=ts)
 
-    warnings = ledger.warnings
-
-    assert warnings == (f'{ts.isoformat()} : w1；w2',)
+    assert ledger.warnings == (f'{ts.isoformat()} : w1；w2',)
 
 
 def test_decision_ledger_metadata_covariance_estimation() -> None:
     """协方差估计元数据按决策时点汇总为 DataFrame。"""
-    from factors.diagnostic_portfolio.accounting import (
-        DecisionLedger, DecisionRecord)
+    from factors.diagnostic_portfolio.accounting import DecisionLedger
     from factors.diagnostic_portfolio.weights import WeightMeta
 
     ts0 = pd.Timestamp('2024-01-01')
     ts1 = pd.Timestamp('2024-01-02')
     ledger = DecisionLedger()
-    ledger.append(DecisionRecord(
-        timestamp=ts0, weights=pd.Series([0.0], index=['A']),
-        rebalance=True, weight_warnings=(),
-        weight_meta=WeightMeta(
-            pd.Series({'valid_prod_count': 2, 'min_eigen': 0.1}))))
-    ledger.append(DecisionRecord(
-        timestamp=ts1, weights=pd.Series([0.0], index=['A']),
-        rebalance=True, weight_warnings=(), weight_meta=WeightMeta(None)))
+    ledger.append_meta(
+        WeightMeta(pd.Series({'valid_prod_count': 2, 'min_eigen': 0.1})),
+        timestamp=ts0)
+    ledger.append_meta(WeightMeta(None), timestamp=ts1)
 
-    meta = ledger.metadata
+    cov_meta = ledger.metadata['covariance_estimation']
 
-    cov_meta = meta['covariance_estimation']
     assert cov_meta is not None
     assert list(cov_meta.index) == [ts0]
     assert cov_meta.loc[ts0, 'valid_prod_count'] == 2
 
 
 def test_decision_ledger_metadata_without_covariance_is_none() -> None:
-    from factors.diagnostic_portfolio.accounting import (
-        DecisionLedger, DecisionRecord)
+    from factors.diagnostic_portfolio.accounting import DecisionLedger
     from factors.diagnostic_portfolio.weights import WeightMeta
 
     ledger = DecisionLedger()
-    ledger.append(DecisionRecord(
-        timestamp=pd.Timestamp('2024-01-01'),
-        weights=pd.Series([0.0], index=['A']),
-        rebalance=True, weight_warnings=(), weight_meta=WeightMeta(None)))
+    ledger.append_meta(WeightMeta(None), timestamp=pd.Timestamp('2024-01-01'))
 
     assert ledger.metadata['covariance_estimation'] is None
 

@@ -7,8 +7,9 @@
     - ts_inv_vol_gross_one / ts_inv_vol_target_vol：clip、逆波动率、
       gross-one、目标波动率缩放、max_gross、单品种 clip、退化空仓
 
-所有用例仅使用 synthetic Series，风险管理器通过实例打桩提供确定的
-波动率/协方差结果，从而可以逐项手工复算。
+状态机内部一律以 ``np.ndarray`` 承载权重（位置与 ``products`` 排序一致），
+因此断言直接比对数组。风险管理器通过实例打桩提供确定的波动率/协方差结果，
+从而可以逐项手工复算。
 """
 
 from __future__ import annotations
@@ -28,14 +29,13 @@ from factors.diagnostic_portfolio.risk import ExAntePortfolioVolatility
 from factors.diagnostic_portfolio.weights import (
     MarketRankLSWeightStateMachine,
     TSInverseVolatilityWeightMachine,
+    _average_rank,
 )
 from factors.profiles import (
     market_rank_ls,
     ts_inv_vol_gross_one,
     ts_inv_vol_target_vol,
 )
-
-INDEX_NAMES = ('timestamp', 'product')
 
 
 # ============================================================
@@ -82,38 +82,62 @@ def _target_vol_spec(*, max_gross=10.0, max_scaler=5.0,
     )
 
 
-def _eligible(products, flags=None) -> pd.Series:
-    return pd.Series(
-        True if flags is None else flags, index=products, dtype=bool)
+def _eligible(products, flags=None) -> np.ndarray:
+    return np.asarray(
+        [True] * len(products) if flags is None else flags, dtype=bool)
 
 
-def _ret(products) -> pd.Series:
-    """当期收益率：Index[product]。时间戳由 update(timestamp=...) 单独传入。"""
-    return pd.Series(0.0, index=products)
+def _ret(products) -> np.ndarray:
+    """当期收益率。时间戳由 update(timestamp=...) 单独传入。"""
+    return np.zeros(len(products), dtype=float)
 
 
 _RET_TS = pd.Timestamp('2024-01-01')
 
 
-def _same(left: pd.Series, right: pd.Series) -> None:
-    pd.testing.assert_series_equal(
-        left, right, check_names=False, check_dtype=False, atol=1e-12)
+def _same(left: np.ndarray, right) -> None:
+    """逐值比较权重向量。"""
+    np.testing.assert_allclose(
+        np.asarray(left, dtype=float),
+        np.asarray(right, dtype=float),
+        rtol=0, atol=1e-12)
 
 
-def _stub_uniform_vol(machine, mapping: dict[str, float]) -> None:
-    """把风险管理器的单品种波动率替换为给定映射。"""
-    machine._risk_manager.ex_ante_volatility = \
-        lambda: pd.Series(mapping, dtype=float)
+def _stub_uniform_vol(machine, mapping: list[float]) -> None:
+    """把风险管理器的单品种波动率替换为给定向量。"""
+    machine._risk_manager.ex_ante_volatility = lambda: np.asarray(
+        mapping, dtype=float)
 
 
-def _stub_cov(machine, value: float, warnings=()) -> None:
+def _stub_cov(machine, value: float, warnings=(),
+              invalid=None) -> None:
     """替换协方差组合波动率估计与无效品种判定。"""
-    machine._risk_manager.get_invalid_products = lambda: []
+    machine._risk_manager.invalid_mask = lambda: np.asarray(
+        invalid if invalid is not None else [False] * machine._n, dtype=bool)
     machine._risk_manager.ex_ante_portfolio_volatility_annualized = \
-        lambda weights, annualization_factor: ExAntePortfolioVolatility(
+        lambda weights, annualization_factor, valid_mask=None: \
+        ExAntePortfolioVolatility(
             value=value,
             cov_mat_estimation_meta=pd.Series({'stub': 1.0}),
             warnings=warnings)
+
+
+# ============================================================
+# 平均秩（向量化的口径基准）
+# ============================================================
+def test_average_rank_matches_pandas() -> None:
+    """向量化平均秩与 Series.rank(method='average') 逐位相同。"""
+    cases = [
+        [10.0, 20.0, 30.0, 40.0],
+        [10.0, 20.0, 20.0, 40.0, 50.0],       # 含 tie
+        [5.0, 5.0, 5.0],                     # 全部相同
+        [-1.0, 0.0, 1.0, 1.0, -1.0],
+        [0.1, 0.1, 0.2, 0.2, 0.2, 0.3],
+    ]
+    for values in cases:
+        expected = pd.Series(values).rank(method='average').to_numpy()
+        got = _average_rank(np.asarray(values, dtype=float))
+        np.testing.assert_array_equal(got, expected)
 
 
 # ============================================================
@@ -128,79 +152,76 @@ def test_rank_base_weights_golden_path() -> None:
     """§20.2：平均排名去中心化后 gross=1、net=0。"""
     products = ['A', 'B', 'C', 'D', 'E']
     machine = MarketRankLSWeightStateMachine(_rank_spec(), products)
-    signal = pd.Series([10, 20, 20, 40, 50], index=products, dtype=float)
+    signal = np.array([10, 20, 20, 40, 50], dtype=float)
 
     result = machine.update(True, _eligible(products), signal).weights
 
-    expected = pd.Series(
-        [-1 / 3, -1 / 12, -1 / 12, 1 / 6, 1 / 3], index=products)
-    _same(result, expected)
+    _same(result, [-1 / 3, -1 / 12, -1 / 12, 1 / 6, 1 / 3])
     assert result.sum() == pytest.approx(0.0, abs=1e-12)   # 市场中性
-    assert result.abs().sum() == pytest.approx(1.0)         # gross=1
+    assert np.abs(result).sum() == pytest.approx(1.0)      # gross=1
 
 
 def test_rank_freeze_and_forced_exit() -> None:
     """非调仓日退出品种归零，其余冻结，且不向其他品种重分配。"""
     products = ['A', 'B', 'C', 'D', 'E']
     machine = MarketRankLSWeightStateMachine(_rank_spec(), products)
-    signal = pd.Series([10, 20, 20, 40, 50], index=products, dtype=float)
+    signal = np.array([10, 20, 20, 40, 50], dtype=float)
     base = machine.update(True, _eligible(products), signal).weights
 
     eligible = _eligible(products, [True, False, True, True, True])
     frozen = machine.update(False, eligible, signal).weights
 
     expected = base.copy()
-    expected['B'] = 0.0
+    expected[1] = 0.0
     _same(frozen, expected)
 
 
 def test_rank_new_product_waits_for_next_rebalance() -> None:
     products = ['A', 'B', 'C']
     machine = MarketRankLSWeightStateMachine(_rank_spec(), products)
-    signal = pd.Series([10, 20, 30], index=products, dtype=float)
+    signal = np.array([10, 20, 30], dtype=float)
 
     base = machine.update(
         True, _eligible(products, [True, True, False]), signal).weights
-    assert base['C'] == 0.0
+    assert base[2] == 0.0
 
     entered = machine.update(False, _eligible(products), signal).weights
     _same(entered, base)
-    assert entered['C'] == 0.0  # 新进入品种待下一调仓日
+    assert entered[2] == 0.0  # 新进入品种待下一调仓日
 
 
 def test_rank_insufficient_cross_section_goes_flat() -> None:
     products = ['A', 'B', 'C']
     machine = MarketRankLSWeightStateMachine(_rank_spec(min_cs=3), products)
-    signal = pd.Series([1.0, np.nan, np.nan], index=products)
+    signal = np.array([1.0, np.nan, np.nan])
 
     result = machine.update(True, _eligible(products), signal).weights
-    _same(result, pd.Series(0.0, index=products))
+    _same(result, np.zeros(3))
 
 
 def test_rank_constant_signal_goes_flat() -> None:
     products = ['A', 'B', 'C']
     machine = MarketRankLSWeightStateMachine(_rank_spec(), products)
-    signal = pd.Series([5.0, 5.0, 5.0], index=products)
+    signal = np.array([5.0, 5.0, 5.0])
 
     result = machine.update(True, _eligible(products), signal).weights
-    _same(result, pd.Series(0.0, index=products))
+    _same(result, np.zeros(3))
 
 
 def test_rank_failed_rebalance_records_state() -> None:
     products = ['A', 'B', 'C']
     machine = MarketRankLSWeightStateMachine(_rank_spec(), products)
-    good = pd.Series([1.0, 2.0, 3.0], index=products)
+    good = np.array([1.0, 2.0, 3.0])
     held = machine.update(True, _eligible(products), good).weights
-    assert held.abs().sum() > 0
+    assert np.abs(held).sum() > 0
 
-    bad = pd.Series([1.0, np.nan, np.nan], index=products)
+    bad = np.array([1.0, np.nan, np.nan])
     flat = machine.update(True, _eligible(products), bad).weights
-    _same(flat, pd.Series(0.0, index=products))
-    _same(machine._last_weights, pd.Series(0.0, index=products))
+    _same(flat, np.zeros(3))
+    _same(machine._w, np.zeros(3))   # 失败调仓也写入内部状态
 
     held_again = machine.update(False, _eligible(products), bad).weights
-    _same(held_again, pd.Series(0.0, index=products))
-    assert len(machine._weight_history) == 3  # 失败调仓也入账
+    _same(held_again, np.zeros(3))
 
 
 def test_rank_product_cap_scaled_and_redistributed() -> None:
@@ -208,53 +229,36 @@ def test_rank_product_cap_scaled_and_redistributed() -> None:
     products = ['A', 'B', 'C', 'D', 'E']
     machine = MarketRankLSWeightStateMachine(
         _rank_spec(max_product_weight=0.2), products)
-    signal = pd.Series([10, 20, 20, 40, 50], index=products, dtype=float)
+    signal = np.array([10, 20, 20, 40, 50], dtype=float)
 
     result = machine.update(True, _eligible(products), signal).weights
 
-    expected = pd.Series([-0.2, -0.1, -0.1, 0.2, 0.2], index=products)
-    _same(result, expected)
+    _same(result, [-0.2, -0.1, -0.1, 0.2, 0.2])
     assert result.sum() == pytest.approx(0.0, abs=1e-12)
-    assert result.abs().max() <= 0.2 + 1e-12
+    assert np.abs(result).max() <= 0.2 + 1e-12
 
 
 def test_rank_cap_and_redistribute_manual() -> None:
     machine = MarketRankLSWeightStateMachine(
         _rank_spec(max_product_weight=0.3), ['X', 'Y'])
-    out = machine._cap_and_redistribute(
-        pd.Series([0.4, 0.1], index=['X', 'Y']))
-    _same(out, pd.Series([0.3, 0.2], index=['X', 'Y']))
+    out = machine._cap_and_redistribute(np.array([0.4, 0.1]))
+    _same(out, [0.3, 0.2])
 
 
-def test_rank_rejects_inconsistent_index() -> None:
-    products = ['A', 'B', 'C', 'D']
-    machine = MarketRankLSWeightStateMachine(_rank_spec(), products)
-    with pytest.raises(ValueError, match='不完全相同'):
-        machine.update(
-            True, pd.Series([True, True], index=['A', 'B']),
-            pd.Series([1.0, 2.0, 3.0], index=['A', 'B', 'C']))
-
-
-
-def test_weight_change_property() -> None:
-    products = ['A', 'B', 'C']
-    machine = MarketRankLSWeightStateMachine(_rank_spec(), products)
-    signal = pd.Series([1.0, 2.0, 3.0], index=products)
-    first = machine.update(True, _eligible(products), signal).weights
-    _same(machine.weight_change, first)  # 相对初始空仓
-
-    second = machine.update(
-        False, _eligible(products, [True, True, False]), signal).weights
-    _same(machine.weight_change, second - first)
+def test_cap_and_redistribute_no_space_raises() -> None:
+    machine = MarketRankLSWeightStateMachine(
+        _rank_spec(max_product_weight=0.1), ['X', 'Y', 'Z'])
+    with pytest.raises(ValueError, match='无剩余权重分配空间'):
+        machine._cap_and_redistribute(np.array([0.5, 0.4]))
 
 
 def test_rank_update_returns_copy() -> None:
     products = ['A', 'B', 'C']
     machine = MarketRankLSWeightStateMachine(_rank_spec(), products)
-    signal = pd.Series([1.0, 2.0, 3.0], index=products)
+    signal = np.array([1.0, 2.0, 3.0])
     out = machine.update(True, _eligible(products), signal).weights
-    out.iloc[0] = 999.0
-    assert machine._last_weights.iloc[0] != 999.0
+    out[0] = 999.0
+    assert machine._w[0] != 999.0
 
 
 # ============================================================
@@ -269,56 +273,65 @@ def test_ts_inv_vol_golden_path() -> None:
     """§20.1：clip(2.0, -1.5) -> 1/-1；u=50/-100；w=1/3, -2/3。"""
     products = ['A', 'B']
     machine = TSInverseVolatilityWeightMachine(_gross_one_spec(), products)
-    _stub_uniform_vol(machine, {'A': 0.02, 'B': 0.01})
+    _stub_uniform_vol(machine, [0.02, 0.01])
 
-    result = machine._gen_base_weight(
-        pd.Series({'A': 2.0, 'B': -1.5}))
+    result = machine._gen_base_weight(np.array([2.0, -1.5]))
 
-    expected = pd.Series({'A': 1 / 3, 'B': -2 / 3})
-    _same(result, expected)
-    assert result.abs().sum() == pytest.approx(1.0)
+    _same(result, [1 / 3, -2 / 3])
+    assert np.abs(result).sum() == pytest.approx(1.0)
 
 
 def test_ts_clip_bounds_symmetric() -> None:
     products = ['A', 'B']
     machine = TSInverseVolatilityWeightMachine(_gross_one_spec(), products)
-    _stub_uniform_vol(machine, {'A': 0.02, 'B': 0.01})
+    _stub_uniform_vol(machine, [0.02, 0.01])
 
-    result = machine._gen_base_weight(pd.Series({'A': 5.0, 'B': -5.0}))
+    result = machine._gen_base_weight(np.array([5.0, -5.0]))
 
-    _same(result, pd.Series({'A': 1 / 3, 'B': -2 / 3}))
+    _same(result, [1 / 3, -2 / 3])
 
 
 def test_ts_missing_vol_or_signal_weight_zero() -> None:
     products = ['A', 'B']
     machine = TSInverseVolatilityWeightMachine(_gross_one_spec(), products)
-    _stub_uniform_vol(machine, {'A': np.nan, 'B': 0.01})
+    _stub_uniform_vol(machine, [np.nan, 0.01])
 
-    result = machine._gen_base_weight(pd.Series({'A': 1.0, 'B': 1.0}))
+    result = machine._gen_base_weight(np.array([1.0, 1.0]))
 
-    assert result['A'] == 0.0
-    assert result['B'] == pytest.approx(1.0)
+    assert result[0] == 0.0
+    assert result[1] == pytest.approx(1.0)
+
+
+def test_ts_nan_signal_participates_as_zero() -> None:
+    """信号为 NaN 的品种不参与计算，权重为 0。"""
+    products = ['A', 'B']
+    machine = TSInverseVolatilityWeightMachine(_gross_one_spec(), products)
+    _stub_uniform_vol(machine, [0.02, 0.01])
+
+    result = machine._gen_base_weight(np.array([2.0, np.nan]))
+
+    _same(result, [1.0, 0.0])
 
 
 def test_ts_update_gross_one_and_missing_signal() -> None:
     products = ['A', 'B']
     machine = TSInverseVolatilityWeightMachine(_gross_one_spec(), products)
-    _stub_uniform_vol(machine, {'A': 0.02, 'B': 0.01})
-    signal = pd.Series({'A': 2.0, 'B': np.nan})
+    _stub_uniform_vol(machine, [0.02, 0.01])
+    signal = np.array([2.0, np.nan])
 
     result = machine.update(
         True, _eligible(products), signal, _ret(products),
         timestamp=_RET_TS).weights
 
-    _same(result, pd.Series({'A': 1.0, 'B': 0.0}))
-    assert result.abs().sum() == pytest.approx(1.0)
+    _same(result, [1.0, 0.0])
+    assert np.abs(result).sum() == pytest.approx(1.0)
 
 
 def test_ts_freeze_and_forced_exit() -> None:
     products = ['A', 'B']
     machine = TSInverseVolatilityWeightMachine(_gross_one_spec(), products)
-    _stub_uniform_vol(machine, {'A': 0.02, 'B': 0.01})
-    signal = pd.Series({'A': 2.0, 'B': -1.5})
+    _stub_uniform_vol(machine, [0.02, 0.01])
+    signal = np.array([2.0, -1.5])
     base = machine.update(
         True, _eligible(products), signal, _ret(products),
         timestamp=_RET_TS).weights
@@ -327,20 +340,30 @@ def test_ts_freeze_and_forced_exit() -> None:
         False, _eligible(products, [True, False]), signal,
         _ret(products), timestamp=_RET_TS).weights
     expected = base.copy()
-    expected['B'] = 0.0
+    expected[1] = 0.0
     _same(frozen, expected)
 
 
 def test_ts_all_invalid_goes_flat() -> None:
     products = ['A', 'B']
     machine = TSInverseVolatilityWeightMachine(_gross_one_spec(), products)
-    _stub_uniform_vol(machine, {'A': np.nan, 'B': np.nan})
-    signal = pd.Series({'A': 1.0, 'B': 1.0})
+    _stub_uniform_vol(machine, [np.nan, np.nan])
+    signal = np.array([1.0, 1.0])
 
     result = machine.update(
         True, _eligible(products), signal, _ret(products),
         timestamp=_RET_TS).weights
-    _same(result, pd.Series(0.0, index=products))
+    _same(result, np.zeros(2))
+
+
+def test_ts_requires_ret_and_timestamp() -> None:
+    products = ['A', 'B']
+    machine = TSInverseVolatilityWeightMachine(_gross_one_spec(), products)
+    with pytest.raises(ValueError, match='收益率'):
+        machine.update(True, _eligible(products), np.array([1.0, 2.0]))
+    with pytest.raises(ValueError, match='时间戳'):
+        machine.update(True, _eligible(products), np.array([1.0, 2.0]),
+                       _ret(products))
 
 
 # ============================================================
@@ -350,11 +373,11 @@ def test_ts_scale_to_target_vol_manual() -> None:
     products = ['A', 'B']
     machine = TSInverseVolatilityWeightMachine(_target_vol_spec(), products)
     _stub_cov(machine, value=0.1)  # lambda_star = 0.2 / 0.1 = 2
+    w = np.array([0.5, -0.5])
 
-    scaled, vol_result = machine._scale_to_target_vol(
-        pd.Series({'A': 0.5, 'B': -0.5}))
+    scaled, vol_result = machine._scale_to_target_vol(w, np.array([True, True]))
 
-    _same(scaled, pd.Series({'A': 1.0, 'B': -1.0}))
+    _same(scaled, [1.0, -1.0])
     assert vol_result.value == pytest.approx(0.1)
 
 
@@ -363,49 +386,68 @@ def test_ts_scale_to_target_vol_respects_max_scaler() -> None:
     machine = TSInverseVolatilityWeightMachine(
         _target_vol_spec(max_scaler=5.0), products)
     _stub_cov(machine, value=0.01)  # lambda_star = 20 -> 截断为 5
+    w = np.array([0.5, -0.5])
 
-    scaled, _ = machine._scale_to_target_vol(
-        pd.Series({'A': 0.5, 'B': -0.5}))
+    scaled, _ = machine._scale_to_target_vol(w, np.array([True, True]))
 
-    _same(scaled, pd.Series({'A': 2.5, 'B': -2.5}))
+    _same(scaled, [2.5, -2.5])
 
 
 def test_ts_scale_to_target_vol_zero_vol_goes_flat() -> None:
     products = ['A', 'B']
     machine = TSInverseVolatilityWeightMachine(_target_vol_spec(), products)
     _stub_cov(machine, value=0.0, warnings=('cov_failed',))
+    w = np.array([0.5, -0.5])
 
-    scaled, _ = machine._scale_to_target_vol(
-        pd.Series({'A': 0.5, 'B': -0.5}))
+    scaled, _ = machine._scale_to_target_vol(w, np.array([True, True]))
 
-    _same(scaled, pd.Series(0.0, index=products))
+    _same(scaled, np.zeros(2))
 
 
 def test_ts_target_vol_update_flattens_and_records_warning() -> None:
     products = ['A', 'B']
     machine = TSInverseVolatilityWeightMachine(_target_vol_spec(), products)
-    _stub_uniform_vol(machine, {'A': 0.02, 'B': 0.01})
+    _stub_uniform_vol(machine, [0.02, 0.01])
     _stub_cov(machine, value=0.0, warnings=('cov_failed',))
-    signal = pd.Series({'A': 2.0, 'B': -1.5})
+    signal = np.array([2.0, -1.5])
 
     current = machine.update(
         True, _eligible(products), signal, _ret(products),
         timestamp=_RET_TS)
 
-    _same(current.weights, pd.Series(0.0, index=products))
+    _same(current.weights, np.zeros(2))
     assert 'cov_failed' in current.warnings
+
+
+def test_ts_target_vol_zeroes_invalid_products() -> None:
+    """invalid_mask 命中的品种权重归零，并重新归一化到 gross=1。
+
+    A 被剔除后基础权重 [1/3, -2/3] 变成 [0, -2/3]，归一化得 [0, -1]；
+    随后目标波动率缩放（stub vol=0.1，target=0.2 -> lambda=2）得 [0, -2]。
+    """
+    products = ['A', 'B']
+    machine = TSInverseVolatilityWeightMachine(_target_vol_spec(), products)
+    _stub_uniform_vol(machine, [0.02, 0.01])
+    _stub_cov(machine, value=0.1, invalid=[True, False])
+
+    current = machine.update(
+        True, _eligible(products), np.array([2.0, -1.5]), _ret(products),
+        timestamp=_RET_TS)
+
+    assert current.weights[0] == 0.0
+    assert current.weights[1] == pytest.approx(-2.0)
 
 
 def test_ts_enforce_max_gross_scale_and_none() -> None:
     products = ['A', 'B']
     machine = TSInverseVolatilityWeightMachine(
         _target_vol_spec(max_gross=0.5), products)
-    scaled = machine._enforce_max_gross(pd.Series({'A': 0.6, 'B': -0.6}))
-    _same(scaled, pd.Series({'A': 0.25, 'B': -0.25}))
+    scaled = machine._enforce_max_gross(np.array([0.6, -0.6]))
+    _same(scaled, [0.25, -0.25])
 
     unbounded = TSInverseVolatilityWeightMachine(
         _target_vol_spec(max_gross=None), products)
-    raw = pd.Series({'A': 3.0, 'B': -3.0})
+    raw = np.array([3.0, -3.0])
     _same(unbounded._enforce_max_gross(raw), raw)
 
 
@@ -413,7 +455,12 @@ def test_ts_enforce_max_product_weight_clips_without_redistribution() -> None:
     products = ['A', 'B']
     machine = TSInverseVolatilityWeightMachine(
         _gross_one_spec(max_product_weight=0.4), products)
-    clipped = machine._enforce_max_product_weight(
-        pd.Series({'A': 0.6, 'B': -0.6}))
+    clipped = machine._enforce_max_product_weight(np.array([0.6, -0.6]))
     # 纯 clip，不把超额重分配给另一品种，gross 由 1.2 降到 0.8。
-    _same(clipped, pd.Series({'A': 0.4, 'B': -0.4}))
+    _same(clipped, [0.4, -0.4])
+
+
+def test_ts_scale_to_gross_one_zero_denominator() -> None:
+    products = ['A', 'B']
+    machine = TSInverseVolatilityWeightMachine(_gross_one_spec(), products)
+    _same(machine._scale_to_gross_one(np.zeros(2)), np.zeros(2))
