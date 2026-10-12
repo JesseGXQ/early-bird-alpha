@@ -41,6 +41,12 @@ from factors.diagnostic_portfolio.weights import (
     TSInverseVolatilityWeightMachine,
     WeightStateMachine,
 )
+from factors.diagnostic_portfolio.storage import (
+    DiagnosticPortfolioStore,
+    StoredDiagnosticPortfolioRun,
+    build_replay_inputs,
+    replay_stored_run,
+)
 
 __all__ = [
     'DiagnosticPortfolioExperimentRunner',
@@ -52,5 +58,9 @@ __all__ = [
     'MarketRankLSWeightStateMachine',
     'TSInverseVolatilityWeightMachine',
     'DiagnosticSignal',
-    'DiagnosticPortfolioSpec'
+    'DiagnosticPortfolioSpec',
+    'DiagnosticPortfolioStore',
+    'StoredDiagnosticPortfolioRun',
+    'build_replay_inputs',
+    'replay_stored_run',
 ]
