@@ -296,7 +296,6 @@ class ResearchDatasetBuilder:
 
             auxiliary['term_structure'] = ts_df
 
-        # ... 按需加载更多附属数据集
         if 'warehouse_receipt' in auxiliary_requirements:
             params = auxiliary_requirements['warehouse_receipt']['request_params']
             receipt_df = self._facade.get_warehouse_receipt_data_multiple_products(
@@ -310,6 +309,10 @@ class ResearchDatasetBuilder:
                                             requested_columns)
             auxiliary['warehouse_receipt'] = receipt_df
 
+        if 'classification' in auxiliary_requirements:
+            classification_df = self._facade.rule_query.classification\
+                .get_classification()
+            auxiliary['classification'] = classification_df
             
 
         return ResearchDataset(

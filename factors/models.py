@@ -92,7 +92,9 @@ class DataRequirement:
     Parameters
     -------
     source: str
-        数据源名称。可选 'main_panel', 'term_structure', 'warehouse_receipt'。
+        数据源名称。
+        - 可选 'main_panel', 'term_structure', 'warehouse_receipt',
+        'classification'。
     columns: tuple of str, optional
         所需列名。默认为 None（全部列，不做裁剪）。
         - 例如对于 source='term_structure' 可为 
@@ -572,12 +574,14 @@ class HarvestProfile:
     strategy_family : {'time_series', 'cross_sectional'}
         策略家族：逐品种独立预测的时序 CTA，或同一时点跨品种比较的
         截面相对价值。
-    signal_mapping : {'continuous_score', 'rank', 'quantile_group', 'clip'}
-        信号到研究权重的映射形态：
+    signal_mapping : str
+        信号到研究权重的映射形态（非强制）：
         - 'continuous_score'：连续去均值等线性映射。
         - 'rank'：排序分数。
         - 'quantile_group'：分组/头尾组合（非线性）。
         - 'clip'：截断到 [-1, 1] 之类的区间。
+        - 'deadband': 只取信号两侧。
+        - 'tanh': 中部线性，尾部平滑饱和。
     risk_scaling : {'none', 'inverse_volatility', 'inverse_variance', 'covariance'}
         风险缩放方式：无、逆波动率、逆方差或协方差感知缩放。
     neutrality : {'none', 'market', 'sector', 'risk_factor'}
@@ -599,7 +603,7 @@ class HarvestProfile:
 
     name: str
     strategy_family: Literal['time_series', 'cross_sectional']
-    signal_mapping: Literal['continuous_score', 'rank', 'quantile_group', 'clip']
+    signal_mapping: str
     risk_scaling: Literal['none', 'inverse_volatility', 'inverse_variance', 'covariance']
     neutrality: Literal['none', 'market', 'sector', 'risk_factor']
     risk_allocation: Literal['equal_product', 'equal_sector', 'risk_contribution', 'optimization']
