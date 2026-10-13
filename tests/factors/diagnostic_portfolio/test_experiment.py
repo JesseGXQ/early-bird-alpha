@@ -76,7 +76,7 @@ def _gross_one_spec(*, interval=1, volatility_lookback=2,
 def _target_vol_spec(*, anchor, interval=100, max_scaler=1.0,
                      target=1e6, max_gross=None,
                      covariance_lookback=4, covariance_min_periods=4,
-                     volatility_lookback=3) -> DiagnosticPortfolioSpec:
+                     volatility_lookback=3, clip=1.0) -> DiagnosticPortfolioSpec:
     return DiagnosticPortfolioSpec(
         name='target_vol', harvest_profile=ts_inv_vol_target_vol,
         rebalance=RebalanceConfig(interval=interval, anchor=anchor),
@@ -89,7 +89,7 @@ def _target_vol_spec(*, anchor, interval=100, max_scaler=1.0,
             covariance_lookback=covariance_lookback,
             covariance_min_periods=covariance_min_periods,
             target_volatility=target),
-        clip_bound=1.0,
+        clip_bound=clip,
     )
 
 

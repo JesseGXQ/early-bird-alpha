@@ -463,7 +463,8 @@ class TSInverseVolatilityWeightMachine(WeightStateMachine):
         return lambda_clipped * weights, vol_result
 
     def _gen_base_weight(self, signal: np.ndarray) -> np.ndarray:
-        """生成基础权重：头尾部对称 clip -> 按事前波动率倒数缩放 -> gross = 1。
+        """生成基础权重：头尾部对称 clip（可选） -> 按事前波动率倒数缩放
+        -> gross = 1。
 
         Parameters
         ----------
@@ -471,10 +472,18 @@ class TSInverseVolatilityWeightMachine(WeightStateMachine):
             信号，**未参与计算的品种为 NaN**（会被 clip 保留为 NaN，除法后
             填充为 0）。
 
+        Notes
+        -----
+        ``spec.clip_bound`` 为 None 时只跳过 clip 这一步；逆波动率缩放与
+        gross = 1 归一化与 clip 无关，始终执行，因此返回的权重量纲
+        始终是归一化后的比例而非信号原值。
+
         """
         clip_bound = self._spec.clip_bound
-        assert clip_bound is not None
-        signal_clipped = np.clip(signal, -clip_bound, clip_bound)
+        # clip_bound 为 None 表示不截断信号。注意这里只能跳过 clip 一步，
+        # 不能提前返回——下面的逆波动率缩放与 gross=1 归一化必须照常执行。
+        signal_clipped = signal if clip_bound is None \
+            else np.clip(signal, -clip_bound, clip_bound)
         vol: np.ndarray = self._risk_manager.ex_ante_volatility()
         with np.errstate(invalid='ignore', divide='ignore'):
             u_weights = signal_clipped / vol

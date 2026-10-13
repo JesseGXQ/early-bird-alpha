@@ -52,7 +52,8 @@ def _rank_spec(*, max_product_weight=None, min_cs=2) -> DiagnosticPortfolioSpec:
     )
 
 
-def _gross_one_spec(*, max_product_weight=None) -> DiagnosticPortfolioSpec:
+def _gross_one_spec(*, max_product_weight=None,
+                    clip=1.0) -> DiagnosticPortfolioSpec:
     return DiagnosticPortfolioSpec(
         name='gross_one', harvest_profile=ts_inv_vol_gross_one,
         rebalance=RebalanceConfig(interval=1),
@@ -60,12 +61,13 @@ def _gross_one_spec(*, max_product_weight=None) -> DiagnosticPortfolioSpec:
         cost=CostConfig(rate=0.0),
         realized_volatility_lookback=3,
         risk=RiskConfig(volatility_lookback=3, volatility_min_periods=2),
-        clip_bound=1.0,
+        clip_bound=clip,
     )
 
 
 def _target_vol_spec(*, max_gross=10.0, max_scaler=5.0,
-                     max_product_weight=None) -> DiagnosticPortfolioSpec:
+                     max_product_weight=None,
+                     clip=1.0) -> DiagnosticPortfolioSpec:
     return DiagnosticPortfolioSpec(
         name='target_vol', harvest_profile=ts_inv_vol_target_vol,
         rebalance=RebalanceConfig(interval=1),
@@ -78,7 +80,7 @@ def _target_vol_spec(*, max_gross=10.0, max_scaler=5.0,
             volatility_lookback=3, volatility_min_periods=2,
             covariance_lookback=3, covariance_min_periods=2,
             target_volatility=0.2),
-        clip_bound=1.0,
+        clip_bound=clip,
     )
 
 
@@ -311,6 +313,126 @@ def test_ts_nan_signal_participates_as_zero() -> None:
     result = machine._gen_base_weight(np.array([2.0, np.nan]))
 
     _same(result, [1.0, 0.0])
+
+
+# ============================================================
+# clip_bound 为 None（时序模式下不截断信号）
+# ============================================================
+def test_ts_none_clip_bound_still_applies_inverse_vol_and_gross_one() -> None:
+    """clip_bound=None 只跳过 clip，逆波动率缩放与 gross=1 照常执行。
+
+    signal=[2.0, -1.5]、vol=[0.02, 0.01]：
+    - clip_bound=None -> u=[100, -150] -> gross=250 -> [0.4, -0.6]
+    - clip_bound=1.0  -> clip -> [1, -1] -> u=[50, -100] -> [1/3, -2/3]
+
+    两者不同，正说明 None 分支确实跳过了 clip，而缩放与归一化仍然生效
+    （若 bug 回归成直接返回原始信号，结果会是 [2.0, -1.5]）。
+    """
+    products = ['A', 'B']
+    machine = TSInverseVolatilityWeightMachine(
+        _gross_one_spec(clip=None), products)
+    _stub_uniform_vol(machine, [0.02, 0.01])
+
+    result = machine._gen_base_weight(np.array([2.0, -1.5]))
+
+    _same(result, [0.4, -0.6])
+    assert np.abs(result).sum() == pytest.approx(1.0)
+
+
+def test_ts_none_clip_bound_still_zeroes_missing_vol_and_nan_signal() -> None:
+    """clip_bound=None 时 NaN 填充与缺失波动率归零逻辑同样生效。"""
+    products = ['A', 'B']
+
+    # 事前波动率为 NaN 的品种归零。
+    machine = TSInverseVolatilityWeightMachine(
+        _gross_one_spec(clip=None), products)
+    _stub_uniform_vol(machine, [np.nan, 0.01])
+    _same(machine._gen_base_weight(np.array([1.0, 1.0])), [0.0, 1.0])
+
+    # 信号为 NaN 的品种归零。
+    machine = TSInverseVolatilityWeightMachine(
+        _gross_one_spec(clip=None), products)
+    _stub_uniform_vol(machine, [0.02, 0.01])
+    _same(machine._gen_base_weight(np.array([2.0, np.nan])), [1.0, 0.0])
+
+
+def test_ts_none_clip_bound_does_not_mutate_input_signal() -> None:
+    """clip_bound=None 时 signal 与 output 不应是同一个对象。"""
+    products = ['A', 'B']
+    machine = TSInverseVolatilityWeightMachine(
+        _gross_one_spec(clip=None), products)
+    _stub_uniform_vol(machine, [0.02, 0.01])
+    signal = np.array([2.0, -1.5])
+
+    result = machine._gen_base_weight(signal)
+
+    assert result is not signal
+    _same(signal, [2.0, -1.5])  # 输入未被原地修改
+
+
+def test_ts_update_none_clip_bound_applies_max_product_weight_on_weights() -> None:
+    """clip_bound=None 时 max_product_weight 作用在归一化后的权重上。
+
+    signal=[2.0, -1.5]、vol=[0.02, 0.01] -> 未 clip 时基础权重为
+    [0.4, -0.6]，绝对值均不超过 0.9，因此不会被截断。
+    若 bug 回归（提前 return 原始信号），则会拿 [2.0, -1.5] 去和 0.9 比较，
+    被截断成 [0.9, -0.9]。
+    """
+    products = ['A', 'B']
+    machine = TSInverseVolatilityWeightMachine(
+        _gross_one_spec(clip=None, max_product_weight=0.9), products)
+    _stub_uniform_vol(machine, [0.02, 0.01])
+
+    result = machine.update(
+        True, _eligible(products), np.array([2.0, -1.5]), _ret(products),
+        timestamp=_RET_TS).weights
+
+    _same(result, [0.4, -0.6])
+
+
+def test_ts_clip_bound_present_differs_from_none_on_oversized_signal() -> None:
+    """回归测试：clip_bound=None 与 clip_bound=1.0 在超大信号上必须不同。
+
+    signal=[5.0, -5.0]、vol=[0.02, 0.02]：
+    - clip_bound=None  -> u=[250, -250]  -> [0.5, -0.5]
+    - clip_bound=1.0   -> clip -> [1, -1] -> u=[50, -50] -> [0.5, -0.5]
+    两者归一化后相同，故改用非对称组合使比例可区分：
+    signal=[5.0, -1.0]、vol=[0.02, 0.01]
+    - clip_bound=None  -> u=[250, -100] -> [0.714285..., -0.285714...]
+    - clip_bound=1.0   -> clip -> [1, -1] -> u=[50, -100] -> [1/3, -2/3]
+    """
+    products = ['A', 'B']
+    signal = np.array([5.0, -1.0])
+
+    unclipped = TSInverseVolatilityWeightMachine(
+        _gross_one_spec(clip=None), products)
+    _stub_uniform_vol(unclipped, [0.02, 0.01])
+    unclipped_result = unclipped._gen_base_weight(signal)
+
+    clipped = TSInverseVolatilityWeightMachine(_gross_one_spec(), products)
+    _stub_uniform_vol(clipped, [0.02, 0.01])
+    clipped_result = clipped._gen_base_weight(signal)
+
+    _same(unclipped_result, np.array([250.0, -100.0]) / 350.0)
+    _same(clipped_result, [1 / 3, -2 / 3])
+    assert np.abs(unclipped_result).sum() == pytest.approx(1.0)
+    assert np.abs(clipped_result).sum() == pytest.approx(1.0)
+
+
+def test_ts_target_vol_allows_none_clip_bound() -> None:
+    """ts_inv_vol_target_vol 同样支持 clip_bound=None。"""
+    products = ['A', 'B']
+    machine = TSInverseVolatilityWeightMachine(
+        _target_vol_spec(clip=None), products)
+    _stub_uniform_vol(machine, [0.02, 0.01])
+    _stub_cov(machine, 0.2)
+
+    result = machine.update(
+        True, _eligible(products), np.array([2.0, -1.5]), _ret(products),
+        timestamp=_RET_TS).weights
+
+    assert np.abs(result).sum() == pytest.approx(1.0)
+    assert np.isfinite(result).all()
 
 
 def test_ts_update_gross_one_and_missing_signal() -> None:

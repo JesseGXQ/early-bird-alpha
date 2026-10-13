@@ -583,7 +583,10 @@ class DiagnosticPortfolioSpec:
     risk : RiskConfig or None, optional
         风险参数，默认 None。
     clip_bound : float or None, optional
-        时序 clip 的正数边界，默认 None。
+        clip 的正数边界，默认 None。时序模式下可选（为 None 表示不 clip），
+        截面模式必须为 None。
+        - 该参数仅接受常数，上游需保证各品种之间的因子值可比，例如先做标准化。
+        - 注意：不可由全样本分位数计算而来(Look-Ahead bias)！
     min_cross_section_size : int or None, optional
         截面排名所需最少有效品种数，至少为 2，默认 None。
     annualization_factor : int, optional
@@ -598,13 +601,15 @@ class DiagnosticPortfolioSpec:
 
     Notes
     -----
-    配置的适用性由 harvest_profile 决定：
+    配置的适用性：
 
-    - ``ts_inv_vol_gross_one``：需要 risk 中的单品种波动率参数与
-      clip_bound；covariance 与 target_volatility、max_volatility_scaler、
-      min_cross_section_size 均必须为 None。
-    - ``ts_inv_vol_target_vol``：需要完整 RiskConfig、clip_bound 与
-      max_volatility_scaler；min_cross_section_size 必须为 None。
+    - ``ts_inv_vol_gross_one``：需要 risk 中的单品种波动率参数；
+      clip_bound 可选，为 None 时不截断信号；covariance 与
+      target_volatility、max_volatility_scaler、min_cross_section_size
+      均必须为 None。
+    - ``ts_inv_vol_target_vol``：需要完整 RiskConfig；
+      clip_bound 可选，为 None 时不截断信号；
+      max_volatility_scaler 必须提供；min_cross_section_size 必须为 None。
     - ``market_rank_ls``：需要 min_cross_section_size；risk、
       clip_bound 与 max_volatility_scaler 必须为 None。
 
@@ -695,11 +700,10 @@ class DiagnosticPortfolioSpec:
                 'ts_inv_vol_gross_one 要求 covariance_lookback、'
                 'covariance_min_periods 和 target_volatility 均为 None'
             )
-        if self.clip_bound is None:
-            raise ValueError('ts_inv_vol_gross_one 必须提供 clip_bound')
-        _require_positive_number(
-            self.clip_bound, 'DiagnosticPortfolioSpec.clip_bound'
-        )
+        if self.clip_bound is not None:
+            _require_positive_number(
+                self.clip_bound, 'DiagnosticPortfolioSpec.clip_bound'
+            )
         if self.min_cross_section_size is not None:
             raise ValueError(
                 'ts_inv_vol_gross_one 不接受 min_cross_section_size'
@@ -737,11 +741,10 @@ class DiagnosticPortfolioSpec:
             raise ValueError(
                 'ts_inv_vol_target_vol 要求提供 target_volatility'
             )
-        if self.clip_bound is None:
-            raise ValueError('ts_inv_vol_target_vol 必须提供 clip_bound')
-        _require_positive_number(
-            self.clip_bound, 'DiagnosticPortfolioSpec.clip_bound'
-        )
+        if self.clip_bound is not None:
+            _require_positive_number(
+                self.clip_bound, 'DiagnosticPortfolioSpec.clip_bound'
+            )
         if self.constraint.max_volatility_scaler is None:
             raise ValueError(
                 'ts_inv_vol_target_vol 要求在 ConstraintConfig 中提供 '
@@ -844,7 +847,7 @@ class DiagnosticPortfolioResult:
         index=gross/proxy_net，列为核心绩效：
         total_return、annualized_arithmetic_return、cagr、
         annualized_volatility、sharpe、max_drawdown、n_periods。
-    status : pd.DataFrame
+    status : pd.DataFrame or None
         每个决策时点的有效数、约束状态和降级原因。
     metadata : Mapping[str, Any]
         输入范围、时间约定、公式口径和版本信息。
@@ -876,7 +879,7 @@ class DiagnosticPortfolioResult:
     direction_attribution: pd.DataFrame = field(repr=False)
     sector_attribution: pd.DataFrame | pd.Series | None = field(repr=False)
     performance: pd.DataFrame = field(repr=False)
-    status: pd.DataFrame = field(repr=False)
+    status: pd.DataFrame | None = field(repr=False)
     warnings: tuple[str, ...]
     metadata: Mapping[str, Any]
 

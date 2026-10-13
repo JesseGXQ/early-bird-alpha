@@ -352,9 +352,16 @@ def test_spec_gross_one_rejects_covariance_and_target() -> None:
             target_volatility=0.2))
 
 
-def test_spec_gross_one_requires_clip_bound() -> None:
+def test_spec_gross_one_allows_none_clip_bound() -> None:
+    """时序模式下 clip_bound 可选：None 表示不截断信号。"""
+    spec = _gross_one_spec(clip_bound=None)
+    assert spec.clip_bound is None
+
+
+@pytest.mark.parametrize('value', [0.0, -1.0])
+def test_spec_gross_one_rejects_non_positive_clip_bound(value: float) -> None:
     with pytest.raises(ValueError, match='clip_bound'):
-        _gross_one_spec(clip_bound=None)
+        _gross_one_spec(clip_bound=value)
 
 
 def test_spec_gross_one_rejects_min_cs_and_scaler() -> None:
@@ -379,9 +386,19 @@ def test_spec_target_vol_requires_full_risk() -> None:
             covariance_lookback=5, covariance_min_periods=3))
 
 
-def test_spec_target_vol_requires_clip_scaler_and_rejects_min_cs() -> None:
+def test_spec_target_vol_allows_none_clip_bound() -> None:
+    """时序模式下 clip_bound 可选：None 表示不截断信号。"""
+    spec = _target_vol_spec(clip_bound=None)
+    assert spec.clip_bound is None
+
+
+@pytest.mark.parametrize('value', [0.0, -1.0])
+def test_spec_target_vol_rejects_non_positive_clip_bound(value: float) -> None:
     with pytest.raises(ValueError, match='clip_bound'):
-        _target_vol_spec(clip_bound=None)
+        _target_vol_spec(clip_bound=value)
+
+
+def test_spec_target_vol_requires_scaler_and_rejects_min_cs() -> None:
     with pytest.raises(ValueError, match='max_volatility_scaler'):
         _target_vol_spec(constraint=ConstraintConfig(max_gross=2.0))
     with pytest.raises(ValueError, match='min_cross_section_size'):
