@@ -73,11 +73,13 @@ scripts/temp/
 
 session-ses_*.md
 
-# 探索性因子研究的生成产物
-research/artifacts/
-
-
 # ==========================================
 # others
 # ==========================================
 docs/海通证券_20170818_海通证券FICC系列研究之五：商品期货因子挖掘与组合构建再探究.pdf
+research/experiments/alpha101/ref/101 Formulaic Alphas.pdf
+# 探索性因子研究的生成产物
+research/artifacts/
+research/experiments/alpha101/ref/
+tests/research/experiments/alpha101/
+tests/factors/diagnostic_portfolio/my_test_production_20261003.ipynb

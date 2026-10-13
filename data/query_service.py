@@ -34,6 +34,30 @@ class RuleQueryService:
         """获取品种上市日期"""
         return self._meta_manager.get_static_meta(product).list_date
 
+    def get_delist_date_product(self, product: str) -> date | None:
+        """获取品种退市日期。
+
+        与 `get_list_date_product` 对称，读取 TIER1 静态元数据的 `delist_date`。
+
+        Parameters
+        ----------
+        product: str
+            品种代码，例如'RB'。
+
+        Returns
+        -------
+        date | None
+            品种退市日期；``None`` 表示该品种仍在市。
+
+        Notes
+        -----
+        口径见 `StaticMeta.delist_date`：取值为**该品种最后一个合约的最后交易日**
+        （`InstrumentRegistry.last_trade_date`），而非交易所公告的挂牌终止日，
+        也不是最后一个合约的最后交割日（`end_deliv_date`）。
+        只有因**品种更换代码**（如郑商所 WS 换 WH、ME 换 MA）而退市的品种才有该值。
+        """
+        return self._meta_manager.get_static_meta(product).delist_date
+
     def get_product_universe(self, return_type: Literal['list', 'dict'] = 'list'):
         """获取全市场期货品种。"""
         return self._meta_manager.get_product_universe(return_type=return_type)
