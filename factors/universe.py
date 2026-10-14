@@ -24,6 +24,11 @@ class Universe:
     exclude_reason : pd.Series
         与 eligible 同索引的排除原因，未被排除的样本为空字符串；
         单个样本可能因多条约束被排除，原因以 ';' 连接。
+
+    Notes
+    ------
+    - 目前各项准入条件（例如回看期内平均成交量），都是针对**主力合约**做筛选，
+    而不是针对整个品种（所有合约合计）做筛选。
     """
 
     eligible: pd.Series
