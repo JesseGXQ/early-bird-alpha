@@ -182,8 +182,7 @@ if __name__ == '__main__':
 `Price_Gap` 采用成对价格口径：优先使用旧主力最后一个交易日的新、旧主力
 **收盘价**；任意一方收盘价缺失时，双方统一 fall back to 当日**结算价**。若结算价对
 仍不完整，直接报错，不把未知价差当作 0。`Price_Gap_Basis` 在实际换月边界
-记录 `close` 或 `settle_fallback`。ResearchFeed 以此构造 close-preferred,
-settlement-fallback backward additive adjustment。
+记录 `close` 或 `settle_fallback`。
 
 ## 执行结果
 

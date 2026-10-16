@@ -401,21 +401,33 @@ class RollGapCalculator:
         settle_matrix: pd.DataFrame or None, optional
             日频结算价矩阵。收盘价对不完整时，新旧合约必须同时从该矩阵取值；
             若结算价对仍不完整则严格报错。默认为 None，此时不提供 fallback。
+
+        Returns
+        ------
+        pd.DataFrame
+            换月总表。Index[timetamp], colums: Dominant_Contract, Price_Gap, 
+            Price_Gap_Basis。
+            令 T-1 日为旧主力最后一日，T 日为换月日，即新主力的第一日。
+            则 Price_Gap(T-1) = p_{new}^{close_or_settle}(T-1) 
+            -p_{old}^{close_or_settle}(T-1) 。具体见 Notes。
         
         Notes
         -----
         记时间上相邻的两个交易日为 D（较早）与 D'（较晚）。由换月日历的生成规则可知，
-        ``Dominant_Contract`` 是当日生效的主力；若 D 与 D' 的主力不同，则换月发生在 D 与
-        D' 之间，D 即旧主力的最后一个交易日。实现时先把 master_table 按日期降序排列，
-        从晚到早遍历，并在循环中维护 ``new_dominant`` 表示"时间上更晚那个交易日的主力"。
+        ``Dominant_Contract`` 是当日生效的主力；若 D 与 D' 的主力不同，则换月日为
+        D'(T) ，D 是旧主力的最后一个交易日(T-1)。
+        
+        实现时先把 master_table 按日期**降序排列**，从晚到早遍历，
+        并在循环中维护 ``new_dominant`` 表示"时间上更晚那个交易日的主力"。
         逐日处理逻辑如下：
 
         1. 若 ``new_dominant`` 或当日主力 ``old_dominant`` 任一缺失（NaN），当日不计算
            缺口，``Price_Gap`` 保持 NaN，并把 ``new_dominant`` 更新为当日主力后跳过。
         2. 若两者相同，说明未发生换月，``Price_Gap`` 置 0。
-        3. 若两者不同，说明以 D 为旧主力最后一日发生了换月。价差采用成对价格口径：
-
-           - 新旧合约在 D 日的收盘价均有效时，使用
+        3. 若两者不同，说明 T 日发生了从 D 到 D' 的换月，D 为换月日前一日(T-1)。
+        
+        价差采用成对价格口径：
+           - 新旧主力在 D 日的收盘价均有效时，使用
              ``Price_Gap = 新主力 Close - 旧主力 Close``；
            - 任意一方收盘价无效时，双方统一回退为结算价，使用
              ``Price_Gap = 新主力 Settle - 旧主力 Settle``；
@@ -426,7 +438,7 @@ class RollGapCalculator:
         4. 每轮结束时执行 ``new_dominant = old_dominant``，使其在下一轮（更早的交易日）
            中充当"较晚交易日的主力"。
 
-        由此，``Price_Gap`` 仅在换月日（旧主力所在的那个交易日）取到非零跳空，其余交易日
+        由此，``Price_Gap`` 仅在换月日前一日(T-1)取到非零跳空，其余交易日
         为 0；最新一日因初值 ``new_dominant`` 为空、以及主力缺失造成的断链处均为 NaN。
         最终返回 ``Dominant_Contract``、``Price_Gap`` 与 ``Price_Gap_Basis``，
         并按日期升序排列。
@@ -561,7 +573,7 @@ class ContinuousContractManager:
                 self.master_table = pd.read_parquet(file_path)
             except Exception as e:
                 raise RuntimeError(f'【ContinuousContractManager】读取 master_table 文件 {file_path} 失败: {e}')
-        else: # 直接抛出错误，提示调用./scripts/run_stitching_etl.py 生成相应指纹的 master_table
+        else: # 直接抛出错误，提示调用./scripts/build_product_master_table.py 生成相应指纹的 master_table
                 error_msg = (
                 f"\n【Data Engine】无法初始化 ContinuousContractManager！\n"
                 f"原因: 未能在元数据仓库中找到品种 {product} 对应当前参数指纹的换月总表文件。\n"

@@ -45,14 +45,17 @@ class AdjustmentConfig:
     Parameters
     ----------
     direction : {'FORWARD', 'BACKWARD'}, optional
-        复权方向。'BACKWARD'（默认）表示锚定最新价格并调整历史价格（前向调整法）；
-        'FORWARD' 表示后向调整法。
+        复权方向。'BACKWARD' 表示锚定最新价格并调整历史价格；
+        'FORWARD' 表示锚定上市日价格不变，向较新日期方向调整价格，中文
+        称“后复权(hfq)”。
+        默认后复权，即 'FORWARD' 。
     method : {'ADDITIVE', 'MULTIPLICATIVE'}, optional
-        复权计算方法。'ADDITIVE'（默认）表示等差调整；'MULTIPLICATIVE' 表示等比调整。
+        复权计算方法。'ADDITIVE' 表示等差调整；'MULTIPLICATIVE' 表示等比调整。
+        默认 'ADDITIVE'。
 
     """
-    direction: Literal['FORWARD','BACKWARD'] = 'BACKWARD'     # 复权方向，默认前向调整法：锚定最新价格不变，调整历史合约价格。英文为 Backward Adjustment。
-    method: Literal['ADDITIVE','MULTIPLICATIVE'] = 'ADDITIVE' # 复权计算方法，默认等差法。
+    direction: Literal['FORWARD','BACKWARD'] = 'FORWARD' 
+    method: Literal['ADDITIVE','MULTIPLICATIVE'] = 'ADDITIVE'
 
 @dataclass(frozen=True)
 class SamplingConfig:

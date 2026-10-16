@@ -144,19 +144,6 @@ class ResearchFeed:
                 当日是否为主力合约实际生效切换日；无法判断时为缺失值。
             continuity_segment_id: int
                 连续主力分段编号。主力缺失会切断分段，正常换月不会切断分段。
-
-        Notes
-        -----
-        复权采用优先收盘价、必要时成对回退至结算价的后向等差复权
-        （close-preferred, settlement-fallback backward additive adjustment）。
-        复权因子先在完整换月总表上计算，再按查询区间切片，因此同一历史日期
-        的复权结果不依赖本次查询的结束日期。
-
-        ``Price_Gap`` 因主力缺失而为空时按 0 参与复权因子累计，即断档前后沿用
-        同一套复权因子；这并不表示价格序列在统计意义上连续。``True_Return``
-        通过 ``continuity_segment_id`` 明确切断跨主力空缺区间的收益率，断档恢复
-        首日因不存在可比的连续前值而保持 NaN。正常换月仅在实际主力切换日使用
-        新主力自身的前一交易日收盘价修正收益率，过渡窗口内其他日期不做修正。
     
         """
         # 先处理 start_date 和 end_date 参数逻辑
@@ -244,9 +231,15 @@ class ResearchFeed:
 
         Notes
         -----
-        目前仅支持后向等差复权。``Price_Gap`` 优先采用成对收盘价，必要时成对
-        回退为结算价；它位于旧主力的最后一个交易日，反向累加后使旧主力历史
-        价格加上后续全部换月缺口。
+        目前支持前复权和后复权两种复权方向上的等差复权。
+
+        ``Price_Gap`` 优先采用成对收盘价，必要时成对
+        回退为结算价；它位于旧主力的最后一个交易日。
+
+        前复权时，反向累加后得到复权因子。
+        后复权时，先对``Price_Gap``取相反数，然后向后移动一个交易日，然后正向累加，
+        得到复权因子。
+        
         最新日以及主力缺失造成的 ``Price_Gap`` 空值按 0 累加，从而跨断档沿用
         同一复权因子。
 
@@ -255,21 +248,13 @@ class ResearchFeed:
         ``is_contract_switch`` 单独表示。``continuity_segment_id`` 只在主力由
         缺失恢复为有效合约时递增，普通换月不会开启新分段。
         """
-        if not (
-            self.adj_config.direction == 'BACKWARD'
-            and self.adj_config.method == 'ADDITIVE'
-        ):
-            raise ValueError(
-                '【ResearchFeed】目前仅支持后向等差复权：'
-                f'direction={self.adj_config.direction!r}, '
-                f'method={self.adj_config.method!r}。'
-            )
-
+        # 检查换月总表：必需列与索引类型
         master = self.contract_manager.master_table.copy().sort_index()
         check_df_columns_exist(master, ['Dominant_Contract', 'Price_Gap'])
         if not isinstance(master.index, pd.DatetimeIndex):
             raise TypeError('【ResearchFeed】换月总表索引必须是 DatetimeIndex。')
 
+        # 检查是否存在主力链连续但价差缺失
         dominant = master['Dominant_Contract']
         next_dominant = dominant.shift(-1)
         unexplained_gap_missing = (
@@ -285,11 +270,23 @@ class ResearchFeed:
                 '【ResearchFeed】发现主力链连续但 Price_Gap 缺失的交易日：'
                 f'{bad_dates}。仅允许将主力缺失或序列末端造成的价差空值按 0 累计。'
             )
+        # 根据复权配置，生成复权因子
+        if self.adj_config.direction == 'BACKWARD':
+            master['Adj_Factor'] = (
+                master['Price_Gap'].fillna(0.0).iloc[::-1].cumsum().iloc[::-1]
+            )  
+        else: # 'FORWARD'
+            # RollGapCalculator.build_master_table 是把 p_new - p_old 记在
+            # 旧合约的最后一个交易日。而后复权所需要的是旧合约最后一个
+            # 交易日（T-1日）的 p_old - p_new 用于调整 T 日及以后价格。
+            # 所以要先取相反数，然后向后平移一个交易日，再延时间正序做累加求和计算
+            # 复权因子。
+            master['Price_Gap_Basis'] = master['Price_Gap_Basis'].shift(1)
+            master['Adj_Factor'] = (
+                (- master['Price_Gap']).shift(1).fillna(0).cumsum() 
+            )
 
-        master['Adj_Factor'] = (
-            master['Price_Gap'].fillna(0.0).iloc[::-1].cumsum().iloc[::-1]
-        )
-
+        # 生成换月状态标记
         roll_states = pd.Series(
             (
                 self.contract_manager
@@ -408,8 +405,7 @@ class ResearchFeed:
         Notes
         -----
         本方法不在查询切片上重新计算 ``Adj_Factor``。因子来自完整 master
-        table，采用 close-preferred, settlement-fallback backward additive
-        adjustment；同一个加法因子同时施加到 OHLC，以保持每根 K 线内部的
+        table；同一个加法因子同时施加到 OHLC，以保持每根 K 线内部的
         绝对价差结构。``True_Return`` 始终另行使用未复权的 ``Raw_Close`` 计算。
         """
         check_df_columns_exist(df, ['Open','High','Low','Close'])

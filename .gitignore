@@ -64,6 +64,7 @@ repomix.config.json
 docs/talk with API/
 docs/Development Notes/temp/
 
+
 # 性能分析、验证类的一次性脚本（临时产物，不入库）
 scripts/temp/
 
@@ -83,3 +84,4 @@ research/artifacts/
 research/experiments/alpha101/ref/
 tests/research/experiments/alpha101/
 tests/factors/diagnostic_portfolio/my_test_production_20261003.ipynb
+docs/others/为何使用加法复权.jpg

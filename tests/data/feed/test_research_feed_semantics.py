@@ -21,26 +21,41 @@ def _manager(master: pd.DataFrame, transition_days: int = 1):
     return manager
 
 
-def _feed(master: pd.DataFrame) -> ResearchFeed:
+def _feed(master: pd.DataFrame,
+          adj_config: AdjustmentConfig | None = None) -> ResearchFeed:
     feed = ResearchFeed.__new__(ResearchFeed)
     feed.product = 'TEST'
     feed.contract_manager = _manager(master)
-    feed.adj_config = AdjustmentConfig()
+    feed.adj_config = adj_config or AdjustmentConfig()
     feed._research_master_table = None
     return feed
 
 
-def test_master_semantics_are_computed_before_query_slice():
+@pytest.mark.parametrize(
+    'direction, expected_adj_factor',
+    [
+        # 前复权：反向累加。每个历史日的因子等于它自身及其之后全部换月缺口之和，
+        # 故最新一日恒为 0。dates[4] 记的 10.0 缺口作用在 dates[4] 及更早的交易日。
+        ('BACKWARD', [10.0] * 5 + [0.0, 0.0]),
+        # 后复权：取反 + 后移一个交易日 + 正序累加。每个历史日的因子等于它之前
+        # 全部换月缺口的相反数，故首个交易日恒为 0。dates[4] 记的 10.0 缺口经
+        # 后移后作用在新主力 C 的首个有效日 dates[5] 及更晚的交易日。
+        ('FORWARD', [0.0] * 5 + [-10.0, -10.0]),
+    ],
+)
+def test_master_semantics_are_computed_before_query_slice(
+        direction: str, expected_adj_factor: list[float]) -> None:
     """查询结束日不得改变历史复权因子或日期级换月语义。"""
     dates = pd.bdate_range('2026-01-02', periods=7)
     master = pd.DataFrame(
         {
             'Dominant_Contract': ['A', 'A', None, 'B', 'B', 'C', 'C'],
             'Price_Gap': [0.0, None, None, 0.0, 10.0, 0.0, None],
+            'Price_Gap_Basis': [None, None, None, None, 'close', None, None]
         },
         index=dates,
     )
-    feed = _feed(master)
+    feed = _feed(master, AdjustmentConfig(direction=direction))
 
     short = feed._query_master_table(dates[0].date(), dates[4].date())
     full = feed._query_master_table(dates[0].date(), dates[-1].date())
@@ -48,8 +63,9 @@ def test_master_semantics_are_computed_before_query_slice():
     pd.testing.assert_series_equal(
         short['Adj_Factor'], full.loc[short.index, 'Adj_Factor'],
     )
-    assert short['Adj_Factor'].tolist() == [10.0] * 5
-    assert full['Adj_Factor'].tolist() == [10.0] * 5 + [0.0, 0.0]
+    
+    assert short['Adj_Factor'].tolist() == expected_adj_factor[:5]
+    assert full['Adj_Factor'].tolist() == expected_adj_factor
 
     assert full['roll_state'].tolist() == [
         'not_roll', 'not_roll', 'unknown', 'unknown',
