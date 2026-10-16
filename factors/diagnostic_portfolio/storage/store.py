@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import platform
 import re
@@ -64,6 +65,8 @@ from .serialization import (
     write_pandas_artifact,
 )
 
+
+logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 1
 DEFAULT_ROOT_DIR = Path('research/artifacts/diagnostic_portfolio')
@@ -127,10 +130,19 @@ class DiagnosticPortfolioStore:
         -------
         None
 
+        Notes
+        -----
+        实例化时会检查两项会降低复现等级的环境问题，并在命中时输出
+        ``logging`` 警告：运行目录落在 ``repo_root`` 内却未被 Git 忽略（此时
+        Store 自己的保存产物会被判定为未提交改动），以及 ``repo_root`` 当前
+        工作区不干净。两项检查都只提示，不阻止后续保存；它们判断的是实例化
+        时点的状态，保存时仍以实际采集的 Git 来源为准。
+
         """
         self.root_dir = Path(root_dir).resolve()
         self.runs_dir = self.root_dir / 'runs'
         self.repo_root = Path(repo_root or Path.cwd()).resolve()
+        self._warn_environment()
 
     def save(
             self,
@@ -837,6 +849,55 @@ class DiagnosticPortfolioStore:
             stderr=subprocess.PIPE,
         )
         return completed.stdout.decode('utf-8', errors='replace')
+
+    def _warn_environment(self) -> None:
+        """实例化时提示会降低复现等级的环境问题。"""
+        relative = self._inside_repo_path(self.runs_dir)
+        if relative is not None and self._is_ignored(relative) is False:
+            logger.warning(
+                f'运行目录 {self.runs_dir} 位于 Git 仓库 {self.repo_root} 内'
+                f'且未被忽略（仓库内相对路径 {relative.as_posix()}）。保存实验'
+                '时，Store 自己的保存产物会被判定为未提交改动，使 manifest 的 '
+                'git_dirty=True、复现等级降为 input_replayable_code_dirty。'
+                '建议把存储根移出仓库，或将运行目录加入 .gitignore。')
+        if self._worktree_dirty() is True:
+            logger.warning(
+                f'Git 仓库 {self.repo_root} 当前工作区不干净，保存实验时 '
+                'manifest 的 git_dirty=True、复现等级将为 '
+                'input_replayable_code_dirty。建议提交代码后再运行正式实验。')
+
+    def _inside_repo_path(self, path: Path) -> Path | None:
+        """返回 path 在仓库内的相对路径，不在 repo_root 内时返回 None。"""
+        try:
+            return path.relative_to(self.repo_root)
+        except ValueError:
+            return None
+
+    def _is_ignored(self, relative: Path) -> bool | None:
+        """判断仓库内相对路径是否被 Git 忽略，无法判定时返回 None。"""
+        try:
+            completed = subprocess.run(
+                ['git', 'check-ignore', '-q', '--', relative.as_posix()],
+                cwd=self.repo_root,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+        except OSError:
+            return None
+        if completed.returncode == 0:
+            return True
+        if completed.returncode == 1:
+            return False
+        return None
+
+    def _worktree_dirty(self) -> bool | None:
+        """判断工作区是否存在未提交改动，无法判定时返回 None。"""
+        try:
+            status = self._git_text(
+                'status', '--porcelain=v1', '--untracked-files=all')
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return bool(status.strip())
 
     def _reproducibility_level(
             self, code_provenance: Mapping[str, Any]) -> str:

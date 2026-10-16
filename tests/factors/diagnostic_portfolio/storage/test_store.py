@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from dataclasses import replace
 import json
+import logging
 from pathlib import Path
+import shutil
+import subprocess
 
 import numpy as np
 import pandas as pd
@@ -399,3 +402,85 @@ def test_missing_git_provenance_lowers_reproducibility_level(
 
     assert stored.manifest.reproducibility_level == 'incomplete'
     assert 'Git 不可用' in stored.manifest.storage_warnings
+
+
+def _init_git_repo(path: Path, **files: str) -> None:
+    """在 path 初始化一个只含一次提交的 Git 仓库，可附加额外文件。"""
+    def run(*args: str) -> None:
+        subprocess.run(
+            ['git', *args], cwd=path, check=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    run('init', '-q')
+    for name, content in {'placeholder.py': 'x = 1\n', **files}.items():
+        target = path / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding='utf-8')
+    run('add', '-A')
+    run('-c', 'user.email=test@example.com', '-c', 'user.name=test',
+        'commit', '-q', '-m', 'init')
+
+
+def _store_warnings(caplog):
+    """只取 Store 模块发出的警告文本，避免混入其他库的日志。"""
+    return [record.getMessage() for record in caplog.records
+            if record.name == 'factors.diagnostic_portfolio.storage.store']
+
+
+_NEEDS_GIT = pytest.mark.skipif(
+    shutil.which('git') is None, reason='需要 Git 命令')
+
+
+@_NEEDS_GIT
+def test_init_warns_when_runs_dir_inside_repo_and_not_ignored(
+        tmp_path, caplog) -> None:
+    repo = tmp_path / 'repo'
+    repo.mkdir()
+    _init_git_repo(repo)
+
+    with caplog.at_level(logging.WARNING):
+        DiagnosticPortfolioStore(root_dir=repo / 'artifacts', repo_root=repo)
+
+    messages = _store_warnings(caplog)
+    assert any('未被忽略' in message for message in messages)
+    assert not any('工作区不干净' in message for message in messages)
+    assert not (repo / 'artifacts').exists()
+
+
+@_NEEDS_GIT
+def test_init_warns_when_worktree_dirty(tmp_path, caplog) -> None:
+    repo = tmp_path / 'repo'
+    repo.mkdir()
+    _init_git_repo(repo)
+    (repo / 'untracked.py').write_text('y = 2\n', encoding='utf-8')
+
+    with caplog.at_level(logging.WARNING):
+        DiagnosticPortfolioStore(
+            root_dir=tmp_path / 'storage', repo_root=repo)
+
+    messages = _store_warnings(caplog)
+    assert any('工作区不干净' in message for message in messages)
+    assert not any('未被忽略' in message for message in messages)
+
+
+@_NEEDS_GIT
+def test_init_is_silent_for_ignored_runs_dir_and_clean_worktree(
+        tmp_path, caplog) -> None:
+    repo = tmp_path / 'repo'
+    repo.mkdir()
+    _init_git_repo(repo, **{'.gitignore': 'artifacts/\n'})
+
+    with caplog.at_level(logging.WARNING):
+        DiagnosticPortfolioStore(root_dir=repo / 'artifacts', repo_root=repo)
+
+    assert _store_warnings(caplog) == []
+
+
+@_NEEDS_GIT
+def test_init_is_silent_when_repo_root_is_not_a_git_repo(
+        tmp_path, caplog) -> None:
+    with caplog.at_level(logging.WARNING):
+        DiagnosticPortfolioStore(
+            root_dir=tmp_path / 'artifacts', repo_root=tmp_path)
+
+    assert _store_warnings(caplog) == []

@@ -481,7 +481,9 @@ except RunNotFoundError:
 - note 解释本次实验目的，而不是重复参数；
 - tags 使用少量稳定词汇，例如 `momentum`、`baseline`、`robustness`；
 - `data_provenance` 记录能够确认的数据源截止日期；
-- 正式研究运行前提交代码并保持工作区干净；
+- 正式研究运行前提交代码并保持工作区干净；实例化 `DiagnosticPortfolioStore`
+  时会检查"运行目录落在仓库内且未被 Git 忽略"和"工作区不干净"两种情况并输出
+  logging 警告，命中任一种都会让复现等级降为 `input_replayable_code_dirty`；
 - 保存后记录 `run_id`，报告和图表引用该 ID；
 - 需要审计时使用默认校验加载和 `replay_stored_run()`。
 
