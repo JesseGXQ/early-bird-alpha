@@ -193,6 +193,12 @@ class DiagnosticSignal:
     warnings: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        # 不允许信号为全 NaN、或仅有单值
+        if self.values.isna().all():
+            raise ValueError('信号为全 NaN。')
+        if self.values.nunique() == 1:
+            raise ValueError(f'信号只有单值: {self.values.unique()}')
+        
         _require_non_empty_str(self.name, 'DiagnosticSignal.name')
         _require_non_empty_str(self.factor_name, 'DiagnosticSignal.factor_name')
         if self.source_stage not in _SOURCE_STAGES:
