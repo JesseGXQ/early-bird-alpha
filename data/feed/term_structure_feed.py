@@ -7,17 +7,14 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Iterable, Literal
 from datetime import date
-from unittest import result
 import pandas as pd
 
-from data.feed.research_feed import validate_start_end_dates
-
+from data.feed.utils import filter_date_range
 
 if TYPE_CHECKING:
     from data.storage.daily_snapshot_manager import DailySnapshotManager
     from data.rules.instrument_registry_manager import InstrumentRegistryManager
     from data.stitching.stitching import ContinuousContractManager
-
 
 class TermStructureFeed:
     """
@@ -78,6 +75,8 @@ class TermStructureFeed:
         -------
         pd.DataFrame
             期限结构长表，MultiIndex[trading_date, contract]。
+            若请求日期范围完全不在可用范围内，返回结构化的空 DataFrame；
+            若请求日期和可用范围有交集，取两者交集。
 
         Columns
         ~~~~~~~
@@ -109,12 +108,18 @@ class TermStructureFeed:
         # 处理 start_date 和 end_date 逻辑
         earliest: date = product_df['trading_date'].min().date()
         latest: date = product_df['trading_date'].max().date()
-        if start_date is None:
-            start_date = earliest
-        if end_date is None:
-            end_date = latest
-        validate_start_end_dates(start_date, end_date, earliest, latest)
-
+        start_date, end_date = filter_date_range(start_date, end_date, 
+                                                 earliest, latest)
+        if start_date is None or end_date is None:
+            return pd.DataFrame(
+                [],
+                columns=['product','is_dominant', price_col,'last_trade_date',
+                         'OpenInterest','Volume'],
+                index=pd.MultiIndex.from_tuples(
+                    (),names=['trading_date', 'contract']
+                )
+            )
+        
         start_ts = pd.Timestamp(start_date)
         end_ts = pd.Timestamp(end_date)
         product_df = product_df[
@@ -216,13 +221,14 @@ if __name__ == "__main__":
         registry_manager=registry_manager,
         contract_manager=contract_manager,
     )
-
+    start_date = date(2015, 8, 1)
+    end_date = date(2027, 8, 10)
     df = feed.get_term_structure_data(
-        start_date=date(2021, 8, 1),
-        end_date=date(2021, 8, 10),
+        start_date=start_date,
+        end_date=end_date,
     )
-    print(f"品种 {product} 期限结构数据 (2021-08-01 ~ 2021-08-10):")
-    print(df.to_string())
+    print(f"品种 {product} 期限结构数据 ({start_date} ~ {end_date}):")
+    print('DataFrame 头部：\n', df.head().to_string(),'\n', 'DataFrame 尾部: \n', df.tail().to_string())
     print(f"\nDataFrame 索引名称: {df.index.names}")
     print(f"DataFrame 列: {df.columns.tolist()}")
     print(f"行数: {len(df)}")

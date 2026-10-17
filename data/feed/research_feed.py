@@ -7,6 +7,7 @@ from tqdm import tqdm
 
 from data.stitching.models import RollState
 from utils.validation_utils import check_df_columns_exist
+from data.feed.utils import filter_date_range
 
 if TYPE_CHECKING:
     from data.cleaning.cleaning_tick import CleaningPipeline
@@ -19,12 +20,12 @@ if TYPE_CHECKING:
     from data.storage.bar_loader import BarLoader
     from data.config import AdjustmentConfig
 
-def validate_start_end_dates(start_date: date, end_date: date, 
-                    earliest: date, latest: date):
-    """进行日期校验：开始小于等于结束；开始大于等于最早可用；结束小于等于最新可用。"""
-    assert start_date <= end_date, f'起始交易日 {start_date} 应早于或等于结束交易日 {end_date}。'
-    assert start_date >= earliest, f'起始交易日 {start_date} 应晚于或等于最早可用交易日 {earliest}。'
-    assert end_date   <= latest,   f'结束交易日 {end_date}   应早于或等于最晚可用交易日 {latest}。'
+RFEED_1d_COLUMNS = [
+    'Dominant_Contract', 'Price_Gap', 'Adj_Factor', 'roll_state', 'is_roll',
+    'is_contract_switch', 'continuity_segment_id', 'Raw_Open', 'Raw_High',
+    'Raw_Low', 'Raw_Close', 'Volume', 'OpenInterest', 'trading_date',
+    'Adj_Open', 'Adj_High', 'Adj_Low', 'Adj_Close', 'True_Return'
+]
 
 class ResearchFeed:
     """
@@ -58,7 +59,7 @@ class ResearchFeed:
 
     Methods
     ------
-    get_historical_vector(start_date, end_date, freq)
+    get_historical_vector(start_date, end_date, freq, view)
         返回指定日期范围内，特定频率的历史复权主力合约的 K 线数据。
 
     """
@@ -88,11 +89,13 @@ class ResearchFeed:
         self.adj_config: AdjustmentConfig = adj_config
         self._research_master_table: pd.DataFrame | None = None
 
-    def get_historical_vector(self, 
-                              start_date: date | None, 
-                              end_date: date | None,
-                              freq: str = '1d',
-                              view: Literal['scheduled', 'realized'] = 'scheduled') -> pd.DataFrame:
+    def get_historical_vector(
+            self, 
+            start_date: date | None, 
+            end_date: date | None,
+            freq: str = '1d',
+            view: Literal['scheduled', 'realized'] = 'scheduled',
+    ) -> pd.DataFrame:
         """
         返回指定日期范围内，指定频率的历史复权主连合约价格。
 
@@ -116,44 +119,59 @@ class ResearchFeed:
         -------
         pd.DataFrame
             复权后主力合约(连续)价格，每一行对应一个 Bar 。
+            若请求日期范围完全不在可用范围内，返回结构化的空 DataFrame；
+            若请求日期和可用范围有交集，取两者交集。
 
-        Index
+        **Index**
         ~~~~~
-            calendar_time: pd.DatetimeIndex 
-                （日历）交易时间戳。
+            - 1d : DatetimeIndex(name='trading_date')
+            - other: DatetimeIndex(name='Datetime')
         Columns
         ~~~~~~~
-            trading_date: datetime.date
-                交易日期标签
             Dominant_Contract: str
                 主力合约（名称）
             Price_Gap: float
                 换月时新主力和旧主力的价格差，优先使用成对收盘价，必要时
                 成对回退为结算价。
-            Adj_Close / Adj_Open / Adj_High / Adj_Low: float
-                复权主连价格的OHLC ，根据原始价格和复权因子做了调整。
-            Raw_Close/ Raw_Open / Raw_High / Raw_Low: float
-                主力合约的原始价格OHLC
-            True_Return: float
-                真实收益率，换月期已特殊处理。利用收盘价计算。
-            is_roll: bool
-                是否处于换月过渡窗口；主力语义无法确定时为缺失值。
+            Adj_Factor: float
+                复权因子。
             roll_state: {'roll', 'not_roll', 'unknown'}
                 换月过渡窗口的三态判定。
+            is_roll: bool
+                是否处于换月过渡窗口；主力语义无法确定时为缺失值。
             is_contract_switch: bool
                 当日是否为主力合约实际生效切换日；无法判断时为缺失值。
             continuity_segment_id: int
                 连续主力分段编号。主力缺失会切断分段，正常换月不会切断分段。
+            Raw_Close/ Raw_Open / Raw_High / Raw_Low: float
+                主力合约的原始价格OHLC
+            Volume: int
+                成交量。
+            OpenInterest: int
+                持仓量。
+            trading_date: datetime.date
+                交易日期标签
+            Adj_Close / Adj_Open / Adj_High / Adj_Low: float
+                复权主连价格的OHLC ，根据原始价格和复权因子做了调整。
+            True_Return: float
+                真实收益率，换月期已特殊处理。
+            ------
+            以下为 freq != '1d' 时的列
+            is_contract_switch_first: bool
+                是否换月第一天。
+            pre_bar_calendar_timestamp: pd.Timestamp
+                前一根K线的日历交易时间戳。
     
         """
-        # 先处理 start_date 和 end_date 参数逻辑
         earliest = self.contract_manager.dates_list[0].date()
         latest   = self.contract_manager.dates_list[-1].date()
-        if start_date is None:
-            start_date = earliest
-        if end_date is None:
-            end_date = latest
-        validate_start_end_dates(start_date, end_date, earliest, latest)
+        start_date, end_date = filter_date_range(
+            start_date, end_date, earliest,latest)
+        if start_date is None or end_date is None:
+            return pd.DataFrame(
+                [], columns= RFEED_1d_COLUMNS,
+                index=pd.DatetimeIndex([],name='trading_date')
+            )
 
         # 1. 找连续合约大管家索要指定日期范围的物理合约映射表
         master_df_query = self._query_master_table(start_date=start_date, end_date=end_date)
@@ -170,7 +188,7 @@ class ResearchFeed:
                                        daily_freq=True)
             # 计算 True Return
             re_df = self._calculate_true_return_daily(re_df)
-            return re_df
+            return re_df[RFEED_1d_COLUMNS]
         else:
             with tqdm(total=5, desc=f'{self.product} 主连复权', unit='step', ncols=80) as pbar:
                 pbar.set_postfix_str('读取原始1min数据')

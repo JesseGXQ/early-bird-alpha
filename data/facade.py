@@ -431,12 +431,10 @@ class DataFacade:
                 )
             except Exception as e:
                 raise RuntimeError(f'品种 {product} 获取数据失败。') from e
-            # ResearchFeed 每次返回全新构造的帧，不与任何内部缓存共享，
-            # 故可直接写入 product 列，无需先拷贝。
             df_product['product'] = product
             dfs.append(df_product)
 
-        df = pd.concat(dfs, axis=0)
+        df = pd.concat([df for df in dfs if not df.empty], axis=0)
         df.set_index('product', append=True, inplace=True)
         df.sort_index(inplace=True)
 
@@ -446,7 +444,7 @@ class DataFacade:
 # inline testing
 # ==================================
 if __name__ == '__main__':
-
+    from datetime import date
     facade = DataFacade()
 
     # ------------------------ query rule -----------------------------
@@ -469,18 +467,35 @@ if __name__ == '__main__':
     
 
     # -------------------------ResearchFeed------------------------
-    from datetime import date
-    products = ['JR','PD']
+    # from datetime import date
+    # products = ['JR','PD']
+    # freq='1d'
+    # start_date = None
+    # end_date = None
+    # df1 = facade.get_historical_vector_multiple_products(products,start_date, end_date, freq='1d')
+    # print(f'product = {products}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df1.head())
+    # print('columns of returned DataFrame: \n', df1.columns)
+    # # freq='5min'
+
+    # df2 = facade.get_historical_vector_multiple_products(products, start_date, end_date, freq='5min')
+    # print(f'product = {products}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df2.head())
+    # print('columns of returned DataFrame: \n', df2.columns)
+
+    # print('Intersection of columns: \n', df1.columns.intersection(df2.columns))
+
+    # start_date 和 end_date 逻辑测试
     freq='1d'
-    start_date = None
-    end_date = None
-    df1 = facade.get_historical_vector_multiple_products(products,start_date, end_date, freq='1d')
-    print(f'product = {products}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df1.head())
-    # print(f'数据集的列为: {df1.columns.tolist()}')
-    # freq='5min'
-    # freq='5min'
-    # df2 = facade.get_historical_vector(product, start_date, end_date, freq='5min')
-    # print(f'product = {product}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df2.head())
+    products = ['PM']
+    start_date = date(2008, 1, 25)
+    end_date = date(2026,10,25)
+    df3 = facade.get_historical_vector_multiple_products(products,start_date, end_date, freq='1d')
+    print(f'product = {products}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df3.head())
+
+    start_date = date(1978, 1, 25)
+    end_date = date(1975,10,25)
+    df4 = facade.get_historical_vector_multiple_products(products,start_date, end_date, freq='1d')
+    print(f'product = {products}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df4.head())
+
 
 
     # -------------------------SimulationFeed------------------------

@@ -2,14 +2,12 @@
 数据集构建与校验。
 负责从 DataFacade 构建供研究的面板数据并做 schema 校验。
 """
-
 from __future__ import annotations
-
-from re import S
 from typing import TYPE_CHECKING, Any, Mapping
-
+import logging
 import pandas as pd
 from dataclasses import asdict
+
 
 from factors.models import (
     INDEX_NAMES,
@@ -20,6 +18,8 @@ from factors.models import (
 )
 from data.facade import DataFacade
 from factors.universe import DynamicUniverse
+
+logger = logging.getLogger(__name__)
 
 # ============================================================
 # 私有辅助函数
@@ -225,18 +225,19 @@ class ResearchDatasetBuilder:
         # 统一命名索引层级为架构契约名称
         panel.index.names = list(INDEX_NAMES)
 
-        # 请求品种全覆盖校验：多品种接口的 concat 会静默丢弃返回空数据的品种，
-        # 此处兜底覆盖逐品种加载的"某品种返回空数据"检查。
+        # 若请求日期和某品种的(换月表)可用日期范围无交集，get_historical_vector 会返回
+        # 空 DataFrame
         present = set(panel.index.get_level_values('product'))
         missing = set(products) - present
         if missing:
-            raise ValueError(
-                f"以下品种返回空数据，未纳入主面板: {sorted(missing)}"
+            logger.warning(
+                '主面板缺品种提醒：以下品种数据引擎返回了空 DataFrame。'
+                f'在主面板中会缺失：{sorted(missing)}'
             )
-
-        # MultiIndex 第一层级为 timestamp（元素类型 pd.Timestamp），第二层级为 product（str）
-        assert isinstance(panel.index.get_level_values(0)[0], pd.Timestamp)
-        assert isinstance(panel.index.get_level_values(1)[0], str)
+        if not panel.empty:
+            # MultiIndex 第一层级为 timestamp（元素类型 pd.Timestamp），第二层级为 product（str）
+            assert isinstance(panel.index.get_level_values(0)[0], pd.Timestamp)
+            assert isinstance(panel.index.get_level_values(1)[0], str)
 
         # 按时间戳优先、品种次之的顺序稳定排序
         panel.sort_index(inplace=True)
@@ -275,6 +276,15 @@ class ResearchDatasetBuilder:
                 end_date=self._dataset_spec.end_date,
                 **ts_params,
             )
+
+            # 同样检验是否存在未获取到的品种
+            present = set(ts_df['product'])
+            missing = set(products) - present
+            if missing:
+                logger.warning(
+                    '期限结构数据缺品种提醒：以下品种数据引擎返回了空 DataFrame。'
+                    f'在期限结构数据中会缺失：{missing}'
+                )
 
             # 多品种接口返回 MultiIndex[trading_date, contract]，品种在 product 列中；
             # 重建索引为 [timestamp, product, contract]，product 移入索引后移除原列。
