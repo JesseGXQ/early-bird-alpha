@@ -325,25 +325,20 @@ class DiagnosticPortfolioExperimentRunner:
         artifacts = self._compute_accounting_artifacts(
             weights=weights, panel=panel, timeline=timeline
         )
-        date_range_meta = self._collect_date_range_metadata(
-            target_weights=weights,
-            experiment_timeline=timeline
-        )
         return self._build_result(
             target_weights=weights,
             rebalance_flags=rebalance_flags,
             artifacts=artifacts,
             warnings_ledger=warnings_ledger,
             metadata_ledger=metadata_ledger,
-            date_range_meta=date_range_meta,
         )
 
     def _collect_date_range_metadata(
             self, target_weights: pd.Series,
             experiment_timeline: pd.DatetimeIndex) -> Mapping[str, pd.Series]:
-        """收集本次实验相关的日期范围信息。包括：
+        """收集本次实验相关的时间范围信息。包括：
         1. 信号的第一次和最后一次非全 NaN 时期（信号的时间范围）
-        2. 目标权重的第一次非全0和最后一次非全0时期（实际策略运作的时间范围）
+        2. 目标权重的第一次、最后一次非零 gross_exposure 时期（实际策略运作的时间范围）
         3. 实验运行的时间轴起点和终点。
         """
         # 1. signal
@@ -353,10 +348,16 @@ class DiagnosticPortfolioExperimentRunner:
         last_signal_valid_ts = has_valid_by_ts[has_valid_by_ts].index[-1]
         # 2. 权重
         w = target_weights
-        has_nonzero_by_ts = w.groupby(level='timestamp')\
-            .apply(lambda s: (s !=0).any() )
-        first_nonzero_w_ts = has_nonzero_by_ts[has_nonzero_by_ts].index[0]
-        last_nonzero_w_ts = has_nonzero_by_ts[has_nonzero_by_ts].index[-1]
+        nonzero_gross_exposure = w.groupby(level='timestamp')\
+            .apply(lambda s: s.abs().sum() != 0 )
+        if nonzero_gross_exposure.any():
+            first_nonzero_gross_expsoure_ts = \
+                nonzero_gross_exposure[nonzero_gross_exposure].index[0]
+            last_nonzero_gross_expsoure_ts = \
+                nonzero_gross_exposure[nonzero_gross_exposure].index[-1]
+        else: # 如果组合从头到尾都是空仓
+            first_nonzero_gross_expsoure_ts, last_nonzero_gross_expsoure_ts = \
+                None, None
         # 3. 实验时间轴
         first_experiment_timeline_ts = experiment_timeline[0]
         last_experiment_timeline_ts = experiment_timeline[-1]
@@ -365,20 +366,14 @@ class DiagnosticPortfolioExperimentRunner:
             {
                 'first_signal_valid_timestamp': first_signal_valid_ts,
                 'last_signal_valid_timestamp': last_signal_valid_ts,
-                'first_nonzero_weight_timestamp': first_nonzero_w_ts,
-                'last_nonzero_weight_timestamp': last_nonzero_w_ts,
+                'first_nonzero_gross_exposure_timestamp': first_nonzero_gross_expsoure_ts,
+                'last_nonzero_gross_exposure_timestamp': last_nonzero_gross_expsoure_ts,
                 'experiment_timeline_first': first_experiment_timeline_ts,
                 'experiment_timeline_last': last_experiment_timeline_ts
             },
             name='date_range_meta'
         )
         return {'date_range_meta': date_range_meta}
-
-    
-
-        
-
-        
 
     def _align_weight_return_cost(
             self, 
@@ -468,6 +463,12 @@ class DiagnosticPortfolioExperimentRunner:
         warnings_facts: list[str] = []
         metadata_facts: Mapping[str, Any] = {}
 
+        date_range_meta = self._collect_date_range_metadata(
+            target_weights=weights,
+            experiment_timeline=timeline
+        )
+        metadata_facts.update(date_range_meta)
+
         weight_changes, turnover, cost = compute_weight_changes_turnover_cost(
         weights, cost_config=self._spec.cost
         )
@@ -511,6 +512,9 @@ class DiagnosticPortfolioExperimentRunner:
         performance, warnings = compute_performance(
             gross_returns=portfolio_returns['gross_return'], 
             net_returns=portfolio_returns['proxy_net_return'],
+            first_nonzero_gross_exposure_timestamp = \
+                date_range_meta['date_range_meta']\
+                .loc['first_nonzero_gross_exposure_timestamp'],
             annualization_factor=self._spec.annualization_factor
         )
         warnings_facts.extend(warnings)
@@ -540,7 +544,6 @@ class DiagnosticPortfolioExperimentRunner:
             artifacts: AccountingArtifacts,
             warnings_ledger: tuple[str,...],
             metadata_ledger: Mapping[str, Any],
-            date_range_meta: Mapping[str, pd.Series]
     ) -> DiagnosticPortfolioResult:
         """
         工厂函数：组装目标权重、再平衡flags、实验结果的artifacts
@@ -553,8 +556,7 @@ class DiagnosticPortfolioExperimentRunner:
         
         warnings_for_result = tuple([*warnings_ledger, *warnings_artifacts])
         metadata_for_result = {
-            **dict(metadata_ledger), **dict(metadata_artifacts), 
-            **date_range_meta
+            **dict(metadata_ledger), **dict(metadata_artifacts)
         }
         
         return DiagnosticPortfolioResult(

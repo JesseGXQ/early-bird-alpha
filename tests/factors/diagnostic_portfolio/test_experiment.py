@@ -120,8 +120,9 @@ def test_align_inputs_rejects_signal_outside_panel(
         dataset_factory, signal_factory, index_factory) -> None:
     ds = dataset_factory(['2024-01-01'], ['A', 'B'], [0.1, 0.2])
     extra = pd.MultiIndex.from_tuples(
-        [(pd.Timestamp('2024-01-05'), 'A')], names=INDEX_NAMES)
-    signal = signal_factory(pd.Series([1.0], index=extra))
+        [(pd.Timestamp('2024-01-05'), 'A'), (pd.Timestamp('2024-01-05'), 'B')],
+        names=INDEX_NAMES)
+    signal = signal_factory(pd.Series([1.0, 2.0], index=extra))
 
     with pytest.raises(ValueError, match='不在主面板索引中'):
         align_inputs(signal, ds)
@@ -133,15 +134,17 @@ def test_align_inputs_requires_eligible_index_equal(
 
     from factors.universe import Universe
 
-    ds = dataset_factory(['2024-01-01'], ['A', 'B'], [0.1, 0.2])
+    ds = dataset_factory(
+        ['2024-01-01'], ['A', 'B', 'C'], [0.1, 0.2, 0.3])
     subset = pd.MultiIndex.from_tuples(
-        [(pd.Timestamp('2024-01-01'), 'A')], names=INDEX_NAMES)
+        [(pd.Timestamp('2024-01-01'), 'A'), (pd.Timestamp('2024-01-01'), 'B')],
+        names=INDEX_NAMES)
     bad_ds = dataclasses.replace(
         ds,
         universe=Universe(
-            eligible=pd.Series([True], index=subset),
+            eligible=pd.Series([True, True], index=subset),
             exclude_reason=pd.Series('', index=subset)))
-    signal = signal_factory(pd.Series([1.0], index=subset))
+    signal = signal_factory(pd.Series([1.0, 2.0], index=subset))
 
     with pytest.raises(AssertionError):
         align_inputs(signal, bad_ds)
@@ -283,8 +286,13 @@ def test_rank_end_to_end_golden_path(dataset_factory, signal_factory) -> None:
         returns['gross_return'].to_numpy(), atol=1e-12)
 
     performance = result.performance
-    assert performance.index.tolist() == ['gross', 'proxy_net']
-    assert performance['n_periods'].tolist() == [4, 4]
+    assert performance.index.tolist() == [
+        'gross', 'proxy_net',
+        'gross_start_from_first_nonzero_gross_exposure',
+        'proxy_net_start_from_first_nonzero_gross_exposure',
+    ]
+    # 有效绩效行从 t0 决策期起、跳过其空仓收益后还剩 3 个实现时点。
+    assert performance['n_periods'].tolist() == [4, 4, 3, 3]
 
 
 def test_rank_end_to_end_sector_attribution(dataset_factory, signal_factory) -> None:

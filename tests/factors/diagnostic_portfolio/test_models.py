@@ -124,8 +124,9 @@ def test_signal_rejects_bad_source_stage() -> None:
 
 
 def test_signal_rejects_non_series_values() -> None:
+    # 传入非 Series 但具备 isna/nunique 的容器，仍必须在 dtype 校验前被拒绝。
     with pytest.raises(ValueError, match='pd.Series'):
-        _valid_signal(values=[1.0, 2.0])
+        _valid_signal(values=pd.Index([1.0, 2.0]))
 
 
 @pytest.mark.parametrize('values', [
@@ -165,7 +166,9 @@ def test_signal_rejects_infinity() -> None:
 
 
 def test_signal_allows_nan() -> None:
-    sig = _valid_signal(values=pd.Series([1.0, np.nan], index=_index(1)))
+    # 新校验要求信号至少有两个不同取值（非常数），NaN 仍被允许。
+    sig = _valid_signal(
+        values=pd.Series([1.0, 2.0, np.nan, 3.0], index=_index(2)))
     assert sig.values.isna().sum() == 1
 
 

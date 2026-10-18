@@ -461,7 +461,9 @@ def test_compute_performance_metrics() -> None:
     gross = pd.Series([0.01, -0.02, 0.03], index=idx)
     net = gross - 0.001
 
-    performance, warnings = compute_performance(gross, net, 252)
+    performance, warnings = compute_performance(
+        gross, net, first_nonzero_gross_exposure_timestamp=idx[0],
+        annualization_factor=252)
 
     assert warnings == ()
     assert list(performance.index) == list(PERFORMANCE_INDEX)
@@ -488,7 +490,9 @@ def test_performance_max_drawdown_includes_initial_nav() -> None:
     idx = pd.to_datetime(['2024-01-01'])
     returns = pd.Series([-0.05], index=idx)
 
-    performance, _ = compute_performance(returns, returns, 252)
+    performance, _ = compute_performance(
+        returns, returns, first_nonzero_gross_exposure_timestamp=idx[0],
+        annualization_factor=252)
 
     assert performance.loc['gross', 'max_drawdown'] == pytest.approx(-0.05)
 
@@ -498,15 +502,22 @@ def test_performance_sharpe_undefined_returns_nan_with_warning() -> None:
     idx = pd.to_datetime(['2024-01-01', '2024-01-02', '2024-01-03'])
     flat = pd.Series([0.0, 0.0, 0.0], index=idx)
 
-    performance, warnings = compute_performance(flat, flat, 252)
+    performance, warnings = compute_performance(
+        flat, flat, first_nonzero_gross_exposure_timestamp=idx[0],
+        annualization_factor=252)
 
     assert performance.loc['gross', 'sharpe'] != performance.loc['gross', 'sharpe']
     assert performance['sharpe'].isna().all()
     assert set(warnings) == {
-        'SHARPE_UNDEFINED:gross', 'SHARPE_UNDEFINED:proxy_net'}
+        'SHARPE_UNDEFINED:gross', 'SHARPE_UNDEFINED:proxy_net',
+        'SHARPE_UNDEFINED:gross_start_from_first_nonzero_gross_exposure',
+        'SHARPE_UNDEFINED:proxy_net_start_from_first_nonzero_gross_exposure',
+    }
 
     single = pd.Series([0.05], index=idx[:1])
-    performance_one, warnings_one = compute_performance(single, single, 252)
+    performance_one, warnings_one = compute_performance(
+        single, single, first_nonzero_gross_exposure_timestamp=idx[0],
+        annualization_factor=252)
     assert performance_one.loc['gross', 'sharpe'] != \
         performance_one.loc['gross', 'sharpe']
     assert 'SHARPE_UNDEFINED:gross' in warnings_one
@@ -516,13 +527,56 @@ def test_performance_empty_returns() -> None:
     """空收益序列返回 n_periods=0 与 NaN 指标，不抛异常。"""
     empty = pd.Series([], dtype='float64')
 
-    performance, warnings = compute_performance(empty, empty, 252)
+    performance, warnings = compute_performance(
+        empty, empty, first_nonzero_gross_exposure_timestamp=None,
+        annualization_factor=252)
 
-    assert performance['n_periods'].tolist() == [0, 0]
+    assert performance['n_periods'].tolist() == [0, 0, 0, 0]
     assert performance['total_return'].isna().all()
     assert performance['max_drawdown'].isna().all()
     assert set(warnings) == {
-        'SHARPE_UNDEFINED:gross', 'SHARPE_UNDEFINED:proxy_net'}
+        'SHARPE_UNDEFINED:gross', 'SHARPE_UNDEFINED:proxy_net',
+        'SHARPE_UNDEFINED:gross_start_from_first_nonzero_gross_exposure',
+        'SHARPE_UNDEFINED:proxy_net_start_from_first_nonzero_gross_exposure',
+    }
+
+
+def test_performance_start_from_first_nonzero_gross_exposure() -> None:
+    """回归：有效绩效行从首个非零 gross exposure 决策期开始，
+    并跳过该决策期对应的空仓收益（t 期权重对应 t+1 期收益）。"""
+    idx = pd.to_datetime(
+        ['2024-01-01', '2024-01-02', '2024-01-03', '2024-01-04'])
+    gross = pd.Series([0.0, 0.0, 0.02, 0.03], index=idx)
+    net = gross - 0.001
+
+    performance, _ = compute_performance(
+        gross, net, first_nonzero_gross_exposure_timestamp=idx[1],
+        annualization_factor=252)
+
+    effective = performance.loc[
+        'gross_start_from_first_nonzero_gross_exposure']
+    assert effective['n_periods'] == 2
+    assert effective['total_return'] == pytest.approx(1.02 * 1.03 - 1.0)
+    # 原始 gross 行仍覆盖完整时间轴。
+    assert performance.loc['gross', 'n_periods'] == 4
+
+
+def test_performance_no_nonzero_gross_exposure_yields_empty_effective_rows() \
+        -> None:
+    """回归：无任何非零 gross exposure 时，有效绩效行为空而非报错。"""
+    idx = pd.to_datetime(['2024-01-01', '2024-01-02'])
+    flat = pd.Series([0.0, 0.0], index=idx)
+
+    performance, _ = compute_performance(
+        flat, flat, first_nonzero_gross_exposure_timestamp=None,
+        annualization_factor=252)
+
+    for label in (
+        'gross_start_from_first_nonzero_gross_exposure',
+        'proxy_net_start_from_first_nonzero_gross_exposure',
+    ):
+        assert performance.loc[label, 'n_periods'] == 0
+        assert np.isnan(performance.loc[label, 'total_return'])
 
 
 # ============================================================

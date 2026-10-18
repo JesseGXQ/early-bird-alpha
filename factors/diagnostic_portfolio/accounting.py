@@ -78,7 +78,7 @@ class DecisionLedger:
         metas = [record.weight_meta for record in self._book]
         metas.extend(meta for _, meta in self._meta_rows)
         stamps = [record.timestamp for record in self._book]
-        stamps.extend(ts for ts, _ in self._meta_rows)
+        stamps.extend(ts for ts, _ in self._meta_rows) # pyright: ignore[reportArgumentType]
 
         rows: list[pd.DataFrame] = []
         for timestamp, meta in zip(stamps, metas):
@@ -405,8 +405,14 @@ def compute_attribution_sector(
 # Performance 核心绩效指标
 # ====================================================
 
-#: performance 表的行标签：毛收益与代理净收益。
-PERFORMANCE_INDEX: tuple[str, ...] = ('gross', 'proxy_net')
+#: performance 表的行标签：毛收益、代理净收益，以及各自“从首个非零 gross
+#: exposure 时期开始”的口径（后者跳过首个决策期对应的空仓收益）。
+PERFORMANCE_INDEX: tuple[str, ...] = (
+    'gross',
+    'proxy_net',
+    'gross_start_from_first_nonzero_gross_exposure',
+    'proxy_net_start_from_first_nonzero_gross_exposure',
+)
 
 #: performance 表的列顺序（开发方案 §18.7）。
 PERFORMANCE_COLUMNS: tuple[str, ...] = (
@@ -502,10 +508,12 @@ def _compute_performance_row(
 def compute_performance(
         gross_returns: pd.Series,
         net_returns: pd.Series,
+        first_nonzero_gross_exposure_timestamp: pd.Timestamp | None,
         annualization_factor: int,
 ) -> tuple[pd.DataFrame, tuple[str, ...]]:
     """
     对毛收益与代理净收益分别计算核心绩效指标（开发方案 §18）。
+    同时统计从首个非零 gross exposure 日期开始的两指标。
 
     Parameters
     ----------
@@ -513,14 +521,19 @@ def compute_performance(
         组合毛收益序列，Index[收益实现时间]。
     net_returns : pd.Series
         代理净收益序列（毛收益减成本），Index[收益实现时间]。
+    first_nonzero_gross_exposure_timestamp: pd.Timestamp or None
+        首个 gross exposure 不为 0 的时期。
     annualization_factor : int
         年化因子 A，V1 日频取 252。
 
     Returns
     -------
     performance : pd.DataFrame
-        Index 为 ``gross`` / ``proxy_net``，列为
-        :data:`PERFORMANCE_COLUMNS`。
+        Index 为 ``gross`` / ``proxy_net``/
+        ``gross_start_from_first_nonzero_gross_exposure``/
+        `proxy_net_start_from_first_nonzero_gross_exposure`
+
+        列为 :data:`PERFORMANCE_COLUMNS`。
     warnings : tuple of str
         Sharpe 无法定义时的稳定代码前缀警告；无则为空元组。
 
@@ -531,7 +544,7 @@ def compute_performance(
 
     Notes
     -----
-    两条收益序列使用完全相同的年度化因子和公式口径。Sharpe 在标准差为
+    收益序列使用完全相同的年化因子和公式口径。Sharpe 在标准差为
     零或有效期数少于 2 时返回 NaN，并输出 ``SHARPE_UNDEFINED`` 警告，
     不返回误导性的零。
 
@@ -539,11 +552,22 @@ def compute_performance(
     assert gross_returns.notna().all(), '毛收益序列不允许包含缺失值。'
     assert net_returns.notna().all(), '代理净收益序列不允许包含缺失值。'
 
+    if pd.notna(first_nonzero_gross_exposure_timestamp):
+        gross_returns_effective = \
+            gross_returns.loc[first_nonzero_gross_exposure_timestamp:].iloc[1:] # 删掉第一行，因为 t 期权重对应 t+1 期收益。此处第1期的总收益通常为一个额外的空仓收益(0)。
+        net_returns_effective = \
+            net_returns.loc[first_nonzero_gross_exposure_timestamp:].iloc[1:]
+    else:
+        gross_returns_effective = gross_returns.head(0)
+        net_returns_effective = net_returns.head(0)
+    
     warnings: list[str] = []
     rows: dict[str, dict[str, float]] = {}
     for label, series in (
         ('gross', gross_returns),
         ('proxy_net', net_returns),
+        ('gross_start_from_first_nonzero_gross_exposure', gross_returns_effective),
+        ('proxy_net_start_from_first_nonzero_gross_exposure', net_returns_effective)
     ):
         row, sharpe_undefined = _compute_performance_row(
             series, annualization_factor)
