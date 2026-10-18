@@ -23,8 +23,8 @@ if TYPE_CHECKING:
 RFEED_1d_COLUMNS = [
     'Dominant_Contract', 'Price_Gap', 'Adj_Factor', 'roll_state', 'is_roll',
     'is_contract_switch', 'continuity_segment_id', 'Raw_Open', 'Raw_High',
-    'Raw_Low', 'Raw_Close', 'Volume', 'OpenInterest', 'trading_date',
-    'Adj_Open', 'Adj_High', 'Adj_Low', 'Adj_Close', 'True_Return'
+    'Raw_Low', 'Raw_Close', 'Settle','Volume', 'OpenInterest', 'trading_date',
+    'Adj_Open', 'Adj_High', 'Adj_Low', 'Adj_Close', 'Adj_Settle','True_Return'
 ]
 
 class ResearchFeed:
@@ -462,6 +462,8 @@ class ResearchFeed:
         for x in ['Open','High','Low','Close']:
             df.rename(columns={x: f'Raw_{x}'}, inplace=True) # 将原始价格列重新命名，加上'Raw_'
             df[f'Adj_{x}'] = df[f'Raw_{x}'] + df['Adj_Factor'] # 生成根据复权因子调整的bar(OHLC)
+        if 'Settle' in df:
+            df['Adj_Settle'] = df['Settle'] + df['Adj_Factor']
         return df
     
     def _calculate_true_return_daily(self, df: pd.DataFrame) -> pd.DataFrame:

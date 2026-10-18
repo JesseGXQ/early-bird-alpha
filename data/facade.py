@@ -468,33 +468,36 @@ if __name__ == '__main__':
 
     # -------------------------ResearchFeed------------------------
     # from datetime import date
-    # products = ['JR','PD']
-    # freq='1d'
-    # start_date = None
-    # end_date = None
-    # df1 = facade.get_historical_vector_multiple_products(products,start_date, end_date, freq='1d')
-    # print(f'product = {products}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df1.head())
-    # print('columns of returned DataFrame: \n', df1.columns)
-    # # freq='5min'
-
+    products = ['JR','PD']
+    freq='1d'
+    start_date = None
+    end_date = None
+    df1 = facade.get_historical_vector_multiple_products(products,start_date, end_date, freq='1d')
+    print(f'product = {products}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df1.head())
+    print('columns of returned DataFrame: \n', df1.columns)
+    print(f'nlevels of index: {df1.index.nlevels}')
+    
+    # ------
+    # freq='5min'
     # df2 = facade.get_historical_vector_multiple_products(products, start_date, end_date, freq='5min')
     # print(f'product = {products}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df2.head())
     # print('columns of returned DataFrame: \n', df2.columns)
 
+
     # print('Intersection of columns: \n', df1.columns.intersection(df2.columns))
 
     # start_date 和 end_date 逻辑测试
-    freq='1d'
-    products = ['PM']
-    start_date = date(2008, 1, 25)
-    end_date = date(2026,10,25)
-    df3 = facade.get_historical_vector_multiple_products(products,start_date, end_date, freq='1d')
-    print(f'product = {products}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df3.head())
+    # freq='1d'
+    # products = ['PM']
+    # start_date = date(2008, 1, 25)
+    # end_date = date(2026,10,25)
+    # df3 = facade.get_historical_vector_multiple_products(products,start_date, end_date, freq='1d')
+    # print(f'product = {products}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df3.head())
 
-    start_date = date(1978, 1, 25)
-    end_date = date(1975,10,25)
-    df4 = facade.get_historical_vector_multiple_products(products,start_date, end_date, freq='1d')
-    print(f'product = {products}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df4.head())
+    # start_date = date(1978, 1, 25)
+    # end_date = date(1975,10,25)
+    # df4 = facade.get_historical_vector_multiple_products(products,start_date, end_date, freq='1d')
+    # print(f'product = {products}, from {start_date} to {end_date}, freq={freq}, 复权主连历史价格dataframe: \n', df4.head())
 
 
 
