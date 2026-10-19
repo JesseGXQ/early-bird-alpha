@@ -487,7 +487,9 @@ class TSInverseVolatilityWeightMachine(WeightStateMachine):
         vol: np.ndarray = self._risk_manager.ex_ante_volatility()
         with np.errstate(invalid='ignore', divide='ignore'):
             u_weights = signal_clipped / vol
-        # 事前波动率缺失（NaN）的品种按 0 处理。这里只填 NaN：收益率与事前
-        # 波动率均为有限值，inf 不应出现，应由上游数据保证。
-        u_weights = np.where(np.isnan(u_weights), 0.0, u_weights)
+        # 事前波动率缺失（NaN）的品种按 0 处理。同时将 inf 也设为 0。
+        # 权重为 inf 可能出现：当 signal 取值很大，但未超过 float64 上限，
+        # 同时波动率很小时，除法操作可能导致超出上限，被置为 inf。
+        u_weights = np.where(
+            np.isnan(u_weights) | np.isinf(u_weights), 0.0, u_weights)
         return self._scale_to_gross_one(u_weights)

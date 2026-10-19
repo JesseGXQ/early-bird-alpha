@@ -202,10 +202,10 @@ note: multiplier 可以走 `DataFacade.rule_query.get_multiplier(contract)` 获�
 建议增加以下产物：
 ```text
 alpha101_factor_definitions.py   # 算子、因子类、注册表
-run_alpha101_experiment.py       # 可恢复批量执行入口
+run_alpha101_experiment.py       # 批量执行入口（无需断点续跑）
 summarize_alpha101_performance.py    # 汇总绩效
 artifacts/failures.jsonl         # 失败信息
-artifacts/performance_summary_mark_ranket_ls.parquet
+artifacts/performance_summary_market_rank_ls.parquet
 artifacts/performance_summary_ts_inv_vol_gross_one.parquet
 artifacts/alpha101_implementation_report.md
 ```

@@ -9,7 +9,7 @@
 research/
 ├── experiments/   # 可重复执行的研究脚本与配置
 ├── notebooks/     # 交互探索与绘图
-├── artifacts/     # 运行产物，不纳入 Git
+├── artifacts/     # 运行产物，原则上不纳入 Git
 └── io.py          # 探索阶段的轻量结果导出器
 ```
 
