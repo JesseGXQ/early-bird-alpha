@@ -62,6 +62,20 @@ def _ic_valid_group(
         data: pd.DataFrame,
         rank: bool = False
 ) -> float:
+    """对一个有效组计算 IC 或 rank IC。
+    
+    Parameters
+    ------
+    data: pd.DataFrame
+        MultiIndex[timestamp, product], 包含 'factor', 'label' 两列。
+    rank: bool, optional
+        若为 True，计算 RankIC，否则计算 pearson IC。
+
+    Returns
+    ------
+    float
+        IC  或 RankIC 。
+    """
     if not rank:
         return data['factor'] \
             .corr(data['label'])
