@@ -354,6 +354,9 @@ class VoteCombiner:
                 'mode': self._mode,
                 'threshold': self._threshold}
 
+class RidgeRegressionCombiner:
+    """岭回归合成。"""
+    ...
 
 # ==================================================
 # inline test

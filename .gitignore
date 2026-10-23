@@ -64,9 +64,11 @@ repomix.config.json
 docs/talk with API/
 docs/Development Notes/temp/
 
-
+# ==============================================
 # 性能分析、验证类的一次性脚本（临时产物，不入库）
+# =============================================
 scripts/temp/
+
 
 # ==========================================
 # opencode export files
