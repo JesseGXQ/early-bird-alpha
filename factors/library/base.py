@@ -11,7 +11,10 @@ if TYPE_CHECKING:
     import pandas as pd
 
 class Factor(ABC):
-    """因子定义的抽象基类。"""
+    """因子定义的抽象基类。
+    必须实现的方法： `name`(property), `computation_scope`(property),
+    `data_requirements(property)` , `compute`, `parameters`(property)。
+    """
 
     @property
     @abstractmethod
@@ -29,25 +32,22 @@ class Factor(ABC):
         ...
 
     @property
-    @abstractmethod
     def warmup_periods(self) -> int | None:
-        """暖机窗口大小。"""
-        ...
+        """暖机窗口大小。这里的暖机，指的是能产出数值但未至稳态。"""
+        return None
 
     @abstractmethod
     def compute(self, data: Any) -> pd.Series:
         """因子计算批量接口"""
         ...
 
-    @abstractmethod
     def initialize_state(self) -> FactorState:
         """初始化因子运行状态"""
-        ...
+        raise NotImplementedError()
 
-    @abstractmethod
     def update(self, state: FactorState, timestamp_data: Any) -> IncrementalFactorResult:
         """根据新的时间戳数据，更新因子状态。"""
-        ...
+        raise NotImplementedError()
 
     @property
     @abstractmethod

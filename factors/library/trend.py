@@ -1,4 +1,4 @@
-"""动量因子。"""
+"""趋势与动量类因子。"""
 
 from __future__ import annotations
 

@@ -1,18 +1,16 @@
-"""Carry 类因子。"""
+"""期限结构和合约生命周期类因子。"""
 from __future__ import annotations
-
+from datetime import date
 import logging
 from typing import TYPE_CHECKING, Any, Literal, Mapping
-
 import numpy as np
 import pandas as pd
-
 from factors.library.base import Factor
 from factors.models import (DataRequirement, FactorState, 
                             IncrementalFactorResult, INDEX_NAMES)
+import statsmodels.api as sm
 
 logger = logging.getLogger(__name__)
-
 
 type _RY_COMBO = Literal[
     'near_next',        # 近月 + 次近月
@@ -89,7 +87,7 @@ class RollYieldFactor(Factor):
         term_df['days_to_last_trade'] = (
             (pd.to_datetime(term_df['last_trade_date']) 
             - term_df.index.get_level_values('timestamp'))
-            .dt.days
+            .dt.days # pyright: ignore[reportAttributeAccessIssue]
         )
 
         rst_dict: dict[tuple[pd.Timestamp, str], float] = {}
@@ -125,10 +123,12 @@ class RollYieldFactor(Factor):
             logger.warning(
                 f'【{self.name}】本次计算共记录 {len(self.warnings)} 条警告，'
                 f'明细见该因子的 warnings 属性。')
-        return pd.Series(rst_dict.values(), index=idx, name=self.name)
+        return pd.Series(rst_dict.values(), index=idx, name=self.name) # type: ignore
 
     def _compute_roll_yield(self, df: pd.DataFrame, near: str, far: str) -> float:
-        """根据近月合约和远月合约计算年化展期收益率。"""
+        """根据近月合约和远月合约计算年化展期收益率。
+        公式：( p_{near} / p_{far} -1 ) / (DTE_{far} - DTE_{near}) * 365
+        """
         near_price = df.at[near, self.price_col]
         far_price  = df.at[far,  self.price_col]
         near_dte   = df.at[near, 'days_to_last_trade']
@@ -192,14 +192,184 @@ class RollYieldFactor(Factor):
             far = df_mask.index[
                 df_mask['OpenInterest'] == df_mask['OpenInterest'].max()][0]
 
-        return near, far, ''
+        return near, far, '' # type: ignore
 
-    def initialize_state(self) -> FactorState:
-        """增量接口，初始化状态， V1 无需实现。"""
-        return FactorState(name=self.name)
+class CurveSlope(Factor):
+    """
+    全曲线斜率因子，机制：利用全部活跃合约估计 backwardation/contango。
+    公式：log P_i = a + b d_i / 365 加权回归，F = -b；
+    其中 d 为 DTE，回归权重为 OpenInterest 或 Volume。
+    方向：backwardation 越强越多头。
+    数据需求：全合约价格、DTE、OI/Volume。
 
-    def update(self, state: FactorState, 
-               timestamp_data: pd.DataFrame) -> IncrementalFactorResult:
-        """增量接口，更新状态， V1 无需实现。"""
-        raise NotImplementedError()
+    Parameters
+    ----------
+    weight_var : Literal['OpenInterest', 'Volume'], default 'OpenInterest'
+        回归加权所用的权重变量。
+    price_col : Literal['Close', 'Settle'], default 'Close'
+        估计曲线所使用的价格列。
+    contract_filter_rule : Mapping[str, int] or None, optional
+        合约筛选规则，包含 ``min_dte``（剔除临近到期合约）、
+        ``max_dte``（剔除过远合约）、``min_volume``（流动性约束）；
+        None 使用默认值 ``{'min_dte': 3, 'max_dte': 300, 'min_volume': 100}``。
+    min_contract_fit : int, default 3
+        估计曲线所需的最少合约数。
+
+    Note
+    ---
+    是为``RollYieldFactor`` 的扩展。
+    """
+    def __init__(
+            self, 
+            weight_var: Literal['OpenInterest', 'Volume'] = 'OpenInterest',
+            price_col: Literal['Close', 'Settle'] = 'Close',
+            contract_filter_rule: Mapping[str, int] | None = None,
+            min_contract_fit: int = 3,
+    ):
+        default_rule = {'min_dte': 3, 'max_dte': 300, 'min_volume': 100}
+        rule = contract_filter_rule or default_rule
+        self._weight_var = weight_var
+        self._price_col = price_col
+        self._rule = rule
+        self._min_contract = min_contract_fit
+
+    @property
+    def name(self) -> str:
+        return (
+            f'curve_slope_{self._weight_var}_{self._price_col}'
+            f'_dte{self._rule["min_dte"]}-{self._rule["max_dte"]}'
+            f'_vol{self._rule["min_volume"]}_n{self._min_contract}'
+        )
+
+    @property
+    def computation_scope(self) -> Literal['per_product']:
+        return 'per_product'
+
+    @property
+    def parameters(self) -> Mapping[str, Any]:
+        return {
+            'weight_var': self._weight_var,
+            'price_col': self._price_col,
+            'contract_filter_rule': dict(self._rule),
+            'min_contract_fit': self._min_contract
+        }
+
+    @property
+    def data_requirements(self) -> tuple[DataRequirement, ...]:
+        req = DataRequirement(
+            source='term_structure',
+            columns=(self._price_col, 'last_trade_date', 'OpenInterest', 'Volume'),
+            request_params={'price_col': self._price_col}
+        )
+        return (req,)
+
+    def _reg_beta(self, data: pd.DataFrame) -> float:
+        """估计有效合约截面的年化对数价格斜率。"""
+        if len(data) < self._min_contract:
+            return np.nan
+        if data['dte'].nunique() < 2:
+            return np.nan
+        y = np.log(data[self._price_col].to_numpy())
+        X = data['dte'] / 365.0
+        X = sm.add_constant(X, has_constant='add')
+        w = data[self._weight_var].to_numpy()
+        res = sm.WLS(y, X, weights=w).fit() # pyright: ignore[reportArgumentType]
+        params: pd.Series = res.params
+        return float(params['dte'])
+
+    def _filter_contract(self, data: pd.DataFrame) -> pd.DataFrame:
+        """剔除无法参与曲线拟合或不满足期限、流动性条件的合约。"""
+        mask_invalid = (
+            (~np.isfinite(data[self._price_col])) |
+            (~np.isfinite(data['dte'])) |
+            (~np.isfinite(data[self._weight_var])) |
+            (~np.isfinite(data['Volume'])) |
+            (data[self._price_col] <= 0) |
+            (data[self._weight_var] <= 0) |
+            (data['dte'] < self._rule['min_dte']) |
+            (data['dte'] > self._rule['max_dte']) | 
+            (data['Volume'] < self._rule['min_volume']) 
+        )
+        return data[~mask_invalid]
+
+    def compute(self, data: pd.DataFrame) -> pd.Series:
+        """
+        批量计算全曲线斜率因子。
+
+        Parameters
+        ------
+        data: pd.DataFrame
+            期限结构数据。 MultiIndex[timestamp, product, contract]
+            columns: Close/Settle, last_trade_date, OpenInterest, Volume
+        
+        Returns
+        ------
+        pd.Series
+            因子值。 MultiIndex[timestamp, product]
+        """
+        assert pd.Index(
+            [self._price_col, 'last_trade_date', 'OpenInterest', 'Volume']
+        ).isin(data.columns).all()
+        assert list(data.index.names) == ['timestamp', 'product', 'contract']
+
+        term_df = data.copy()
+
+        term_df['dte'] = (
+            (pd.to_datetime(term_df['last_trade_date']) 
+            - term_df.index.get_level_values('timestamp'))
+            .dt.days # pyright: ignore[reportAttributeAccessIssue]
+        )
+        term_df = self._filter_contract(term_df)
+        if term_df.empty:
+            raise ValueError(f'按规则剔除合约后，得到空 DataFrame，无法继续计算。')
+        
+        inverse_slope_series = - term_df.groupby(level=('timestamp', 'product'))\
+            .apply(self._reg_beta).rename(self.name)
+        return inverse_slope_series
+    
+# ===================================
+# inline smoke test
+# ===================================
+if __name__ == '__main__':
+    from data import RolloverConfig, AdjustmentConfig, SamplingConfig, EnvironmentConfig
+    from data import DataFacade
+    from factors.models import UniverseSpec, DatasetSpec
+    from factors.dataset import ResearchDatasetBuilder
+
+    roll_config = RolloverConfig()
+    adj_config = AdjustmentConfig()
+    sample_config = SamplingConfig()
+    env_config = EnvironmentConfig()
+    facade_config = (roll_config, adj_config, sample_config, env_config)
+
+    facade = DataFacade(*facade_config)
+
+    products = facade.rule_query.get_product_universe(return_type='list')
+    products = [x for x in products if x not in ('L_F', 'PP_F', 'V_F')]
+
+    slope_factor = CurveSlope()
+    data_req = slope_factor.data_requirements
+
+    uni_spec = UniverseSpec(min_average_volume=10000)
+
+    start_date = date(2000, 1, 1)
+    end_date = date(2026, 12, 31)
+    data_spec = DatasetSpec(facade_config=facade_config,products=tuple(products),
+                            data_requirements=data_req, universe=uni_spec,
+                            start_date=start_date, end_date=end_date)
+
+    builder = ResearchDatasetBuilder(spec=data_spec)
+    dataset = builder.build()  
+
+    # compute factor values 
+    assert dataset.auxiliary is not None
+    values = slope_factor.compute(data=dataset.auxiliary['term_structure'])
+    print('head of factor values: \n', values.head(10).to_string())
+
+
+
+        
+
+
+        
 
