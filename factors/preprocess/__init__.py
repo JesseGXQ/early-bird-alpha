@@ -5,17 +5,17 @@
 
 典型用法：
 
-    from factors.preprocess import (
+>>>    from factors.preprocess import (
         CrossSectionalMissingHandler,
         CrossSectionalWinsorizer,
         PreprocessingPipeline,
     )
 
-    pipeline = PreprocessingPipeline([
+>>>    pipeline = PreprocessingPipeline([
         CrossSectionalMissingHandler(policy='impute'),
         CrossSectionalWinsorizer(),
     ])
-    result = pipeline.process(values)
+>>>    result = pipeline.process(values)
 
 各组件/管线骨架定义于子模块，这里统一导出稳定公共接口。
 """
