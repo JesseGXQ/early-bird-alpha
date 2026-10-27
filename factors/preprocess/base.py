@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Self, TYPE_CHECKING
+from typing import Any, Mapping, Self, TYPE_CHECKING, Literal
+from factors.common import walk_forward_split
+import copy
 
 import pandas as pd
 
@@ -67,17 +69,17 @@ class FittedFactorPreprocessor(FactorPreprocessor, ABC):
     def fit(
         self,
         values: pd.Series,
-        **fit_params: Any,
+        eligible: pd.Series[bool],
     ) -> Self:
         """
-        在给定数据上拟合参数，并将拟合状态保存到内部。
+        在给定数据上应用品种池，然后拟合参数，并将拟合状态保存到内部。
 
         Parameters
         ----------
         values : pd.Series
             用于拟合的因子值。
-        **fit_params : Any
-            子类特有的拟合期参数（例如品种池掩码）。
+        eligible: pd.Series
+            品种池准入掩码。
         """
         ...
 
@@ -168,8 +170,113 @@ class PreprocessingPipeline:
             params = processor.parameters
             all_config[name] = params
         return all_config
+
+# TODO 后续若想要该类能加入预处理流水线，必须先继承FactorPreprocess
+# 这里的形态其实我没有特别想清楚，目前 `transform()` 方法接受 values, eligible，
+# 实际上是因为 FittedFactorPreprocessor 的 `fit()` 方法要接受 eligible。
+# 但如果改成继承 FactorPreprocessor，那么 `transform()` 又不应该接受 eligible。
+# 这类的关系仍待理顺。
+class WalkForwardTransformer:
+    """推进型（拟合）变换预处理工具。
     
-    
+    Parameters
+    ------
+    inner: FittedFactorPreprocessor
+        内部包装的可拟合变换类预处理组件。
+    fit_size: int or pd.DateOffset
+        拟合窗口大小，即walk-forward语境下的训练集大小(`train_size`)。
+    transform_size: int or pd.DateOffset
+        变换窗口大小， walk-forward 语境下的测试集大小(`test_size`)。
+    mode: {'expanding', 'rolling'}
+        滚动窗口推进或扩展窗口推进。为 `expanding` 时，拟合窗口起点固定，终点
+        不断扩张。变换窗口大小保持恒定。
+    """
+
+    def __init__(
+            self,
+            inner: FittedFactorPreprocessor,
+            fit_size: int | pd.DateOffset,
+            transform_size: int | pd.DateOffset,
+            mode: Literal['rolling', 'expanding'] = 'rolling'
+    ):
+        self._processor = inner
+        self._train_size = fit_size
+        self._test_size = transform_size
+        self._mode: Literal['rolling', 'expanding'] = mode
+
+    def _add_warnings(
+            self, 
+            warnings: list[str], 
+            existing: list[str],
+            fold: int) -> None:
+        warnings_with_fold_info = [f'[fold{fold}] ' + w for w in warnings]
+        existing.extend(warnings_with_fold_info)
+
+    def _add_metadata(
+            self, 
+            metadata: Mapping[str, Any], 
+            existing: dict[str, Any],
+            fold: int
+        ) -> None:
+        existing[f'fold{fold}'] = metadata
+
+
+    def transform(self, values: pd.Series, eligible: pd.Series) -> PreprocessingResult:
+        """推进拟合->变换预处理。
+        先利用 `walk_forward_split`函数 将 values 的时间轴按 `fit_size`, `transform_size`
+        进行切分。随后对于每个fold，利用 `inner` 带进来的可拟合变换类预处理组件，
+        在 fit window 上应用品种池，拟合（并保存状态），然后对 transform window 
+        上的数据做变换。最后拼接返回一个 `PreprocessingResult`，包含预处理后的数据，警告和
+        元数据。
+        """
+        timeline = values.index.get_level_values('timestamp').unique().sort_values()
+        assert isinstance(timeline, pd.DatetimeIndex)
+
+        splits = walk_forward_split(timeline, 
+            train_size=self._train_size, 
+            validation_size=None,
+            test_size=self._test_size,
+            mode=self._mode,
+            embargo=0)
+        self._splits = splits
+
+        fitted_states: dict[str, Any] = {}
+        warnings_collection: list[str] = []
+        metadata_collection: dict[str, Any] = {}
+        transed_values_list: list[pd.Series] = []
+
+        for i, fold in enumerate(splits):
+            fit_data = values.loc[fold.train]
+            to_trans_data = values.loc[fold.test]
+            # fit data
+            self._processor.fit(fit_data, eligible)
+            # collect fitted states
+            states = self._processor.states_
+            fitted_states[f'fold{i}'] = states
+            # transform 
+            result = self._processor.transform(to_trans_data)
+            transed_values_list.append(result.values)
+
+            self._add_warnings(
+                result.warnings, warnings_collection, i)
+            self._add_metadata(
+                result.metadata, metadata_collection, i)
+        
+        self._fitted_states = fitted_states
+
+        transformed_values = pd.concat(transed_values_list, axis=0)
+        return PreprocessingResult(
+            values=transformed_values,
+            warnings=warnings_collection,
+            metadata=metadata_collection
+        )
+
+    @property
+    def states_(self) -> Mapping[str, Any]:
+        return {
+            'splits': self._splits.copy(),
+            'fitted_states': copy.deepcopy(self._fitted_states)
+        }    
 
             
         

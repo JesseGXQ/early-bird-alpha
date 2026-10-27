@@ -10,7 +10,6 @@ from factors.preprocess.base import (
 from scipy.stats import norm
 from factors import INDEX_NAMES
 import numpy as np
-import copy
 
 class FittedTimeSeriesZscore(FittedFactorPreprocessor):
     """
@@ -45,7 +44,8 @@ class FittedTimeSeriesZscore(FittedFactorPreprocessor):
     def name(self) -> str:
         return f'fitted_ts_zscore_{self._method}'
 
-    def fit(self, values: pd.Series, **fit_params: Any) -> Self:
+    # TODO 将 eligible 应用到 values上去，然后再做 fit 。
+    def fit(self, values: pd.Series, eligible: pd.Series[bool]) -> Self:
         """拟合：记录 fit 窗口并计算相应统计量 (mu, sig 或者 median, mad)。"""
         # 每个品种各自的 fit 窗口起止，并校验每个品种 start < end
         self._fit_windows = values.reset_index().groupby('product').agg(
@@ -122,7 +122,7 @@ class FittedTimeSeriesZscore(FittedFactorPreprocessor):
         overlap = [
             p for p in trans_windows.index
             if p in fit_windows.index
-            and trans_windows.loc[p, 'start'] <= fit_windows.loc[p, 'end']]
+            and trans_windows.loc[p, 'start'] <= fit_windows.loc[p, 'end']] # pyright: ignore[reportOperatorIssue]
         if overlap:
             raise AssertionError(
                 f'以下品种 transform 窗口最早值早于等于其 fit 窗口最晚值: {overlap}')
@@ -136,6 +136,8 @@ class FittedTimeSeriesZscore(FittedFactorPreprocessor):
 
         # 3. 检验 transform 中的品种是否都已参与 fit
         products = values.index.get_level_values('product')
+        assert self._mu is not None
+        assert self._median is not None
         fit_products = self._mu.index if self._method == 'conventional' \
             else self._median.index
         never_fitted = products[~products.isin(fit_products)].unique()
@@ -161,7 +163,7 @@ class FittedTimeSeriesZscore(FittedFactorPreprocessor):
             metadata['mad'] = self._mad
 
         return PreprocessingResult(
-            values = scaled,
+            values = scaled, # pyright: ignore[reportPossiblyUnboundVariable]
             warnings = self._warnings,
             metadata = metadata
         )
@@ -250,10 +252,10 @@ class RollingTimeSeriesZscore(FactorPreprocessor):
         if self._method == 'conventional':
             warnings = [f'{idx} 标准差统计量不可用（零方差或观测值不足{self._window}）'
                         for idx in invalid_indices]
-        elif self._method == 'robust':
+        else:
             warnings = [f'{idx} MAD 统计量不可用（零方差或观测值不足{self._window}）'
                         for idx in invalid_indices]
-        return warnings
+        return warnings 
 
 class CrossSectionalZscore(FactorPreprocessor):
     """
@@ -296,7 +298,7 @@ class CrossSectionalZscore(FactorPreprocessor):
         if self._method == 'conventional':
             loc = grouped.transform(lambda s: s.mean())
             scale = grouped.transform(lambda s: s.std())
-        elif self._method == 'robust':
+        else:
             loc = grouped.transform(lambda s: s.median())
             scale = grouped.transform(lambda s: 1.4826 * (s - s.median()).abs().median())
 
@@ -394,7 +396,6 @@ class FittedPooledScalar(FittedFactorPreprocessor):
     def fit(
             self,
             values: pd.Series, # MutiIndex[timestamp, product]
-            *,
             eligible: pd.Series[bool], # MutiIndex[timestamp, product]
     ) -> Self:
         assert values.index.names == eligible.index.names
@@ -479,19 +480,6 @@ class ClipPreprocessor(FactorPreprocessor):
         
 Clip = ClipPreprocessor
 Clamp = ClipPreprocessor
-
-class WalkForwardFitTransformPreprocessor:
-    """推进型可拟合变换预处理组件（占位，尚未实现）。"""
-
-    def __init__(
-            self,
-            preprocessor: FittedFactorPreprocessor,
-    ):
-        self._preprocessor = preprocessor
-
-    def fit(self, values: pd.Series, **fit_params: Any) -> None:
-        raise NotImplementedError(
-            'WalkForwardFitTransformPreprocessor 尚未实现。')
 
 # ==============================
 # inline test
