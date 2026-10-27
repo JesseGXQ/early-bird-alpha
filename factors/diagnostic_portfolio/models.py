@@ -46,10 +46,12 @@ SUPPORTED_PROFILE_NAMES: tuple[str, ...] = (
 )
 
 # 信号来源阶段。
-_SOURCE_STAGES: tuple[str, ...] = ('raw', 'preprocessed')
+_SOURCE_STAGES: tuple[str, ...] = ('raw', 'preprocessed', 'composite')
 
 # DiagnosticSignal.warnings 允许的阶段键。
-_WARNING_STAGES: tuple[str, ...] = ('factor_computation', 'preprocess')
+_WARNING_STAGES: tuple[str, ...] = (
+    'factor_computation', 'preprocess', 'combination'
+)
 
 
 # ============================================================
@@ -162,12 +164,12 @@ class DiagnosticSignal:
         信号稳定名称，非空。
     values : pd.Series
         单列数值信号，索引为 MultiIndex[timestamp, product]。
-    source_stage : {'raw', 'preprocessed'}
-        信号来自原始因子还是预处理结果。
+    source_stage : {'raw', 'preprocessed', 'composite'}
+        信号来源阶段。
     factor_name : str
         来源因子名称，非空。
     recipe : Mapping[str, Any]
-        因子参数和预处理配方的可序列化快照，不允许放入策略、账户或
+        因子参数、预处理配方、合成算子配置的可序列化快照，不允许放入策略、账户或
         优化器实例。
     warnings : Mapping[str, Any], optional
         按来源阶段分别汇总的上游警告，默认空字典。键为阶段名称，取值
@@ -175,8 +177,9 @@ class DiagnosticSignal:
 
         - ``'factor_computation'``：来自“因子计算”阶段的警告。
         - ``'preprocess'``：来自“因子预处理”阶段的警告。
+        - ``'combination'``: 来自“因子合成”阶段的警告。
 
-        两个阶段的警告分开保存，而不是合并进同一个元组。
+        不同阶段警告分开保存，而不是合并进同一个元组。
 
     Notes
     -----
@@ -187,9 +190,9 @@ class DiagnosticSignal:
 
     name: str
     values: pd.Series = field(repr=False)
-    source_stage: Literal['raw', 'preprocessed']
+    source_stage: Literal['raw', 'preprocessed', 'composite']
     factor_name: str
-    recipe: Mapping[str, Any]
+    recipe: Mapping[str, Any] = field(default_factory=dict)
     warnings: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:

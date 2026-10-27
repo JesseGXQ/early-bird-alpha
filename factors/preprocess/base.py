@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Mapping, TYPE_CHECKING
+from typing import Any, Mapping, Self, TYPE_CHECKING
 
 import pandas as pd
 
@@ -31,11 +31,14 @@ class FactorPreprocessor(ABC):
     @abstractmethod
     def parameters(self) -> dict[str, Any]:
         """
-        返回预处理组件的参数。
-        
-        该方法的返回值应该满足：可以通过返回的参数字典，构造一个实例，
-        调用`transform()`（给定同样的values作为参数输入），
+        返回预处理组件的构造参数。
+
+        对于无拟合状态的组件，该方法的返回值应该满足：可以通过返回的参数字典
+        构造一个实例，调用 `transform()`（给定同样的 values 作为参数输入），
         可以原样复现出处理后的 `PreprocessingResult`。
+
+        对于 `FittedFactorPreprocessor` 的子类，该字典只包含构造期超参数，
+        不包含 fit 数据；复现结果还需要用同一份 fit 数据调用 `fit()`。
         """
         return {}
 
@@ -50,14 +53,38 @@ class FactorPreprocessor(ABC):
         ...
 
 class FittedFactorPreprocessor(FactorPreprocessor, ABC):
-    """符合 Fit -> Transform 流程的可拟合预处理组件的抽象基类。"""
+    """
+    符合 Fit -> Transform 流程的可拟合预处理组件的抽象基类。
 
-    def __init__(self, values_for_fit: pd.Series):
-        self._values_for_fit = values_for_fit
+    Notes
+    ------
+    实例化时只传入构造期超参数；拟合所需的数据在调用 `fit()` 时传入。
+    拟合完成后，拟合状态通过 `states_` 暴露；在未调用 `fit()` 之前，
+    `transform()` 与 `states_` 应抛出异常。
+    """
 
     @abstractmethod
-    def fit(self) -> None:
-        """在 fit 窗口上拟合参数 , 并将参数保存到内部状态。"""
+    def fit(
+        self,
+        values: pd.Series,
+        **fit_params: Any,
+    ) -> Self:
+        """
+        在给定数据上拟合参数，并将拟合状态保存到内部。
+
+        Parameters
+        ----------
+        values : pd.Series
+            用于拟合的因子值。
+        **fit_params : Any
+            子类特有的拟合期参数（例如品种池掩码）。
+        """
+        ...
+
+    @property
+    @abstractmethod
+    def states_(self) -> Mapping[str, Any]:
+        """返回拟合后的状态；未调用 `fit()` 时应抛出异常。"""
         ...
     
 class PreprocessContextConstructor(ABC):

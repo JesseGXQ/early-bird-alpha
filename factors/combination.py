@@ -53,7 +53,7 @@ class EqualWeightCombiner:
     
     Parameters
     ------
-    missing_policy: {'strict', 'renormalize'}
+    missing_policy: {'strict', 'renormalize'}, optional
         因子合成时，成分缺失的处理： 'strict' 下缺失任一成分缺失，复合因子即缺失；
         'renormalize' 下忽略缺失成分，并重新归一化。默认为 'strict'。
     

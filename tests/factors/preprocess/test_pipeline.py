@@ -18,10 +18,13 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 import statsmodels.api as sm
 from scipy.stats import norm
 
-from factors.preprocess.base import PreprocessingPipeline, clean_multiindex
+from factors.preprocess.base import (
+    FittedFactorPreprocessor, PreprocessingPipeline, clean_multiindex,
+)
 from factors.preprocess.clean import (
     CrossSectionalMissingHandler, RollingTimeSeriesMissingHandler,
 )
@@ -29,10 +32,10 @@ from factors.preprocess.winsorize import (
     CrossSectionalWinsorizer, RollingTimeseriesWinsorizer,
 )
 from factors.preprocess.scale import (
-    CrossSectionalZscore, CrossSectionalRankNormalizer, FittedTimeSeriesZscore,
+    CrossSectionalZscore, CrossSectionalRankNormalizer, FittedPooledScalar,
+    FittedTimeSeriesZscore, RollingTimeSeriesZscore,
 )
 from factors.preprocess.smooth import SMASmoother
-from factors.preprocess.modify import RollingTimeSeriesZscore
 from factors.preprocess.neutralize import (
     SectorDataConstructor, SectorExposureNeutralizer,
     VolatilityDataConstructor, VolatilityExposureNeutralizer,
@@ -328,7 +331,8 @@ def test_p4_rts_winsor_liquidity_robustz_chain(dataset, v_dirty, ts):
 # P5-E 防未来函数链路（fit-once 时序 zscore）
 # ============================================================
 def test_p5_fitted_ts_zscore_fit_then_transform(dataset, v_train, v_test):
-    fitter = FittedTimeSeriesZscore(values_for_fit=v_train, method='conventional')
+    fitter = FittedTimeSeriesZscore(method='conventional')
+    fitter.fit(v_train)
     pipe = PreprocessingPipeline([
         CrossSectionalMissingHandler(policy='impute', method='median'),
         fitter,
@@ -340,8 +344,10 @@ def test_p5_fitted_ts_zscore_fit_then_transform(dataset, v_train, v_test):
     # fit 统计量：per-product mu/sig 与 v_train 分组统计一致
     mu = v_train.groupby(level='product').mean().sort_index()
     sig = v_train.groupby(level='product').std().sort_index()
-    assert np.allclose(fitter._mu.sort_index().values, mu.values)
-    assert np.allclose(fitter._sig.sort_index().values, sig.values)
+    states = fitter.states_
+    assert np.allclose(states['mu'].sort_index().values, mu.values)
+    assert np.allclose(states['sig'].sort_index().values, sig.values)
+    assert 'fit_windows' in states
 
     # transform: (x - mu) / sig（按品种映射 fit 统计量）
     prods = v_test.index.get_level_values('product')
@@ -356,10 +362,56 @@ def test_p5_fitted_ts_zscore_fit_then_transform(dataset, v_train, v_test):
 
 
 # ============================================================
+# FittedFactorPreprocessor 契约：fit 期传参 + states_ 暴露状态
+# ============================================================
+def test_fitted_ts_zscore_requires_fit(v_train, v_test):
+    """未调用 fit 时，FittedTimeSeriesZscore 的 states_ 与 transform 都应报错。"""
+    fitter = FittedTimeSeriesZscore(method='conventional')
+    with pytest.raises(ValueError, match='必须先调用 fit'):
+        _ = fitter.states_
+    with pytest.raises(ValueError, match='必须先调用 fit'):
+        fitter.transform(v_test)
+
+
+def test_fitted_pooled_scalar_fit_then_transform():
+    """FittedPooledScalar 继承基类，并在 fit 时接收 values 与 eligible。"""
+    ts = pd.date_range('2026-07-01', periods=4, freq='D')
+    idx = pd.MultiIndex.from_product(
+        [ts, ['RB']], names=['timestamp', 'product'])
+    values = pd.Series([1.0, 2.0, 3.0, 4.0], index=idx, name='f')
+    eligible = pd.Series([True, True, False, True], index=idx)
+
+    scalar = FittedPooledScalar(method='RMS')
+    assert isinstance(scalar, FittedFactorPreprocessor)
+
+    with pytest.raises(ValueError, match='必须先调用 fit'):
+        _ = scalar.states_
+    with pytest.raises(ValueError, match='必须先调用 fit'):
+        scalar.transform(values)
+
+    scalar.fit(values, eligible=eligible)
+    expected_scale = np.sqrt(np.mean([1.0, 4.0, 16.0]))
+    assert scalar.states_['scaling_coef'] == pytest.approx(1 / expected_scale)
+    assert scalar.scaling_coef_ == pytest.approx(1 / expected_scale)
+
+    result = scalar.transform(values)
+    assert np.allclose(result.values.values, values.values / expected_scale)
+    assert result.values.index.equals(values.index)
+
+
+# ============================================================
 # 通用行为：结构 / config / 无状态污染 / 警告传播
 # ============================================================
 def test_all_pipelines_preserve_input_index(dataset, v_clean, v_dirty, v_train, v_test):
     """通用不变量：所有 pipeline 的 process() 输出索引顺序与输入 values 完全一致。"""
+    def _build_p5() -> PreprocessingPipeline:
+        fitter = FittedTimeSeriesZscore(method='conventional')
+        fitter.fit(v_train)
+        return PreprocessingPipeline([
+            CrossSectionalMissingHandler(policy='impute', method='median'),
+            fitter,
+        ])
+
     builders = {
         'p1': lambda: PreprocessingPipeline([
             CrossSectionalMissingHandler(policy='impute', method='median'),
@@ -389,10 +441,7 @@ def test_all_pipelines_preserve_input_index(dataset, v_clean, v_dirty, v_train, 
                 LiquidityDataConstructor(dataset), liquidity_vars=['Volume']),
             CrossSectionalZscore(method='robust'),
         ]),
-        'p5': lambda: PreprocessingPipeline([
-            CrossSectionalMissingHandler(policy='impute', method='median'),
-            FittedTimeSeriesZscore(values_for_fit=v_train, method='conventional'),
-        ]),
+        'p5': _build_p5,
     }
     cases = [
         ('p1', v_dirty),

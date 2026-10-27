@@ -29,6 +29,7 @@ from factors.preprocess.winsorize import (
 )
 from factors.preprocess.scale import (
     CrossSectionalZscore, CrossSectionalRankNormalizer, FittedTimeSeriesZscore,
+    RollingTimeSeriesZscore, FittedPooledScalar, ClipPreprocessor, Clip, Clamp
 )
 from factors.preprocess.neutralize import (
     LiquidityDataConstructor, LiquidityExposureNeutralizer,
@@ -36,7 +37,6 @@ from factors.preprocess.neutralize import (
     VolatilityDataConstructor, VolatilityExposureNeutralizer,
 )
 from factors.preprocess.smooth import EMASmoother, SMASmoother
-from factors.preprocess.modify import RollingTimeSeriesZscore
 
 __all__ = [
     'PreprocessingPipeline',
@@ -56,4 +56,6 @@ __all__ = [
     'EMASmoother',
     'SMASmoother',
     'RollingTimeSeriesZscore',
+    'FittedPooledScalar',
+    'ClipPreprocessor', 'Clip', 'Clamp',
 ]
