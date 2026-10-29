@@ -23,7 +23,8 @@ if TYPE_CHECKING:
 RFEED_1d_COLUMNS = [
     'Dominant_Contract', 'Price_Gap', 'Adj_Factor', 'roll_state', 'is_roll',
     'is_contract_switch', 'continuity_segment_id', 'Raw_Open', 'Raw_High',
-    'Raw_Low', 'Raw_Close', 'Settle','Volume', 'OpenInterest', 'trading_date',
+    'Raw_Low', 'Raw_Close', 'Settle', 'Upper_Limit', 'Lower_Limit',
+    'Volume', 'OpenInterest', 'trading_date',
     'Adj_Open', 'Adj_High', 'Adj_Low', 'Adj_Close', 'Adj_Settle','True_Return'
 ]
 
@@ -145,6 +146,10 @@ class ResearchFeed:
                 连续主力分段编号。主力缺失会切断分段，正常换月不会切断分段。
             Raw_Close/ Raw_Open / Raw_High / Raw_Low: float
                 主力合约的原始价格OHLC
+            Settle: float
+                主力合约结算价
+            Upper_Limit / Lower_Limit: float
+                主力合约当日涨停价与跌停价；数据源缺失时为 NaN
             Volume: int
                 成交量。
             OpenInterest: int
@@ -442,6 +447,14 @@ class ResearchFeed:
             )
             df = master_df[metadata_columns].join(raw_df, how='left')
             df['trading_date'] = df.index.date # pyright: ignore[reportAttributeAccessIssue]
+            # 日频快照中的涨跌停价使用小写列名，统一成与 OHLC 一致的大写口径
+            df.rename(
+                columns={
+                    'upper_limit': 'Upper_Limit',
+                    'lower_limit': 'Lower_Limit',
+                },
+                inplace=True,
+            )
         else:
             metadata = master_df[metadata_columns].copy()
             metadata['trading_date'] = metadata.index.date # pyright: ignore[reportAttributeAccessIssue]

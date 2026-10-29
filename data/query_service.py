@@ -30,6 +30,24 @@ class RuleQueryService:
         # 直接委托给 registry_manager
         return self._registry_manager.get_instrument_registry(contract).multiplier
 
+    def get_product_daily_status(self, product: str) -> pd.DataFrame:
+        """获取某品种全部合约、全部交易日的日频状态表副本。
+
+        供研究期桥接层读取保证金率、手续费等历史状态。返回的 ``trading_date``
+        为 ``datetime.date``，调用方可自行过滤日期和列。
+
+        Parameters
+        ----------
+        product : str
+            品种代码。
+
+        Returns
+        -------
+        pd.DataFrame
+            合约日频状态长表。
+        """
+        return self._daily_status_manager.get_product_df(product)
+
     def get_list_date_product(self, product: str) -> date:
         """获取品种上市日期"""
         return self._meta_manager.get_static_meta(product).list_date

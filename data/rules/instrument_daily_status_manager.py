@@ -34,6 +34,8 @@ class InstrumentDailyStatusManager:
         获取特定交易日，某品种下所有合约的日频动态状态属性。
     get_status_inst_on_date(contract, trading_date)
         获取特定交易日，某合约的日频动态状态属性。
+    get_product_df(product)
+        获取某品种全部合约、全部交易日的数据副本，供研究期桥接层使用。
     
     """
     def __init__(self, 
@@ -49,13 +51,9 @@ class InstrumentDailyStatusManager:
         self._product_date_df_cache: dict[tuple[str, date], pd.DataFrame] = {} # 品种（下所有合约）-交易日级别的内部缓存
         self._inst_date_cache: dict[tuple[str, date], InstrumentDailyStatus] = {} # 合约-交易日层面的内部缓存
 
-    def _load_product_date(self, product: str, trading_date: date) -> None:
-        """
-        读取（并缓存）整个品种的日频动态数据，缓存（品种-交易日）级别的日频动态状态数据。
-        """
+    def _load_product_all(self, product: str) -> pd.DataFrame:
+        """读取（并缓存）某品种全部合约、全部交易日的日频动态数据。"""
         product_upper = product.upper()
-
-        # 1. 若该品种的全量数据尚未读入内存，则加载并标准化
         if product_upper not in self._product_df_cache:
             exchange_upper = self.meta_manager.get_static_meta(product_upper).exchange
             path = self.instrument_daily_status_dir / f'{exchange_upper}_{product_upper}.parquet'
@@ -66,11 +64,35 @@ class InstrumentDailyStatusManager:
             df = pd.read_parquet(path)
             df['trading_date'] = pd.to_datetime(df['trading_date']).dt.date
             df['instrument'] = df['instrument'].str.upper()
-            
-            self._product_df_cache[product_upper] = df
 
-        # 2. 从全量缓存中进行内存级别的日期切片过滤
-        df_all = self._product_df_cache[product_upper]
+            self._product_df_cache[product_upper] = df
+        return self._product_df_cache[product_upper]
+
+    def get_product_df(self, product: str) -> pd.DataFrame:
+        """获取某品种全部合约、全部交易日的日频动态状态原始表。
+
+        返回副本，调用方可以安全地做日期过滤和列裁剪，不会污染内部缓存。
+        供研究期桥接层等“需要整段历史”的调用方使用。
+
+        Parameters
+        ----------
+        product : str
+            品种代码。
+
+        Returns
+        -------
+        pd.DataFrame
+            列包含 instrument、trading_date、is_tradable、inst_life_phase、
+            long_margin_ratio、short_margin_ratio、手续费和报单量限制等字段。
+        """
+        return self._load_product_all(product).copy()
+
+    def _load_product_date(self, product: str, trading_date: date) -> None:
+        """
+        读取（并缓存）整个品种的日频动态数据，缓存（品种-交易日）级别的日频动态状态数据。
+        """
+        product_upper = product.upper()
+        df_all = self._load_product_all(product_upper)
         df_filtered = df_all[df_all['trading_date'] == trading_date]
         self._product_date_df_cache[(product_upper, trading_date)] = df_filtered
 

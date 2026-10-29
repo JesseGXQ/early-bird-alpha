@@ -1,7 +1,11 @@
 """因子库，保存具体因子实现。"""
 
-from factors.library.trend import MomentumFactor, MomentumState
-from factors.library.term_structure import CurveSlope, RollYieldFactor
+from factors.library.basic import (
+    MomentumFactor,
+    MomentumState,
+    CurveSlope,
+    RollYieldFactor,
+)
 
 __all__ = [
     'MomentumFactor',

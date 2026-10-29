@@ -92,6 +92,9 @@ class TermStructureFeed:
                 持仓量。
             Volume: float
                 成交量。
+            multiplier: int
+                合约乘数，来自 Tier2 合约注册表；用于把持仓量换算成
+                与仓单可比的实物单位。
         """
         if price_col not in ('Close', 'Settle'):
             raise ValueError(
@@ -114,7 +117,7 @@ class TermStructureFeed:
             return pd.DataFrame(
                 [],
                 columns=['product','is_dominant', price_col,'last_trade_date',
-                         'OpenInterest','Volume'],
+                         'OpenInterest','Volume','multiplier'],
                 index=pd.MultiIndex.from_tuples(
                     (),names=['trading_date', 'contract']
                 )
@@ -138,6 +141,11 @@ class TermStructureFeed:
         ltd_map = self._build_last_trade_date_map(result_df["contract"].unique())
         result_df["last_trade_date"] = result_df["contract"].map(ltd_map)
 
+        multiplier_map = self._build_multiplier_map(
+            result_df["contract"].unique()
+        )
+        result_df["multiplier"] = result_df["contract"].map(multiplier_map)
+
         result_df["product"] = self.product
 
         # 设置 MultiIndex 为索引
@@ -145,7 +153,8 @@ class TermStructureFeed:
         result_df = result_df.sort_index()
 
         result_df = result_df[
-            ["product", "is_dominant", price_col, "last_trade_date", "OpenInterest", "Volume"]
+            ["product", "is_dominant", price_col, "last_trade_date",
+             "OpenInterest", "Volume", "multiplier"]
         ]
 
         return result_df
@@ -179,6 +188,21 @@ class TermStructureFeed:
             except KeyError as err: # 不要静默返回None，直接把合约注册表发现的未找到错误抛出来
                 raise ValueError(f'[TermstructureFeed] 在合约注册表中无法找到合约 {c}') from err
         return ltd_map
+
+    def _build_multiplier_map(
+        self, contracts: Iterable[str]
+    ) -> dict[str, int]:
+        """通过 InstrumentRegistryManager 为每个合约查询合约乘数。"""
+        multiplier_map: dict[str, int] = {}
+        for c in contracts:
+            try:
+                registry = self.instrument_registry_manager.get_instrument_registry(c)
+                multiplier_map[c] = registry.multiplier
+            except KeyError as err:
+                raise ValueError(
+                    f'[TermstructureFeed] 在合约注册表中无法找到合约 {c}'
+                ) from err
+        return multiplier_map
 
 
 # ===============================

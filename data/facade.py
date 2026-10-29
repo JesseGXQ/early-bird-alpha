@@ -318,7 +318,7 @@ class DataFacade:
         pd.DataFrame
             期限结构长表，MultiIndex[trading_date, contract]。
             列: product, is_dominant, Close/Settle, last_trade_date,
-            OpenInterest, Volume 。其中价格列列名与 price_col 一致。
+            OpenInterest, Volume, multiplier。其中价格列列名与 price_col 一致。
         """
         if product not in self._term_structure_feeds:
             self._term_structure_feeds[product] = create_term_structure_feed(
@@ -360,7 +360,7 @@ class DataFacade:
         pd.DataFrame
             MultiIndex[trading_date, contract] 的长表面板，
             列: product, is_dominant, Close/Settle, last_trade_date,
-            OpenInterest, Volume。其中价格列列名与 price_col 一致。
+            OpenInterest, Volume, multiplier。其中价格列列名与 price_col 一致。
         """
         if not products:
             raise ValueError('products 列表不能为空。')

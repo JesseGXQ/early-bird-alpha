@@ -91,5 +91,10 @@ docs/others/为何使用加法复权.jpg
 research/artifacts/
 research/experiments/alpha101/artifacts/
 
+# ==========================================
+# 部分因子的测试文件
+# ==========================================
+tests/factors/library/others/
+
 
 

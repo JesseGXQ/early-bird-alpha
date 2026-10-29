@@ -95,6 +95,9 @@ class DataRequirement:
         数据源名称。
         - 可选 'main_panel', 'term_structure', 'warehouse_receipt',
         'classification'。
+        - 研究期桥接层还支持 'instrument_daily_status'（合约日频保证金状态）
+        与 'session_return'（日频化的夜盘/日盘收益）；详见
+        ``factors.bridge.FactorDataBridge``。
     columns: tuple of str, optional
         所需列名。默认为 None（全部列，不做裁剪）。
         - 例如对于 source='term_structure' 可为 
