@@ -47,7 +47,8 @@ class FactorPreprocessor(ABC):
     @abstractmethod
     def transform(
         self, 
-        values: pd.Series, 
+        values: pd.Series,
+        eligible: pd.Series | None 
     ) -> PreprocessingResult:
         """
         对因子值(values)做批量预处理。
@@ -69,7 +70,7 @@ class FittedFactorPreprocessor(FactorPreprocessor, ABC):
     def fit(
         self,
         values: pd.Series,
-        eligible: pd.Series[bool],
+        eligible: pd.Series,
     ) -> Self:
         """
         在给定数据上应用品种池，然后拟合参数，并将拟合状态保存到内部。
@@ -78,7 +79,7 @@ class FittedFactorPreprocessor(FactorPreprocessor, ABC):
         ----------
         values : pd.Series
             用于拟合的因子值。
-        eligible: pd.Series
+        eligible: pd.Series 
             品种池准入掩码。
         """
         ...
@@ -143,7 +144,7 @@ class PreprocessingPipeline:
         """在流水线尾部加入一个预处理组件。"""
         self._processors.append(processor)
 
-    def process(self, values: pd.Series) \
+    def process(self, values: pd.Series, eligible: pd.Series | None) \
         -> PreprocessingPipelineResult:
         """
         按顺序运行预处理流水线，同时收集 warnings 和 metadata。
@@ -151,7 +152,7 @@ class PreprocessingPipeline:
         warnings: dict[str, list[str]] = {}
         metadata: dict[str, Mapping[str, Any]] = {}
         for processor in self._processors:
-            result = processor.transform(values=values)
+            result = processor.transform(values=values, eligible=eligible)
             values = result.values
             warnings[processor.name] = result.warnings
             metadata[processor.name] = result.metadata
@@ -254,7 +255,7 @@ class WalkForwardTransformer:
             states = self._processor.states_
             fitted_states[f'fold{i}'] = states
             # transform 
-            result = self._processor.transform(to_trans_data)
+            result = self._processor.transform(to_trans_data, eligible)
             transed_values_list.append(result.values)
 
             self._add_warnings(

@@ -45,7 +45,7 @@ class FittedTimeSeriesZscore(FittedFactorPreprocessor):
         return f'fitted_ts_zscore_{self._method}'
 
     # TODO 将 eligible 应用到 values上去，然后再做 fit 。
-    def fit(self, values: pd.Series, eligible: pd.Series[bool]) -> Self:
+    def fit(self, values: pd.Series, eligible: pd.Series | None) -> Self:
         """拟合：记录 fit 窗口并计算相应统计量 (mu, sig 或者 median, mad)。"""
         # 每个品种各自的 fit 窗口起止，并校验每个品种 start < end
         self._fit_windows = values.reset_index().groupby('product').agg(
@@ -109,6 +109,7 @@ class FittedTimeSeriesZscore(FittedFactorPreprocessor):
     def transform(
             self, 
             values: pd.Series, 
+            eligible: pd.Series | None
     ) -> PreprocessingResult:
         """根据 fitted params , 将fit窗口外的 values 转换为 zscore 。"""
         self._check_is_fitted()
@@ -191,7 +192,7 @@ class RollingTimeSeriesZscore(FactorPreprocessor):
     def parameters(self) -> dict[str, Any]:
         return {'method': self._method, 'window': self._window}
 
-    def transform(self, values: pd.Series) -> PreprocessingResult:
+    def transform(self, values: pd.Series, eligible: pd.Series | None) -> PreprocessingResult:
         values = values.copy()
 
         if self._method == 'conventional':
@@ -275,6 +276,7 @@ class CrossSectionalZscore(FactorPreprocessor):
     def transform(
             self, 
             values: pd.Series, 
+            eligible: pd.Series | None
     ) -> PreprocessingResult:
         """
         对每个截面，计算 z score。
@@ -343,7 +345,7 @@ class CrossSectionalRankNormalizer(FactorPreprocessor):
     def parameters(self) -> dict[str, Any]:
         return {'method': self._method}
 
-    def transform(self, values: pd.Series) -> PreprocessingResult:
+    def transform(self, values: pd.Series, eligible: pd.Series | None) -> PreprocessingResult:
         values = values.copy()
         
         u = (values.rank() - 0.5) / len(values)
@@ -396,7 +398,7 @@ class FittedPooledScalar(FittedFactorPreprocessor):
     def fit(
             self,
             values: pd.Series, # MutiIndex[timestamp, product]
-            eligible: pd.Series[bool], # MutiIndex[timestamp, product]
+            eligible: pd.Series, # MutiIndex[timestamp, product]
     ) -> Self:
         assert values.index.names == eligible.index.names
         assert values.index.names == INDEX_NAMES
@@ -435,7 +437,9 @@ class FittedPooledScalar(FittedFactorPreprocessor):
     def transform(
             self, 
             values: pd.Series,
+            eligible: pd.Series | None
     ) -> PreprocessingResult:
+        """目前不会在应用品种池。即品种池外的因子值 transform 后不会被置NaN。"""
         self._check_is_fitted()
         assert self._scaling_coef is not None
         assert values.index.names == INDEX_NAMES
@@ -471,7 +475,11 @@ class ClipPreprocessor(FactorPreprocessor):
     def parameters(self) -> dict[str, Any]:
         return {'clip_bound': self._bound}
 
-    def transform(self, values: pd.Series) -> PreprocessingResult:
+    def transform(
+            self, 
+            values: pd.Series, 
+            eligible: pd.Series | None
+    ) -> PreprocessingResult:
         return PreprocessingResult(
             values = values.clip(lower=-self._bound, upper=self._bound),
             warnings=[],
