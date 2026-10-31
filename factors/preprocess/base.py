@@ -55,6 +55,15 @@ class FactorPreprocessor(ABC):
         """
         ...
 
+    def _verify_index_inclusion(
+            self, values: pd.Series, eligible: pd.Series
+    ) -> None:
+        if values.index.equals(eligible.index):
+            return
+        if not values.index.isin(eligible.index).all():
+            raise ValueError(f'因子{values.name}的索引中存在不属于品种池准入'
+                             '(eligible)索引的元素。')
+
 class FittedFactorPreprocessor(FactorPreprocessor, ABC):
     """
     符合 Fit -> Transform 流程的可拟合预处理组件的抽象基类。

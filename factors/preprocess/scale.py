@@ -276,7 +276,7 @@ class CrossSectionalZscore(FactorPreprocessor):
     def transform(
             self, 
             values: pd.Series, 
-            eligible: pd.Series | None
+            eligible: pd.Series
     ) -> PreprocessingResult:
         """
         对每个截面，计算 z score。
@@ -285,6 +285,8 @@ class CrossSectionalZscore(FactorPreprocessor):
         ------
         values: pd.Series
             因子值。MultiIndex[timestamp, product]。
+        eligible: pd.Series
+            品种池准入，必须传入。
         
         Returns
         ------
@@ -294,8 +296,14 @@ class CrossSectionalZscore(FactorPreprocessor):
             - `warnings`: list of str, 预处理的警告。
             - `metadata`: Mapping[str, Any], 预处理元数据。
         """
-        values = values.copy()
-        grouped = values.groupby(level='timestamp', group_keys=False)
+        if eligible is None:
+            raise ValueError(f'必须传入 `eligible` 参数。')
+        self._verify_index_inclusion(values, eligible)
+
+        vals = values.copy()
+        # 应用品种池
+        vals = vals[eligible]
+        grouped = vals.groupby(level='timestamp', group_keys=False)
 
         if self._method == 'conventional':
             loc = grouped.transform(lambda s: s.mean())
@@ -304,15 +312,15 @@ class CrossSectionalZscore(FactorPreprocessor):
             loc = grouped.transform(lambda s: s.median())
             scale = grouped.transform(lambda s: 1.4826 * (s - s.median()).abs().median())
 
-        scaled = (values - loc) / scale
+        scaled = (vals - loc) / scale
         # 无效 timestamp（scale 为 NaN 或 0）：保留原值并告警
         invalid = scale.isna() | (scale == 0)
-        scaled[invalid] = values[invalid]
-        invalid_ts = values[invalid].index.get_level_values('timestamp').unique()
+        scaled[invalid] = vals[invalid]
+        invalid_ts = vals[invalid].index.get_level_values('timestamp').unique()
         warnings = [f'timestamp {ts} 截面统计量不可用（零方差或观测不足），保留原值'
                     for ts in invalid_ts]
 
-        grouped = values.groupby(level='timestamp')
+        grouped = vals.groupby(level='timestamp')
         if self._method == 'conventional':
             metadata = {'mu': grouped.mean(),'sig': grouped.std()}
         else:
@@ -320,7 +328,7 @@ class CrossSectionalZscore(FactorPreprocessor):
             mad.name = 'mad'
             metadata = {'median': grouped.median(), 'mad': mad}
         return PreprocessingResult(
-            values = scaled,
+            values = scaled.reindex(values.index),
             warnings = warnings,
             metadata = metadata
         )
