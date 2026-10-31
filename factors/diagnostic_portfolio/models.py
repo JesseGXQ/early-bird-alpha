@@ -397,7 +397,7 @@ class ConstraintConfig:
     Parameters
     ----------
     max_gross : float, optional
-        最终 gross 上限（绝对权重之和），正数。
+        最终 gross 上限（绝对权重之和），正数。默认为 None。
         当 HarvestProfile.portfolio_target != 'gross_one' 时适用。
     max_product_weight : float or None, optional
         单品种最终绝对权重上限，取值 (0, +inf)；None 表示不设上限，

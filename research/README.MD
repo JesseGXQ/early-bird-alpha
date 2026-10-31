@@ -10,7 +10,8 @@ research/
 ├── experiments/   # 可重复执行的研究脚本与配置
 ├── notebooks/     # 交互探索与绘图
 ├── artifacts/     # 运行产物，原则上不纳入 Git
-└── io.py          # 探索阶段的轻量结果导出器
+├── io.py          # 探索阶段的轻量结果导出器
+└── presets.py     # 研究中常用设定的快捷方式
 ```
 
 实验脚本、配置和结论应纳入 Git；Parquet、图片等生成结果写入
@@ -33,3 +34,23 @@ research/
 
 该导出器仅服务于探索阶段，不承担实验编排、缓存和数据指纹计算。正式评价
 流水线建立后，可将其文件约定迁移至 `factors/storage.py`。
+
+## 常用设定快捷方式
+
+`research/presets.py` 收敛 notebook 里反复手写的数据侧样板代码
+（数据引擎配置 → `DataFacade` → 品种池 → `DatasetSpec` → `ResearchDataset`）：
+
+```python
+from research.presets import (
+    build_dataset, build_dataset_with_facade,
+    MAIN_PANEL_AND_TERM_STRUCTURE,
+)
+
+dataset = build_dataset()                       # 默认品种池、默认研究区间、仅主面板
+dataset = build_dataset(sources=MAIN_PANEL_AND_TERM_STRUCTURE)
+dataset, facade = build_dataset_with_facade()   # 还需要 facade.rule_query 时
+```
+
+默认值（`DEFAULT_START_DATE`、`DEFAULT_EXCLUDED_PRODUCTS`、`DEFAULT_UNIVERSE`
+等）只是调用参数的初始值，需要不同口径时在调用处覆盖，不要在 notebook 里
+另存一份影子默认值。该模块只放设定，不放实验逻辑与结论。
