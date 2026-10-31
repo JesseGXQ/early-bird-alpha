@@ -337,27 +337,18 @@ class DiagnosticPortfolioExperimentRunner:
             self, target_weights: pd.Series,
             experiment_timeline: pd.DatetimeIndex) -> Mapping[str, pd.Series]:
         """收集本次实验相关的时间范围信息。包括：
-        1. 信号的第一次和最后一次非全 NaN 时期（信号的时间范围）
-        2. 目标权重的第一次、最后一次非零 gross_exposure 时期（实际策略运作的时间范围）
+        1. 信号的第一次和最后一次非全 NaN 时期（信号的时间范围），找不到则为 None。
+        2. 目标权重的第一次、最后一次非零 gross_exposure 时期（实际策略运作的时间范围），
+        找不到同为None。
         3. 实验运行的时间轴起点和终点。
         """
         # 1. signal
-        has_valid_by_ts = self._signal.values.groupby(level='timestamp')\
-            .apply(lambda s: s.notna().any())
-        first_signal_valid_ts = has_valid_by_ts[has_valid_by_ts].index[0]
-        last_signal_valid_ts = has_valid_by_ts[has_valid_by_ts].index[-1]
+        first_signal_valid_ts = self._signal.values.first_valid_index()[0] # pyright: ignore[reportIndexIssue]
+        last_signal_valid_ts = self._signal.values.last_valid_index()[0] # pyright: ignore[reportIndexIssue]
         # 2. 权重
-        w = target_weights
-        nonzero_gross_exposure = w.groupby(level='timestamp')\
-            .apply(lambda s: s.abs().sum() != 0 )
-        if nonzero_gross_exposure.any():
-            first_nonzero_gross_expsoure_ts = \
-                nonzero_gross_exposure[nonzero_gross_exposure].index[0]
-            last_nonzero_gross_expsoure_ts = \
-                nonzero_gross_exposure[nonzero_gross_exposure].index[-1]
-        else: # 如果组合从头到尾都是空仓
-            first_nonzero_gross_expsoure_ts, last_nonzero_gross_expsoure_ts = \
-                None, None
+        _w = target_weights.where(target_weights!=0)
+        first_nonzero_gross_expsoure_ts = _w.first_valid_index()[0] # pyright: ignore[reportIndexIssue]
+        last_nonzero_gross_expsoure_ts = _w.last_valid_index()[0] # pyright: ignore[reportIndexIssue]
         # 3. 实验时间轴
         first_experiment_timeline_ts = experiment_timeline[0]
         last_experiment_timeline_ts = experiment_timeline[-1]
