@@ -208,7 +208,7 @@ class RollYieldFactor(Factor):
         Parameters
         ---
         data: pd.DataFrame
-            从 ResearchDataset.auxiliary['term_structure'] 获取的期限结构数据，
+            存于 ResearchDataset.auxiliary['term_structure'] 的期限结构数据，
             MultiIndex[timestamp, product, contract]
 
         Returns

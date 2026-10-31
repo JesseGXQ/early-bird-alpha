@@ -853,7 +853,9 @@ class DiagnosticPortfolioResult:
     direction_attribution : pd.DataFrame
         long、short 汇总贡献。
     performance : pd.DataFrame
-        index=gross/proxy_net，列为核心绩效：
+        index=gross/proxy_net/gross_start_from_first_nonzero_gross_exposure/
+        proxy_net_start_from_first_nonzero_gross_exposure。
+        列为核心绩效：
         total_return、annualized_arithmetic_return、cagr、
         annualized_volatility、sharpe、max_drawdown、n_periods。
     status : pd.DataFrame or None

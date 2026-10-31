@@ -31,9 +31,10 @@ _ACTIVE_WEIGHT_THRESHOLD = 1e-3
 def _verify_signal_index(signal_index: pd.MultiIndex, 
                          main_panel_index: pd.MultiIndex):
     """校验：信号索引全部在主面板索引集以内。"""
-    extra = set(signal_index) - set(main_panel_index)
-    if extra:
-        raise ValueError(f'信号的索引中存在不在主面板索引中的值: {extra} 。')
+    if signal_index.equals(main_panel_index):
+        return
+    if not signal_index.isin(main_panel_index).all():
+        raise ValueError(f'信号索引中存在不在主面板索引中的值。')
 
 def align_inputs(
         signal: DiagnosticSignal, 
