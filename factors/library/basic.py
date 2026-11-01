@@ -1,4 +1,4 @@
-"""趋势/动量、期限结构与合约生命周期类基础因子。"""
+﻿"""趋势/动量、期限结构与合约生命周期类基础因子。"""
 
 from __future__ import annotations
 
@@ -339,10 +339,10 @@ class RollYieldFactor(Factor):
             if 'term_structure' not in data:
                 raise ValueError(
                     "输入为 Mapping 时必须包含 'term_structure' 数据源。")
-            term_df = data['term_structure'].copy()
+            term_df = data['term_structure']
             panel = data.get('main_panel')
         else:
-            term_df = data.copy()
+            term_df = data
             panel = None
 
         if self._volnorm:
@@ -355,42 +355,7 @@ class RollYieldFactor(Factor):
                 raise ValueError(
                     "main_panel 缺少 'True_Return' 列，无法进行波动率归一。")
 
-        term_df['days_to_last_trade'] = (
-            (pd.to_datetime(term_df['last_trade_date']) 
-            - term_df.index.get_level_values('timestamp'))
-            .dt.days # pyright: ignore[reportAttributeAccessIssue]
-        )
-
-        rst_dict: dict[tuple[pd.Timestamp, str], float] = {}
-        for (ts, prod), grouped_df in term_df.groupby(level=INDEX_NAMES):
-
-            df = grouped_df.reset_index(level=INDEX_NAMES, drop=True) # 去掉 timestamp 和 product 这两个 idx level
-
-            df = self._filter_contracts_dte(df) 
-            # 若过滤后发现是空DataFrame或只有一行了，令因子值为np.nan，并记录警告
-            if len(df) <= 1:
-                self.warnings.append(
-                    f'timestamp={ts}, product={prod}:'
-                    f'满足 days_to_last_trade 大于{self.near_dte_min} 且小于{self.far_dte_max}'
-                    f'的合约数量为 {len(df)}，无法计算展期因子。')
-                rst_dict[(ts,prod)] = np.nan
-                continue
-            
-            near, far, msg = self._select_contract_pair(df) 
-            if near is None or far is None: # 若出错
-                self.warnings.append(
-                    f'timestamp={ts}, product={prod}:'
-                    f'根据 combination ={self.combination} 选择合约时出错。'
-                    f'错误原因为 {msg}'
-                )
-                rst_dict[(ts,prod)] = np.nan
-                continue
-
-            roll_yield = self._compute_roll_yield(df, near, far)
-            rst_dict[(ts,prod)] = roll_yield
-
-        idx = pd.MultiIndex.from_tuples(rst_dict.keys(), names=INDEX_NAMES)
-        values = pd.Series(rst_dict.values(), index=idx, name=self.name) # type: ignore
+        values = self._compute_raw_roll_yield(term_df)
 
         if self._volnorm:
             assert isinstance(panel, pd.DataFrame)
@@ -412,6 +377,110 @@ class RollYieldFactor(Factor):
                 f'【{self.name}】本次计算共记录 {len(self.warnings)} 条警告，'
                 f'明细见该因子的 warnings 属性。')
         return values
+
+    def _compute_raw_roll_yield(self, term_df: pd.DataFrame) -> pd.Series:
+        """批量选择合约位置并计算收益，避免逐截面创建和复制 DataFrame。"""
+        grouped = term_df.groupby(level=INDEX_NAMES, observed=True)
+        index = pd.MultiIndex.from_tuples(grouped.size().index.tolist(), names=INDEX_NAMES)
+        group_ids = grouped.ngroup().to_numpy()
+        dte = (
+            pd.to_datetime(term_df['last_trade_date'])
+            - term_df.index.get_level_values('timestamp')
+        ).dt.days.to_numpy()
+        keep = (dte >= self.near_dte_min) & (dte <= self.far_dte_max)
+        # groupby 默认排除缺失索引；在过滤前编码，保留过滤后无合约的截面。
+        keep &= ~pd.isna(group_ids)
+        rows = np.flatnonzero(keep)
+        group_ids = group_ids[keep].astype(np.intp, copy=False)
+        dte = dte[keep]
+        n_groups, n_rows = len(index), len(rows)
+        if n_groups == 0:
+            return pd.Series([], index=index, name=self.name, dtype=object)
+        counts = np.bincount(group_ids, minlength=n_groups)
+        eligible = counts > 1
+        positions = np.arange(n_rows)
+
+        def first_position(mask: np.ndarray) -> np.ndarray:
+            """按原始行顺序取每组首个候选；无候选时保留哨兵位置。"""
+            selected = np.full(n_groups, n_rows, dtype=np.intp)
+            np.minimum.at(selected, group_ids[mask], positions[mask])
+            return selected
+
+        # 使用与旧实现相同的平均排名，保留同到期日合约的选取语义。
+        ranks = pd.Series(dte).groupby(group_ids, sort=False).rank().to_numpy()
+        messages = np.full(n_groups, '', dtype=object)
+        if self.combination in ('near_dominant', 'dominant_secondary'):
+            dominant = term_df['is_dominant'].iloc[rows].to_numpy(dtype=bool, na_value=False)
+            dominant_pos = first_position(dominant)
+            has_dominant = dominant_pos < n_rows
+            messages[eligible & ~has_dominant] = 'error: 当期无主力'
+            eligible &= has_dominant
+
+        if self.combination == 'near_next':
+            near = first_position(ranks == 1)
+            far = first_position(ranks == 2)
+        elif self.combination == 'near_farthest':
+            near = first_position(ranks == 1)
+            max_rank = np.full(n_groups, -np.inf)
+            np.maximum.at(max_rank, group_ids, ranks)
+            far = first_position(ranks == max_rank[group_ids])
+        elif self.combination == 'near_dominant':
+            near = first_position(ranks == 1)
+            far = dominant_pos
+            same = eligible & (near == far)
+            messages[same] = 'error: 近月合约就是主力'
+            eligible &= ~same
+        elif self.combination == 'dominant_secondary':
+            near = dominant_pos
+            dominant_counts = np.bincount(group_ids[dominant], minlength=n_groups)
+            assert (dominant_counts[eligible] == 1).all()
+            # 在末尾添加哨兵值，让没有主力的截面也可以安全参与批量比较。
+            oi = term_df['OpenInterest'].iloc[rows].to_numpy(na_value=np.nan)
+            if oi.dtype == object:
+                oi = oi.astype(float)
+            near_dte = np.append(dte, np.nan)[near]
+            near_oi = np.append(oi, np.nan)[near]
+            candidates = ((dte > near_dte[group_ids])
+                          & (oi <= near_oi[group_ids]))
+            max_oi = np.full(n_groups, -np.inf)
+            np.maximum.at(max_oi, group_ids[candidates], oi[candidates])
+            far = first_position(candidates & (oi == max_oi[group_ids]))
+            missing = eligible & (far == n_rows)
+            messages[missing] = 'error: 无合约满足到期日晚于主力，且持仓量小于主力'
+            eligible &= ~missing
+        else:
+            raise ValueError(f'不支持的合约组合：{self.combination}')
+
+        # 旧实现对平均排名中不存在第 1/2 名的截面抛出 IndexError。
+        if ((near[eligible] == n_rows) | (far[eligible] == n_rows)).any():
+            raise IndexError('合约到期日排名中不存在所需的近月或远月合约。')
+        near_rows, far_rows = rows[near[eligible]], rows[far[eligible]]
+        prices = term_df[self.price_col].to_numpy()
+        days = dte[far[eligible]] - dte[near[eligible]]
+        assert (days != 0).all()
+        ratio = prices[near_rows] / prices[far_rows]
+        # 标量实现会在减去整数 1 时将低精度浮点数提升到 float64。
+        if ratio.dtype.kind == 'f' and ratio.dtype.itemsize < 8:
+            ratio = ratio.astype(np.float64)
+        calculated = (ratio - 1) / days * 365.0
+        # 可空价格被选中时，保留原实现输出的 pd.NA 及 object dtype。
+        nullable = calculated.dtype == object and any(x is pd.NA for x in calculated)
+        result = np.full(n_groups, np.nan, dtype=object if nullable else float)
+        result[eligible] = calculated
+        # 仅遍历需要警告的截面，保持警告内容与排序不变。
+        for group in np.flatnonzero(~eligible):
+            ts, prod = index[group]
+            prefix = f'timestamp={ts}, product={prod}:'
+            if counts[group] <= 1:
+                message = (
+                    f'满足 days_to_last_trade 大于{self.near_dte_min} 且小于{self.far_dte_max}'
+                    f'的合约数量为 {counts[group]}，无法计算展期因子。')
+            else:
+                message = (
+                    f'根据 combination ={self.combination} 选择合约时出错。'
+                    f'错误原因为 {messages[group]}')
+            self.warnings.append(prefix + message)
+        return pd.Series(result, index=index, name=self.name)
 
     def _compute_roll_yield(self, df: pd.DataFrame, near: str, far: str) -> float:
         """根据近月合约和远月合约计算年化展期收益率。
