@@ -1,14 +1,12 @@
-"""研究中常用设定的快捷方式（research presets，也称“一键开局”）。
+"""因子研究快捷方式（presets，也称“一键开局”）。
 
 设计约定
 --------
 - 只放"设定、样板"（配置对象、默认值、构造流程），不放研究结论或实验逻辑。
-- 依赖方向：research/ 可以依赖 data/ 与 factors/，反之不允许
-  （见 research/README.MD 与 factors/__init__.py 的分层说明）。
 
 典型用法
 --------
->>> from research.presets import build_dataset, build_dataset_with_facade
+>>> from factors.presets import build_dataset, build_dataset_with_facade
 >>> dataset = build_dataset()                      # 主面板，默认品种池与日期
 >>> dataset = build_dataset(sources=('term_structure',))   # 加期限结构
 >>> dataset, facade = build_dataset_with_facade()  # 还要用 rule_query 时
@@ -54,6 +52,7 @@ MAIN_PANEL_AND_TERM_STRUCTURE: tuple[str, ...] = ('main_panel', 'term_structure'
 # ===============================================
 # 组合实验基础配置（boilerplate)
 # ===============================================
+
 # 为避开 __post_init__ 对 Series 的格式校验，（麻烦一些）采用 __new__() 实例化
 base_signal = object.__new__(DiagnosticSignal)
 object.__setattr__(base_signal, 'name', 'base')
@@ -88,7 +87,8 @@ tstv_base_risk_config = dreplace(
     tsgo_base_risk_config,
     covariance_lookback=60, covariance_min_periods=10, target_volatility=0.1
     ) 
-tstv_base_constraint_config = ConstraintConfig(max_gross=2.5)
+tstv_base_constraint_config = ConstraintConfig(
+    max_gross=2.5, max_volatility_scaler=2.5)
 tstv_base_spec = DiagnosticPortfolioSpec(
     name='tstv_base', harvest_profile=ts_inv_vol_target_vol,
     rebalance=base_rebalance_config, constraint=tstv_base_constraint_config,

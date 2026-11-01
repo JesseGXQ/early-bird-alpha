@@ -1,6 +1,6 @@
 # AGENTS.md
 
-个人期货量化研究/回测平台。分层管道：`data` → `factors` → `strategy` → `portfolio` → `backtester` → `executor` → `account` → `analytics`。代码注释、docstring、提交信息均用中文。
+个人期货量化研究平台。分层管道：`data` → `factors` → `strategy` → `portfolio` → `backtester` → `executor` → `account` → `analytics`。代码注释、docstring、提交信息均用中文。
 
 ## 运行环境
 
@@ -16,10 +16,27 @@
 
 ## 架构速览
 
-- `data/` 数据引擎，统一入口 `data/facade.py::DataFacade`（`get_historical_vector` / `get_snapshot_stream` / `get_term_structure_data` 及多品种并行变体）。组件由 `data/factory.py` 组装；三条 feed：`ResearchFeed`（向量化研究，复权主连）、`SimulationFeed`（逐笔事件仿真）、`TermStructureFeed`。配置类在 `data/config.py`（`EnvironmentConfig` 硬编码了 `D:\量化策略\CTA策略\RAW_DATA\...` 绝对路径）。
-- `data/rules/`：规则数据库的 manager（`ProductMetaManager`、`InstrumentRegistryManager`、`InstrumentDailyStatusManager`、`ExchangeHolidayManager`、`ProductClassificationManager`）与统一门面 `TradingRuleService`；查询入口 `data/query_service.py::RuleQueryService`。
-- `factors/`（最新模块，V1 因子研究）：架构文档见 `docs/Development Notes/2026072x 因子研究...`。
-- `backtester/` V1 Bar 级最小闭环：`engine.py::BacktestEngine` 调度 Bar 事件 → 目标仓位 → 订单 → 成交 → 账户 → 绩效。设计文档 `docs/Development Notes/20260722 V1 Bar级最小闭环系统设计文档.md`。
+依赖方向 `data ← factors ← strategy ← backtester ← ...`；`factors/` 只允许依赖 `data`，不得依赖 `strategy/`、`portfolio/`、`backtester/`、`executor/`、`account/`。`research/` 是可调用 `data`/`factors` 的研究工作区，核心模块不得反向依赖它。
+
+- `data/` 数据引擎：统一入口 `data/facade.py::DataFacade`（`get_historical_vector` / `get_snapshot_stream` / `get_term_structure_data` / `get_warehouse_receipt_data` 及多品种并行变体），组件由 `data/factory.py` 组装；feed 有 `ResearchFeed`（向量化研究，后复权主连）、`SimulationFeed`（逐笔事件）、`TermStructureFeed`、`FundamentalFeed`；配置在 `data/config.py`（`EnvironmentConfig` 硬编码 `D:\量化策略\CTA策略\RAW_DATA\...`）。
+- `data/rules/`：规则库 manager（`ProductMetaManager`、`InstrumentRegistryManager`、`InstrumentDailyStatusManager`、`ExchangeHolidayManager`、`ProductClassificationManager`）与门面 `TradingRuleService`，研究侧查询统一走 `data/query_service.py::RuleQueryService`。
+- `backtester/` V1 Bar 级最小闭环：`engine.py::BacktestEngine` 调度 Bar 事件 → 目标仓位 → 订单 → 成交 → 账户 → 绩效。`strategy/`、`portfolio/`、`executor/`、`account/`、`analytics/` 目前只有最小骨架，尚未与因子研究层打通。设计文档 `docs/Development Notes/20260722 V1 Bar级最小闭环系统设计文档.md`。
+- `research/`：探索性研究工作区。`experiments/<experiment_id>/` 放可复现实验脚本（如 `alpha101`）与产物，`notebooks/` 做交互探索，`io.py` 是轻量评估结果导出器（`save_evaluation_result()` 及按结果类型分发的导出函数）。
+
+### `factors/` 因子研究模块
+
+当前最活跃的模块，分「单因子研究」与「组合实验」两层，V1 只支持日频。研究链路：`DataFacade` → `ResearchDataset` → `DynamicUniverse` → `Factor.compute` → `PreprocessingPipeline` → `LabelBuilder` → `evaluation/*` →（可选）`combination.py` / `diagnostic_portfolio/` → `research/` 脚本。架构文档见 `docs/Development Notes/20260723 因子研究模块系统架构设计.md` 及其补充、`20260924 组合实验层组件开发方案.md`。
+
+- 数据与领域模型：`models.py` 集中定义领域对象（`ResearchDataset`、`FactorState`/`FactorResult`、`LabelSpec`/`LabelResult`、`HarvestProfile`、`CandidateFactor` 等）；`dataset.py::ResearchDatasetBuilder` 负责「取数 → schema 校验 → 动态品种池」；`universe.py::DynamicUniverse`（准入掩码 + 排除原因绑定为 `Universe`）；`labels.py::LabelBuilder`；`common.py` 放跨模块工具（补齐交易日、`walk_forward_split`）。
+- `bridge.py::FactorDataBridge`：按因子声明的 `DataRequirement` 向引擎或本地 manager 补数，分 T1（引擎补列）→ T4（因子内部 join/对齐）四层，避免每试一个因子就改 `ResearchDatasetBuilder`。
+- `presets.py`：「一键开局」样板与默认设定（`build_dataset()` / `build_dataset_with_facade()` / `make_facade()` / `default_products()`，以及组合实验的样板 spec）。写研究脚本优先复用它，不要手拼配置。
+- `library/` 因子库：`base.py::Factor` ABC（`name` / `computation_scope` / `data_requirements` / `compute` / `parameters`，可选 `initialize_state` + `update` 增量接口）；`basic.py` 有 `MomentumFactor`、`RollYieldFactor`、`CurveSlope`；`others/future_native/` 按经济机制分文件（term_structure / open_interest / delivery / settlement / price_limit / margin / session），各因子用 `WarningMixin` 输出结构化警告。
+- `preprocess/`：`PreprocessingPipeline` 串联缺失处理、缩尾、缩放（截面 / 滚动 / 池化 / 可拟合）、中性化（板块 / 波动率 / 流动性）、平滑、截断；`base.py::WalkForwardTransformer` 借 `walk_forward_split` 做推进拟合变换。
+- `evaluation/`：入口是模块级函数而非统一 Evaluator 类——`coverage_stats`、`ic_details`、`grouped_details`、`regression_details`、`hit_rate_details`，多数支持 `mode='cross_sectional' | 'time_series'` 并内置 HAC / bootstrap 推断。`robustness.py` 目前只有 `adjust_pvalues`（BH 多重检验校正），其余稳健性工具仍在 `20261022 因子研究的稳健性检验开发方案.md` 阶段。
+- `combination.py`：合成算子 `EqualWeightCombiner`、`VoteCombiner`、`RankCombiner`、`ICWeightedCombiner`、`RidgeRegressionCombiner`，统一 `transform()`，监督类另有 `fit()`。
+- `diagnostic_portfolio/`：组合实验层。`DiagnosticPortfolioExperimentRunner` + `DiagnosticPortfolioSpec` 把单列信号按 harvest profile（V1 配方见 `profiles.py`：`ts_inv_vol_gross_one` / `ts_inv_vol_target_vol` / `market_rank_ls`）换成连续研究权重，输出下一期研究收益、换手、代理成本、净值、暴露与归因，**不引入订单、成交、保证金**；`storage/` 的 `DiagnosticPortfolioStore` 以 manifest + 哈希落盘（默认 `research/artifacts/diagnostic_portfolio/`）并支持重放，产物落在仓库内或工作区不干净时会降级可复现性等级并告警。
+- `exploration/xray.py`：探索期因子体检（`quick_glance_at`、`plot_values_over_time` 等）。
+- `scanning.py`：参数扫描，`gen_candidate_grid()` + `run_scan(evaluate_func)` → `ScanResult`（候选参数 × 指标表，附错误/警告记录）。
 
 ## 数据与数据库
 
