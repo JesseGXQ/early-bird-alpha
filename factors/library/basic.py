@@ -13,6 +13,7 @@ import statsmodels.api as sm
 from factors.library.base import Factor
 from factors.models import (DataRequirement, FactorState,
                             IncrementalFactorResult, INDEX_NAMES)
+from factors.common import rolling_volatility
 
 logger = logging.getLogger(__name__)
 
@@ -66,14 +67,51 @@ class MomentumState(FactorState):
     
 
 class MomentumFactor(Factor):
-    """动量因子类。"""
+    """动量因子类。
 
-    def __init__(self, lookback: int):
-        self.lookback = lookback
+    公式：窗口内收益率累乘 ``prod(1 + True_Return) - 1``。
+
+    Parameters
+    ----------
+    lookback : int
+        动量计算窗口长度（期数）。
+    volnorm : bool, default True
+        是否使用 ``True_Return`` 的滚动波动率做结构化归一。
+    vol_method : {'std'}, default 'std'
+        波动率估计方法，目前仅支持滚动标准差。
+    vol_lookback : int or None
+        波动率滚动窗口；``volnorm=True`` 时必填且不小于 2。
+    vol_min_periods : int or None
+        波动率滚动窗口的最小样本数；``volnorm=True`` 时必填且不小于 2。
+
+    Notes
+    -----
+    结构化归一公式： ``窗口累计收益率 / (rolling_std(True_Return) * sqrt(lookback))``。
+    """
+
+    def __init__(
+            self, lookback: int, volnorm: bool = True, *, 
+            vol_method: Literal['std'] = 'std',
+            vol_lookback: int | None = None, vol_min_periods: int | None = None):
+        self._lookback = lookback
+        if volnorm is True:
+            if not (isinstance(vol_lookback, int) and vol_lookback >= 2):
+                raise ValueError(f'当 volnorm 为 True 时，\
+                                 必须传入大于等于 2 的 vol_lookback 参数。')
+            if not (isinstance(vol_min_periods, int) and vol_min_periods >= 2):
+                raise ValueError(f'当 volnorm 为 True 时，\
+                                 必须传入大于等于2 的 vol_min_periods 参数。')
+        self._volnorm = volnorm
+        self._vol_lookback = vol_lookback
+        self._vol_min_periods = vol_min_periods
+        self._vol_method: Literal['std'] = vol_method
 
     @property
     def name(self, ) -> str:
-        return f'momentum_{self.lookback}'
+        name = f'momentum_{self._lookback}'
+        if self._volnorm:
+            name += f'_volnorm'
+        return name
 
     @property
     def computation_scope(self,) -> Literal['per_product']:
@@ -106,24 +144,40 @@ class MomentumFactor(Factor):
         def cumulative_ret_window(ret_series: pd.Series) -> pd.Series:
             """内部辅助函数：根据收益率序列计算窗口内的累计收益率。"""
             return (
-                (1 + ret_series).rolling(self.lookback).
+                (1 + ret_series).rolling(self._lookback).
                 apply(np.prod, raw=True) -1 # 此处的rolling方法的min_periods默认为窗口长度，即第 1 个直到 lookback-1 个值都为nan
             )
 
         ret_series = data['True_Return']
-        momentum = (ret_series
+        mom_values = (ret_series
                 .groupby('product', group_keys=False)
                 .apply(cumulative_ret_window))
-        momentum.name = self.name
-        return momentum
+        
+        if self._volnorm:
+            assert self._vol_lookback is not None
+            assert self._vol_min_periods is not None
+            vol = rolling_volatility(
+                ret_series, method=self._vol_method, window=self._vol_lookback, 
+                min_periods=self._vol_min_periods)
+            denom = vol * np.sqrt(self._lookback)
+            denom = denom.where(denom > 0) # 将标准差为0的置NaN，防止除法后出现inf或报错
+            if mom_values.index.equals(denom.index):
+                mom_values = mom_values / denom
+            else:
+                mom_values = mom_values / denom.reindex(mom_values.index)
+
+        mom_values.name = self.name
+        return mom_values
 
     def initialize_state(self) -> MomentumState:
         """增量接口，初始化动量因子状态。"""
-        return MomentumState(lookback=self.lookback, name=self.name)
+        raise NotImplementedError()
+        return MomentumState(lookback=self._lookback, name=self.name)
 
     def update(self, state: FactorState, 
                timestamp_data: pd.DataFrame) -> IncrementalFactorResult:
         """增量接口，根据最新一期数据，计算最新因子值。返回增量因子结果。"""
+        raise NotImplementedError()
         assert type(state) is MomentumState
         timestamp_df = timestamp_data
 
@@ -145,7 +199,13 @@ class MomentumFactor(Factor):
 
     @property
     def parameters(self) -> Mapping[str, Any]:
-        return {'lookback':self.lookback}
+        return {
+            'lookback': self._lookback,
+            'volnorm': self._volnorm,
+            'vol_method': self._vol_method,
+            'vol_lookback': self._vol_lookback,
+            'vol_min_periods': self._vol_min_periods,
+        }
 
 
 type _RY_COMBO = Literal[
@@ -157,15 +217,58 @@ type _RY_COMBO = Literal[
 
 
 class RollYieldFactor(Factor):
-    """展期收益率因子。"""
+    """展期收益率因子。
+
+    公式：(p_near / p_far - 1) / (DTE_far - DTE_near) * 365。
+
+    Parameters
+    ----------
+    combination : _RY_COMBO, default 'near_dominant'
+        近远月合约的选择方式。
+    near_dte_min, far_dte_max : int
+        参与计算的合约到期天数区间。
+    price_col : {'Close', 'Settle'}, default 'Close'
+        计算展期收益率所使用的价格列。
+    volnorm : bool, default True
+        是否使用主连 ``True_Return`` 的滚动波动率做结构化归一；
+        开启时必须同时提供 ``main_panel`` 数据源。
+    vol_method : {'std'}, default 'std'
+        波动率估计方法，目前仅支持滚动标准差。
+    vol_lookback : int or None
+        波动率滚动窗口；``volnorm=True`` 时必填且不小于 2。
+    vol_min_periods : int or None
+        波动率滚动窗口的最小样本数；``volnorm=True`` 时必填且不小于 2。
+
+    Notes
+    -----
+    结构化归一公式： ``年化 roll_yield / (rolling_std(True_Return) * sqrt(252))``。
+    年化 roll_yield 的年化参数固定为 365 ，日频波动率的年化参数固定为 252。
+    """
 
     def __init__(self, combination: _RY_COMBO = 'near_dominant',
                  near_dte_min: int = 0, far_dte_max: int = 365,
-                 price_col: Literal['Close', 'Settle'] = 'Close'):
+                 price_col: Literal['Close', 'Settle'] = 'Close',
+                 volnorm: bool = True, *,
+                 vol_method: Literal['std'] = 'std',
+                 vol_lookback: int | None = None,
+                 vol_min_periods: int | None = None):
         self.combination = combination
         self.near_dte_min = near_dte_min
         self.far_dte_max = far_dte_max
         self.price_col = price_col
+        if volnorm is True:
+            if not (isinstance(vol_lookback, int) and vol_lookback >= 2):
+                raise ValueError(
+                    '当 volnorm 为 True 时，必须传入大于等于 2 的 '
+                    'vol_lookback 参数。')
+            if not (isinstance(vol_min_periods, int) and vol_min_periods >= 2):
+                raise ValueError(
+                    '当 volnorm 为 True 时，必须传入大于等于 2 的 '
+                    'vol_min_periods 参数。')
+        self._volnorm = volnorm
+        self._vol_lookback = vol_lookback
+        self._vol_min_periods = vol_min_periods
+        self._vol_method: Literal['std'] = vol_method
         self.warnings: list[str] = []
 
     @property
@@ -175,11 +278,18 @@ class RollYieldFactor(Factor):
             'near_dte_min': self.near_dte_min,
             'far_dte_max':  self.far_dte_max,
             'price_col':    self.price_col,
+            'volnorm':      self._volnorm,
+            'vol_method':   self._vol_method,
+            'vol_lookback': self._vol_lookback,
+            'vol_min_periods': self._vol_min_periods,
         }
     
     @property
     def name(self) -> str:
-        return f'roll_yield_{self.combination}'
+        name = f'roll_yield_{self.combination}'
+        if self._volnorm:
+            name += '_volnorm'
+        return name
 
     @property
     def computation_scope(self) -> Literal['per_product']:
@@ -187,38 +297,63 @@ class RollYieldFactor(Factor):
 
     @property
     def data_requirements(self) -> tuple[DataRequirement, ...]:
-        return    (
+        requirements = [
             DataRequirement(
                 source='term_structure',
                 columns=(self.price_col, 'last_trade_date',
                          'is_dominant', 'OpenInterest', 'Volume'),
                 request_params={'price_col': self.price_col},
             ),
-        )
+        ]
+        if self._volnorm:
+            requirements.append(
+                DataRequirement(source='main_panel', columns=('True_Return',))
+            )
+        return tuple(requirements)
 
     @property
     def warmup_periods(self) -> None:
         """暖机窗口，对展期因子不适用。"""
         return None
 
-    def compute(self, data: pd.DataFrame) -> pd.Series:
+    def compute(self, data: Mapping[str, pd.DataFrame] | pd.DataFrame) -> pd.Series:
         """
         批量计算接口。
 
         Parameters
-        ---
-        data: pd.DataFrame
-            存于 ResearchDataset.auxiliary['term_structure'] 的期限结构数据，
-            MultiIndex[timestamp, product, contract]
+        ----------
+        data: Mapping[str, pd.DataFrame] or pd.DataFrame
+            - Mapping: 必须包含 ``'term_structure'``；当 ``volnorm=True`` 时
+              还必须包含 ``'main_panel'``（含 ``True_Return`` 列）。
+            - pd.DataFrame: 直接传入期限结构数据，仅在 ``volnorm=False`` 时可用。
+            期限结构索引为 MultiIndex[timestamp, product, contract]。
 
         Returns
-        ---
+        -------
         pd.Series
             因子值Series。MultiIndex[timestamp, product]
         """
         self.warnings.clear() # 每次批量计算前清空上一轮累积的警告
 
-        term_df = data.copy()
+        if isinstance(data, Mapping):
+            if 'term_structure' not in data:
+                raise ValueError(
+                    "输入为 Mapping 时必须包含 'term_structure' 数据源。")
+            term_df = data['term_structure'].copy()
+            panel = data.get('main_panel')
+        else:
+            term_df = data.copy()
+            panel = None
+
+        if self._volnorm:
+            if not isinstance(panel, pd.DataFrame):
+                raise ValueError(
+                    'volnorm=True 时需要同时提供 main_panel 数据源'
+                    "（含 'True_Return' 列），请通过 data_requirements 取数后"
+                    '以 Mapping 形式传入。')
+            if 'True_Return' not in panel.columns:
+                raise ValueError(
+                    "main_panel 缺少 'True_Return' 列，无法进行波动率归一。")
 
         term_df['days_to_last_trade'] = (
             (pd.to_datetime(term_df['last_trade_date']) 
@@ -255,11 +390,28 @@ class RollYieldFactor(Factor):
             rst_dict[(ts,prod)] = roll_yield
 
         idx = pd.MultiIndex.from_tuples(rst_dict.keys(), names=INDEX_NAMES)
+        values = pd.Series(rst_dict.values(), index=idx, name=self.name) # type: ignore
+
+        if self._volnorm:
+            assert isinstance(panel, pd.DataFrame)
+            assert self._vol_lookback is not None
+            assert self._vol_min_periods is not None
+            vol = rolling_volatility(
+                panel['True_Return'], method=self._vol_method,
+                window=self._vol_lookback,
+                min_periods=self._vol_min_periods)
+            # 展期收益率已按 365 日年化；用 sqrt(252) 把日频波动率换算到
+            # 同一时间尺度，使归一后的因子成为无量纲信号。
+            denom = vol * np.sqrt(252.0)
+            denom = denom.where(denom > 0) # 零波动率置 NaN，避免 inf
+            values = values / denom.reindex(values.index)
+            values.name = self.name
+
         if self.warnings: # 汇总提示，避免刷屏；具体明细见 self.warnings
             logger.warning(
                 f'【{self.name}】本次计算共记录 {len(self.warnings)} 条警告，'
                 f'明细见该因子的 warnings 属性。')
-        return pd.Series(rst_dict.values(), index=idx, name=self.name) # type: ignore
+        return values
 
     def _compute_roll_yield(self, df: pd.DataFrame, near: str, far: str) -> float:
         """根据近月合约和远月合约计算年化展期收益率。

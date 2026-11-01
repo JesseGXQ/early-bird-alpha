@@ -4,6 +4,9 @@ from data.config import EnvironmentConfig
 from data.calendar.product_calendar import ProductCalendar
 from dataclasses import dataclass
 from typing import Literal
+import numpy as np
+
+from factors.models import INDEX_NAMES
 
 def reindex_to_full_dates(
         data: pd.DataFrame | pd.Series,
@@ -275,3 +278,28 @@ def walk_forward_split(
         prev_test_end_pos = timeline.searchsorted(prev_test_end_ts, side='right')
     
     return splits
+
+def rolling_volatility(
+        returns: pd.Series,
+        *,
+        method: Literal['std', 'ewma'] = 'std',
+        window: int,
+        min_periods: int
+) -> pd.Series:
+    """分品种计算滚动波动率，data 为 MultiIndex[timestamp, product]。
+    method='std' 使用滚动标准差；'ewma' 暂不支持。
+    """
+    wide = returns.unstack(level='product')
+    if method == 'std':
+        wide_std = wide.rolling(window=window, min_periods=min_periods).std()
+        std =  wide_std.stack(dropna=False)
+        assert isinstance(std, pd.Series)
+    else: 
+        raise ValueError('暂不支持 ewma。')
+    return std
+    
+    
+
+
+        
+    
