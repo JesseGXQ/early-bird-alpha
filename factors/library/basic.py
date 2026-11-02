@@ -141,6 +141,8 @@ class MomentumFactor(Factor):
         pd.Series
             因子Series。
         """
+        assert isinstance(data, pd.DataFrame) and 'True_Return' in data
+        
         def cumulative_ret_window(ret_series: pd.Series) -> pd.Series:
             """内部辅助函数：根据收益率序列计算窗口内的累计收益率。"""
             return (
