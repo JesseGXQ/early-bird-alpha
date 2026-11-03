@@ -398,14 +398,15 @@ class LabelSpec:
     ----------
     name : str
         标签唯一名称，例如 'fwd_return_5d'。
+    horizon : int
+        预测期限（K 线期数），例如 5 表示未来 5 期。
     type : {'forward_return', 'direction', 'future_volatility', 'event'}
+        default 'forward_return'。
         标签类型：
         - 'forward_return'：未来 h 期复合收益。
         - 'direction'：未来收益方向（+1 / -1）。
         - 'future_volatility'：未来 h 期已实现波动率。
         - 'event'：可配置阈值触发的事件标签（如涨跌停、换月等）。
-    horizon : int
-        预测期限（K 线期数），例如 5 表示未来 5 期。
     source_column : str
         用于构造标签的数据列，默认 'True_Return'。
     min_valid_obs : int
@@ -416,16 +417,15 @@ class LabelSpec:
     parameters: Mapping[str, Any] or None, default None
         构造标签所需的（额外）参数。
     """
-
     name: str
+    horizon: int
     type: Literal[
         'forward_return',
         'direction',
         'future_volatility',
         'residual_return',
         'event',
-    ]
-    horizon: int
+    ] = 'forward_return'
     source_column: str = 'True_Return'
     min_valid_obs: int = 1
     additional_data_requirements: \

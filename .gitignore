@@ -83,13 +83,16 @@ docs/海通证券_20170818_海通证券FICC系列研究之五：商品期货因�
 research/experiments/alpha101/ref/101 Formulaic Alphas.pdf
 tests/research/experiments/alpha101/
 tests/factors/diagnostic_portfolio/my_test_production_20261003.ipynb
-docs/others/为何使用加法复权.jpg
 
 # ==========================================
 # 研究工作区
 # ==========================================
 research/artifacts/
 research/experiments/alpha101/artifacts/
+examples/artifacts/
+
+# Quickstart 使用的可公开小型真实日频样本。
+!examples/data/factor_quickstart/research_sample.parquet
 
 # ==========================================
 # 部分因子的测试文件

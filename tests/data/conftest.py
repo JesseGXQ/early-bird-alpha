@@ -1,4 +1,5 @@
 import pytest
+from data.config import EnvironmentConfig
 from data.rules.product_meta_manager import ProductMetaManager
 from data.rules.instrument_registry_manager import InstrumentRegistryManager
 from data.rules.instrument_daily_status_manager import InstrumentDailyStatusManager
@@ -11,6 +12,10 @@ from data.storage.daily_snapshot_manager import DailySnapshotManager, ContractDa
 # ----------------------------------------------------------------
 # 基础目录配置 Fixtures
 # ----------------------------------------------------------------
+
+@pytest.fixture(scope="session")
+def environment_config():
+    return EnvironmentConfig()
 
 @pytest.fixture(scope="session")
 def product_meta_dir():
@@ -37,8 +42,12 @@ def daily_snapshot_dir():
     return r'db\market\daily_snapshots\bar_1d\bar_1d_tushare\cleaned'
 
 @pytest.fixture(scope='session')
-def tick_data_dir():
-    return r'D:\量化策略\CTA策略\RAW_DATA\TICK'
+def data_dir_1min(environment_config):
+    return environment_config.data_dir_1min
+
+@pytest.fixture(scope='session')
+def tick_data_dir(environment_config):
+    return environment_config.data_dir_tick
 
 # ----------------------------------------------------------------
 # 各业务数据管理器 Fixtures (设置为 session 级别，避免重复读取硬盘数据)

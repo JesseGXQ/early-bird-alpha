@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "description": "factors Quickstart 使用的小型真实日频研究面板",
+  "source": "由项目本地日频快照经 DataFacade 和 ResearchDatasetBuilder 构造；日频快照目录标识为 bar_1d_tushare/cleaned。",
+  "processing": "后复权主连，动态品种池最低20日平均成交量为10000手",
+  "products": [
+    "CU",
+    "AO",
+    "MA",
+    "LC",
+    "JD",
+    "EG",
+    "RM",
+    "B",
+    "PK",
+    "TF"
+  ],
+  "requested_date_range": [
+    "2023-01-01",
+    "2024-12-31"
+  ],
+  "actual_date_range": [
+    "2023-01-03",
+    "2024-12-31"
+  ],
+  "row_count": 4598,
+  "product_sample_counts": {
+    "AO": 374,
+    "B": 484,
+    "CU": 484,
+    "EG": 484,
+    "JD": 484,
+    "LC": 352,
+    "MA": 484,
+    "PK": 484,
+    "RM": 484,
+    "TF": 484
+  },
+  "columns": [
+    "Dominant_Contract",
+    "Adj_Close",
+    "Volume",
+    "OpenInterest",
+    "True_Return",
+    "eligible",
+    "exclude_reason"
+  ],
+  "index_names": [
+    "timestamp",
+    "product"
+  ],
+  "parquet_file": "research_sample.parquet",
+  "parquet_sha256": "22974d745b8f75cbe0f21fdfeab2dee1919cf1ed7fb1f97b98db7930b8f2294e",
+  "license_note": "该衍生样本仅用于项目运行演示；正式数据来源与授权说明待补入 README。"
+}

@@ -1,7 +1,32 @@
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Literal
 
 ALL_EXCHANGES = ['CFFEX', 'CZCE', 'DCE', 'GFEX', 'INE', 'SHFE']
+
+_REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
+_DATABASE_ROOT = _REPOSITORY_ROOT / 'db'
+_DEFAULT_HIGH_FREQ_RAW_DATA_ROOT = _REPOSITORY_ROOT.parent / 'RAW_DATA'
+_HIGH_FREQ_RAW_DATA_ROOT_ENV_VAR = 'EARLY_BIRD_HIGH_FREQ_RAW_DATA_ROOT'
+
+
+def _database_path(*parts: str) -> str:
+    """返回相对仓库内 ``db`` 根目录定位的绝对路径。"""
+    return str(_DATABASE_ROOT.joinpath(*parts))
+
+
+def _raw_data_root() -> Path:
+    """返回原始行情根目录，环境变量优先于仓库同级默认目录。"""
+    configured = os.environ.get(_HIGH_FREQ_RAW_DATA_ROOT_ENV_VAR)
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return _DEFAULT_HIGH_FREQ_RAW_DATA_ROOT
+
+
+def _raw_data_path(directory: str) -> str:
+    """返回原始行情根目录下指定子目录的绝对路径。"""
+    return str(_raw_data_root() / directory)
 
 
 @dataclass(frozen=True)
@@ -95,9 +120,13 @@ class EnvironmentConfig:
         交易所节假日安排数据的路径。
     
     data_dir_1min : str, optional
-        存放 1 分钟 K 线数据的目录路径。
+        存放 1 分钟 K 线数据的目录路径。默认使用仓库同级目录
+        ``RAW_DATA/1min``；设置环境变量 ``EARLY_BIRD_RAW_DATA_ROOT``
+        后，使用该根目录下的 ``1min`` 子目录。
     data_dir_tick: str, optinal
-        存放原始 TICK 数据的目录路径。
+        存放原始 TICK 数据的目录路径。默认使用仓库同级目录
+        ``RAW_DATA/TICK``；设置环境变量 ``EARLY_BIRD_RAW_DATA_ROOT``
+        后，使用该根目录下的 ``TICK`` 子目录。
     daily_snapshot_dir : str, optional
         存放日频快照数据的目录路径。
     warehouse_receipt_dir : str, optional
@@ -114,27 +143,40 @@ class EnvironmentConfig:
     """
     # ── 三层期货交易规则数据库路径 ──────────────────────────────
     # tier1
-    product_meta_dir: str = './db/rules/product_meta'
+    product_meta_dir: str = field(
+        default_factory=lambda: _database_path('rules', 'product_meta'))
     # tier2
-    instrument_registry_dir: str = './db/rules/instrument_registry'
+    instrument_registry_dir: str = field(
+        default_factory=lambda: _database_path('rules', 'instrument_registry'))
     # tier3 
-    daily_status_dir: str = './db/rules/instrument_daily_status'
+    daily_status_dir: str = field(
+        default_factory=lambda: _database_path('rules', 'instrument_daily_status'))
     # exchange-level holiday/no-night arrangements
-    exchange_holiday_dir: str = './db/rules/exchange_holiday'
+    exchange_holiday_dir: str = field(
+        default_factory=lambda: _database_path('rules', 'exchange_holiday'))
     # product classification
-    product_classification_dir: str = './db/rules/product_classification'
+    product_classification_dir: str = field(
+        default_factory=lambda: _database_path('rules', 'product_classification'))
     
     # ── 行情数据路径 ──────────────────────────────────────────
-    data_dir_1min: str = r'D:\量化策略\CTA策略\RAW_DATA\1min'              # 1min 数据储存路径
-    data_dir_tick: str = r'D:\量化策略\CTA策略\RAW_DATA\TICK'                  # TICK 数据储存路径
-    daily_snapshot_dir: str = 'db/market/daily_snapshots/bar_1d/bar_1d_tushare/cleaned' # 日频快照数据储存位置
+    data_dir_1min: str = field(
+        default_factory=lambda: _raw_data_path('1min'))
+    data_dir_tick: str = field(
+        default_factory=lambda: _raw_data_path('TICK'))
+    daily_snapshot_dir: str = field(default_factory=lambda: _database_path(
+        'market', 'daily_snapshots', 'bar_1d', 'bar_1d_tushare', 'cleaned'))
 
     # ── 基本面数据路径 ────────────────────────────────────────
-    warehouse_receipt_dir: str = './db/fundamental/warehouse_receipts'  # 仓单日报数据储存位置
+    warehouse_receipt_dir: str = field(
+        default_factory=lambda: _database_path(
+            'fundamental', 'warehouse_receipts'))
     
     # ── 其他数据路径 ──────────────────────────────────────────
-    master_table_dir: str = './db/derived/master_tables'     # 换月总表储存位置
-    calendar_dir: str = './db/calendar/trading_calendars'     # 交易日历储存位置
+    master_table_dir: str = field(
+        default_factory=lambda: _database_path('derived', 'master_tables'))
+    calendar_dir: str = field(
+        default_factory=lambda: _database_path(
+            'calendar', 'trading_calendars'))
     
     # ── tool attribute ───────────────────────────────────────
     bar_loader_max_cache_size: int = 200                        # BarLoader 最大 LRU 缓存数

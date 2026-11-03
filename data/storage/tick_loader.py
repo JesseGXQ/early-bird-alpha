@@ -167,14 +167,18 @@ class TickLoaderFactory:
 #====================================
 
 if __name__ == "__main__":
+    from pathlib import Path
 
-    filepath = r"D:\量化策略\CTA策略\RAW_DATA\TICK\2026\20260109\rr2605.csv"
+    from data.config import EnvironmentConfig
+
+    filepath = (Path(EnvironmentConfig().data_dir_tick)
+                / '2026' / '20260109' / 'rr2605.csv')
     
     if os.path.exists(filepath):
         
         start_time = time.time()
         
-        loader = TickLoaderFactory.create_loader(filepath)
+        loader = TickLoaderFactory.create_loader(str(filepath))
 
         stream = loader.get_tick_df_chunk_stream()
       

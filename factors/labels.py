@@ -6,9 +6,10 @@ import pandas as pd
 
 from utils.datetime_utils import annualization_factor
 from factors.preprocess.base import clean_multiindex
+
+from factors.models import LabelSpec, LabelResult
 if TYPE_CHECKING:
-    from factors.models import (
-        LabelSpec, LabelResult)
+
     from factors.models import ResearchDataset  
 
 class LabelBuilder:

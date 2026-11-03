@@ -20,10 +20,10 @@ def calendar(meta_manager, rule_service, exchange_calendar_manager):
 
 def test_file_locator_1min(
         meta_manager, registry_manager, daily_status_manager, holiday_manager,
-        exchange_calendar_manager, rule_service, calendar
+        exchange_calendar_manager, rule_service, calendar, data_dir_1min
 ):
     file_locator = FileLocator(
-        data_dir = r'D:\量化策略\CTA策略\RAW_DATA\1min',
+        data_dir=data_dir_1min,
         meta_manager = meta_manager,
         exchange_calendar_manager=exchange_calendar_manager,
         registry_manager = registry_manager,
@@ -39,10 +39,10 @@ def test_file_locator_1min(
         path = file_locator.get_1min_file_path(contract2)
 
 def test_file_locator_tick(meta_manager, registry_manager, daily_status_manager, holiday_manager,
-        exchange_calendar_manager, rule_service, calendar
+        exchange_calendar_manager, rule_service, calendar, tick_data_dir
 ):
     file_locator = FileLocator(
-        data_dir = r'D:\量化策略\CTA策略\RAW_DATA\TICK',
+        data_dir=tick_data_dir,
         meta_manager=meta_manager,
         exchange_calendar_manager=exchange_calendar_manager,
         registry_manager=registry_manager,
@@ -51,7 +51,6 @@ def test_file_locator_tick(meta_manager, registry_manager, daily_status_manager,
     trading_date = datetime.date(2026, 1, 9)
     path = file_locator.get_tick_file_path(contract, trading_date=trading_date)
 
-    assert path != '' 
+    assert path != ''
     print(f'合约 {contract} 在交易日 {trading_date} 的 本地 tick 文件路径为 {path}')
 
-    

@@ -1,0 +1,29 @@
+name: early-bird-alpha
+
+channels:
+  - defaults
+
+dependencies:
+  # 运行环境
+  - python=3.12
+
+  # 数据处理与持久化
+  - numpy>=1.26,<2.0
+  - pandas>=2.1,<2.2
+  - pyarrow>=16,<17
+  - pyyaml>=6,<7
+
+  # 因子评价与组合研究
+  - scipy>=1.13,<1.14
+  - statsmodels>=0.14,<0.15
+  - scikit-learn>=1.5,<1.6
+
+  # 探索、进度展示与测试
+  - matplotlib>=3.9,<3.10
+  - tqdm>=4.66,<5
+  - pytest>=7.4,<8
+
+  # defaults 频道不提供 arch，由 pip 安装。
+  - pip
+  - pip:
+      - arch>=8,<9

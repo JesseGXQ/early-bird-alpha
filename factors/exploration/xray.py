@@ -86,6 +86,7 @@ def plot_values_over_time(
 def plot_hist(
         *factors: pd.Series,
         bins: int = 100,
+        suptitle: str = '',
         **plot_kwargs
     ) -> list[Axes]:
     """并排绘制若干因子值的分布直方图，用于横向对比（如原始值 vs 标准化值）。
@@ -126,7 +127,7 @@ def plot_hist(
 
     n_axes = len(factors)
     # 每个子图保持原始代码里 6x4 的比例；squeeze=False 保证单因子时 axes 仍是二维数组
-    _, axes_array = plt.subplots(
+    fig, axes_array = plt.subplots(
         1, n_axes, figsize=(6 * n_axes, 4), sharey=True, squeeze=False
     )
     axes = axes_array[0]
@@ -142,7 +143,7 @@ def plot_hist(
         ax.set_xlabel('Factor value')
         ax.set_title(title) # pyright: ignore[reportArgumentType]
         ax.grid(True, alpha=0.3)
-
+    fig.suptitle(suptitle)
     plt.tight_layout()
     plt.show()
     return list(axes)

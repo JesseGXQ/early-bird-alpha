@@ -115,9 +115,14 @@ class BarLoader:
 # inline testing
 # =============================
 if __name__ == '__main__':
+    from pathlib import Path
+
+    from data.config import EnvironmentConfig
+
     loader = BarLoader()
-    file_path = r"D:\量化策略\CTA策略\RAW_DATA\1min\SHFE\AU\AU2506.csv"
-    df = loader.load_1min_bar(file_path=file_path)
+    file_path = (Path(EnvironmentConfig().data_dir_1min)
+                 / 'SHFE' / 'AU' / 'AU2506.csv')
+    df = loader.load_1min_bar(file_path=str(file_path))
     print(f'路径为 {file_path} 的 bar 原始数据读取结果为：')
     print(df)
     print(f' dataframe 的各列 dtypes 为：')

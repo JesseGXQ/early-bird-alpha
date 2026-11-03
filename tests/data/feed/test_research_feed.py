@@ -6,14 +6,20 @@ from data.calendar.product_calendar import ProductCalendar
 from data.feed.aggregator import BarAggregator
 from data.feed.research_feed import ResearchFeed
 from data.stitching.stitching import ContinuousContractManager
-from data.config import RolloverConfig, SamplingConfig, AdjustmentConfig
+from data.config import (
+    AdjustmentConfig,
+    EnvironmentConfig,
+    RolloverConfig,
+    SamplingConfig,
+)
 from data.storage.bar_loader import BarLoader
 from data.storage.file_locator import FileLocator
 from data.cleaning.cleaning_bar_1min import DelayedNightOpenFixer
 from data.cleaning.cleaning_tick import CleaningPipeline
 
-master_table_dir = r'db\derived\master_tables'
-data_dir = r'D:\量化策略\CTA策略\RAW_DATA\1min'
+environment_config = EnvironmentConfig()
+master_table_dir = environment_config.master_table_dir
+data_dir = environment_config.data_dir_1min
 
 product = 'FU'
 
