@@ -1,8 +1,10 @@
 # ==========================================
 # 忽略规则
 # ==========================================
+# 数据库
 
-# 1. 期货交易规则入库相关原始下载的临时数据、快照以及本地缓存原始数据
+db/market/daily_snapshots/bar_1d/bar_1d_tushare/raw/
+db/market/daily_snapshots/upper_lower_price_limits/
 db/rules_ingestion/data/
 db/fundamental_ingestion/data/
 
@@ -12,9 +14,9 @@ db/rules_ingestion/supplements/API凭证.txt
 
 # 2. 忽略数据库生成的大型数据文件（Parquet, CSV 等）
 # 这样可以保留 db/ 目录下的 Python 代码 和 Markdown 设计文档（如 rules_ingestion/*.md）
-db/**/*.parquet
+
 db/**/*.parquet.tmp
-db/**/*.csv
+
 db/**/*.xlsx
 db/**/*.db
 db/**/*.sqlite
@@ -22,12 +24,12 @@ db/**/*.sqlite
 
 
 # 3. 忽略根目录下可能存在的其他临时数据文件
-*.parquet
-*.csv
-*.xlsx
-*.db
-*.sqlite
-*.prof 
+/*.parquet
+/*.csv
+/*.xlsx
+/*.db
+/*.sqlite
+/*.prof 
 
 # ==========================================
 # Python/IDE 常用忽略规则

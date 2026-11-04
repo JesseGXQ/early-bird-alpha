@@ -25,8 +25,6 @@
 
 ## 快速开始
 
-如果你对项目感兴趣，请参考下文。
-
 ### 1. 克隆项目
 
 ```powershell
@@ -90,12 +88,7 @@ Sharpe: 1.022
 NAV chart: <仓库路径>\examples\artifacts\factor_quickstart_nav.png
 ```
 
-### 样本说明
 
-- 品种：`CU`、`AO`、`MA`、`LC`、`JD`、`EG`、`RM`、`B`、`PK`、`TF`；
-- 时间区间：2023-01-01 至 2024-12-31；
-- 数据形态：后复权主连日频研究面板；
-- 数据来源：从已清洗好的真实研究用日频数据中截取而来。
 
 ## 运行测试
 
@@ -107,7 +100,17 @@ python -m pytest
 
 ## 完整行情库
 
-完整研究模式需要额外的数据文件，体积较大，未提交到 Git。包括日频快照，1min 原始行情，TICK 行情。目前暂未提供。
+完整研究模式需要额外的数据文件，包括日频快照，1min 原始行情，TICK 行情，体积较大，未提交到 Git。后续可考虑用百度网盘提供，待更新。
 
+## 研究成果
 
+使用本仓库基础设施所进行的研究，正在进行中，不时更新。
+
+### 单因子策略测试
+
+- [动量, MomentumFactor](research/notebooks/202611/momentum_factor.ipynb)（`research/notebooks/202611/momentum_factor.ipynb`）。
+- [展期收益率, RollYileFactor](research\notebooks\202611\roll_yield_factor.ipynb)
+- [全曲线斜率, CurveSlop](research\notebooks\202611\curve_slope.ipynb)
+
+### 多因子策略
 
