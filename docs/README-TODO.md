@@ -26,7 +26,7 @@
 如果无法把 `RAW_DATA` 放在仓库同级，可以在启动 Python 前设置环境变量：
 
 ```powershell
-$env:EARLY_BIRD_RAW_DATA_ROOT = "E:\futures_data\RAW_DATA"
+$env:EARLY_BIRD_HIGH_FREQ_RAW_DATA_ROOT = "E:\futures_data\RAW_DATA"
 ```
 
 设置后，程序分别从以下目录读取数据：
@@ -51,7 +51,7 @@ config = EnvironmentConfig(
 
 ```text
 EnvironmentConfig 显式参数
-> EARLY_BIRD_RAW_DATA_ROOT 环境变量
+> EARLY_BIRD_HIGH_FREQ_RAW_DATA_ROOT 环境变量
 > 仓库同级 RAW_DATA 默认目录
 ```
 
@@ -88,3 +88,33 @@ examples/artifacts/factor_quickstart_nav.png
 ```
 
 正式整理 README 时，需要补入实际终端输出、净值图以及样本数据来源与授权说明。
+
+## 测试命令
+
+所有测试命令都应从仓库根目录执行。
+
+默认测试只依赖仓库自带的代码与小型样本；需要完整私有行情库的测试会自动跳过：
+
+```powershell
+python -m pytest
+```
+
+本机已经准备好完整行情库时，显式运行真实数据测试：
+
+```powershell
+python -m pytest --run-real-data
+```
+
+默认测试会跳过标记为慢速的测试；需要运行时使用：
+
+```powershell
+python -m pytest --run-slow
+```
+
+两类可选测试可以同时启用：
+
+```powershell
+python -m pytest --run-real-data --run-slow
+```
+
+正式整理 README 时，需要解释 `sample_data`、`real_data`、`integration` 和 `slow` 四种测试标记，以及缺少外部数据时的跳过提示。

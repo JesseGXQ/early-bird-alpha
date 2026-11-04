@@ -10,6 +10,7 @@ from examples.factor_quickstart import (
 
 
 EXPECTED_PRODUCTS = ('CU', 'AO', 'MA', 'LC', 'JD', 'EG', 'RM', 'B', 'PK', 'TF')
+pytestmark = [pytest.mark.sample_data, pytest.mark.integration]
 
 
 def test_sample_dataset_contract():

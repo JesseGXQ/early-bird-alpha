@@ -19,6 +19,7 @@ from data.stitching.stitching import ContinuousContractManager
 from data.storage.file_locator import FileLocator
 
 
+pytestmark = [pytest.mark.real_data, pytest.mark.integration]
 master_table_dir = r'db\derived\master_tables'
 
 product = 'rb'

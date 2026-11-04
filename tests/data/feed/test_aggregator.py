@@ -1,11 +1,13 @@
 import datetime
 
 import pandas as pd
+import pytest
 
 from data.calendar.product_calendar import ProductCalendar
 from data.config import SamplingConfig
 from data.feed.aggregator import BarAggregator
 
+pytestmark = [pytest.mark.real_data, pytest.mark.integration]
 sample_config = SamplingConfig() # 默认 strict + ffill，用于触发 align_to_standard_timestamps
 product = 'rb'
 contract = 'RB2510'

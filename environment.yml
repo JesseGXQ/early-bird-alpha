@@ -12,6 +12,7 @@ dependencies:
   - pandas>=2.1,<2.2
   - pyarrow>=16,<17
   - pyyaml>=6,<7
+  - requests>=2.32,<3
 
   # 因子评价与组合研究
   - scipy>=1.13,<1.14

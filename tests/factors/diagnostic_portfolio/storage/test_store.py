@@ -476,9 +476,15 @@ def test_init_is_silent_for_ignored_runs_dir_and_clean_worktree(
     assert _store_warnings(caplog) == []
 
 
-@_NEEDS_GIT
 def test_init_is_silent_when_repo_root_is_not_a_git_repo(
-        tmp_path, caplog) -> None:
+        tmp_path, caplog, monkeypatch) -> None:
+    # pytest 的 basetemp 可以位于父 Git 仓库中。这里显式模拟 Git 探测
+    # 不可用，避免测试结果依赖临时目录恰好位于仓库内还是仓库外。
+    monkeypatch.setattr(
+        DiagnosticPortfolioStore, '_is_ignored', lambda *_: None)
+    monkeypatch.setattr(
+        DiagnosticPortfolioStore, '_worktree_dirty', lambda *_: None)
+
     with caplog.at_level(logging.WARNING):
         DiagnosticPortfolioStore(
             root_dir=tmp_path / 'artifacts', repo_root=tmp_path)

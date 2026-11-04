@@ -1,5 +1,11 @@
 import datetime
 
+import pytest
+
+
+pytestmark = [pytest.mark.real_data, pytest.mark.integration]
+
+
 def test_get_trading_sessions_scenarios(rule_service):
     # 测试 get_trading_session 方法
     

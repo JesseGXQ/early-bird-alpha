@@ -5,6 +5,7 @@ import pytest
 from data.storage.file_locator import FileLocator
 from data.calendar.product_calendar import ProductCalendar
 
+pytestmark = [pytest.mark.real_data, pytest.mark.integration]
 product = 'IF' 
 
 # 构建一个品种级交易日历

@@ -5,6 +5,7 @@ import pandas as pd
 from data.calendar.product_calendar import ProductCalendar
 
 
+pytestmark = [pytest.mark.real_data, pytest.mark.integration]
 product = 'rb'
 @pytest.fixture
 def calendar(meta_manager, rule_service, exchange_calendar_manager):

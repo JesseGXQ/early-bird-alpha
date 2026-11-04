@@ -17,6 +17,7 @@ from data.storage.file_locator import FileLocator
 from data.cleaning.cleaning_bar_1min import DelayedNightOpenFixer
 from data.cleaning.cleaning_tick import CleaningPipeline
 
+pytestmark = [pytest.mark.real_data, pytest.mark.integration]
 environment_config = EnvironmentConfig()
 master_table_dir = environment_config.master_table_dir
 data_dir = environment_config.data_dir_1min

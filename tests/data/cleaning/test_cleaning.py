@@ -1,5 +1,6 @@
 import pytest
 import pandas as pd
+from pathlib import Path
 from unittest.mock import MagicMock
 
 # 导入被测试的清洗组件
@@ -106,6 +107,8 @@ def test_price_limit_filter_limit_down():
 # 3. 测试 InstrumentCodeTranslator
 # ==========================================
 
+@pytest.mark.real_data
+@pytest.mark.integration
 def test_instrument_code_translator(meta_manager, registry_manager):
     """
     测试合约代码翻译器。
@@ -152,12 +155,15 @@ def test_data_enricher_price_limit():
 # =======================================
 # 测试 DataEnricherGenerateCalendarTimestamp
 # =======================================
-def test_data_enricher_generate_calendar_timestamp(exchange_calendar_manager,
-                                                   meta_manager, rule_service):
+@pytest.mark.real_data
+@pytest.mark.integration
+def test_data_enricher_generate_calendar_timestamp(
+        exchange_calendar_manager, meta_manager, rule_service, tick_data_dir):
     import numpy as np
     from data.calendar.product_calendar import ProductCalendar
 
-    real_df = pd.read_csv('d:/量化策略/CTA策略/RAW_DATA/TICK/2026/20260109/rb2610.csv')
+    tick_path = Path(tick_data_dir) / '2026/20260109/rb2610.csv'
+    real_df = pd.read_csv(tick_path)
     row = real_df.iloc[3,:]
 
     test_df = pd.DataFrame({
@@ -178,7 +184,11 @@ def test_data_enricher_generate_calendar_timestamp(exchange_calendar_manager,
 # ============================================
 # 测试清洗流水线（全滤芯集成测试）
 # ============================================
-def test_pipeline(exchange_calendar_manager, meta_manager, rule_service, registry_manager):
+@pytest.mark.real_data
+@pytest.mark.integration
+def test_pipeline(
+        exchange_calendar_manager, meta_manager, rule_service,
+        registry_manager, tick_data_dir, daily_snapshot_dir):
     """全流程测试：读取真实 TICK 原始数据，流过所有滤芯，验证最终产出。"""
     from data.calendar.product_calendar import ProductCalendar
     from data.storage.daily_snapshot_loader import DailySnapshotLoader
@@ -187,10 +197,8 @@ def test_pipeline(exchange_calendar_manager, meta_manager, rule_service, registr
     # ----------------------------------------------------------
     # 0. 准备：读取真实 TICK 原始数据（取前 200 行，涵盖异常行和正常数据）
     # ----------------------------------------------------------
-    raw_df = pd.read_csv(
-        'd:/量化策略/CTA策略/RAW_DATA/TICK/2026/20260109/rb2610.csv',
-        nrows=200
-    )
+    tick_path = Path(tick_data_dir) / '2026/20260109/rb2610.csv'
+    raw_df = pd.read_csv(tick_path, nrows=200)
     print(f"\n📥 原始数据行数: {len(raw_df)}")
 
     # 记录前 5 行的 UpdateTime 用于观察
@@ -209,7 +217,6 @@ def test_pipeline(exchange_calendar_manager, meta_manager, rule_service, registr
     # ----------------------------------------------------------
     # 2. 构建真实的 DailySnapshotManager（涨跌停价查询）
     # ----------------------------------------------------------
-    daily_snapshot_dir = r'db\market\daily_snapshots\bar_1d\bar_1d_tushare\cleaned'
     loader = DailySnapshotLoader(daily_snapshot_dir, meta_manager)
     daily_snapshot_manager = DailySnapshotManager(
         daily_snapshot_loader=loader,
