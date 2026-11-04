@@ -8,9 +8,11 @@ from typing import TYPE_CHECKING, Any, Mapping, Literal
 
 import numpy as np
 import pandas as pd
-import statsmodels.api as sm
 
 from factors.library.base import Factor
+from factors.library.others.future_native._utils import (
+    WarningMixin, empty_factor_series, prepare_term_structure_frame,
+    require_non_negative_int, require_positive_int, require_price_col)
 from factors.models import (DataRequirement, FactorState,
                             IncrementalFactorResult, INDEX_NAMES)
 from factors.common import rolling_volatility
@@ -388,7 +390,7 @@ class RollYieldFactor(Factor):
         dte = (
             pd.to_datetime(term_df['last_trade_date'])
             - term_df.index.get_level_values('timestamp')
-        ).dt.days.to_numpy()
+        ).dt.days.to_numpy() # pyright: ignore[reportAttributeAccessIssue]
         keep = (dte >= self.near_dte_min) & (dte <= self.far_dte_max)
         # groupby 默认排除缺失索引；在过滤前编码，保留过滤后无合约的截面。
         keep &= ~pd.isna(group_ids)
@@ -421,20 +423,32 @@ class RollYieldFactor(Factor):
         if self.combination == 'near_next':
             near = first_position(ranks == 1)
             far = first_position(ranks == 2)
+            ambiguous = eligible & ((near == n_rows) | (far == n_rows))
+            messages[ambiguous] = (
+                'error: 合约到期日排名存在并列，无法唯一确定近月或次近月合约')
+            eligible &= ~ambiguous
         elif self.combination == 'near_farthest':
             near = first_position(ranks == 1)
             max_rank = np.full(n_groups, -np.inf)
             np.maximum.at(max_rank, group_ids, ranks)
             far = first_position(ranks == max_rank[group_ids])
+            ambiguous = eligible & (near == n_rows)
+            messages[ambiguous] = (
+                'error: 合约到期日排名存在并列，无法唯一确定近月合约')
+            eligible &= ~ambiguous
         elif self.combination == 'near_dominant':
             near = first_position(ranks == 1)
-            far = dominant_pos
+            far = dominant_pos # pyright: ignore[reportPossiblyUnboundVariable]
+            ambiguous = eligible & (near == n_rows)
+            messages[ambiguous] = (
+                'error: 合约到期日排名存在并列，无法唯一确定近月合约')
+            eligible &= ~ambiguous
             same = eligible & (near == far)
             messages[same] = 'error: 近月合约就是主力'
             eligible &= ~same
         elif self.combination == 'dominant_secondary':
-            near = dominant_pos
-            dominant_counts = np.bincount(group_ids[dominant], minlength=n_groups)
+            near = dominant_pos # pyright: ignore[reportPossiblyUnboundVariable]
+            dominant_counts = np.bincount(group_ids[dominant], minlength=n_groups) # pyright: ignore[reportPossiblyUnboundVariable]
             assert (dominant_counts[eligible] == 1).all()
             # 在末尾添加哨兵值，让没有主力的截面也可以安全参与批量比较。
             oi = term_df['OpenInterest'].iloc[rows].to_numpy(na_value=np.nan)
@@ -453,9 +467,6 @@ class RollYieldFactor(Factor):
         else:
             raise ValueError(f'不支持的合约组合：{self.combination}')
 
-        # 旧实现对平均排名中不存在第 1/2 名的截面抛出 IndexError。
-        if ((near[eligible] == n_rows) | (far[eligible] == n_rows)).any():
-            raise IndexError('合约到期日排名中不存在所需的近月或远月合约。')
         near_rows, far_rows = rows[near[eligible]], rows[far[eligible]]
         prices = term_df[self.price_col].to_numpy()
         days = dte[far[eligible]] - dte[near[eligible]]
@@ -553,7 +564,69 @@ class RollYieldFactor(Factor):
 
         return near, far, '' # type: ignore
 
-class CurveSlope(Factor):
+
+def _validate_contract_filter_rule(
+        rule: Mapping[str, int] | None,
+        default_rule: Mapping[str, int],
+) -> dict[str, int]:
+    """校验并复制合约筛选规则，避免外部映射被后续修改污染。"""
+    if rule is None:
+        return dict(default_rule)
+
+    candidate = dict(rule)
+    missing = [key for key in default_rule if key not in candidate]
+    if missing:
+        raise ValueError(
+            f'contract_filter_rule 缺少必需键: {missing}。')
+    unknown = [key for key in candidate if key not in default_rule]
+    if unknown:
+        raise ValueError(
+            f'contract_filter_rule 含未知键: {unknown}。')
+
+    min_dte = require_non_negative_int(
+        candidate['min_dte'], 'contract_filter_rule["min_dte"]')
+    max_dte = require_non_negative_int(
+        candidate['max_dte'], 'contract_filter_rule["max_dte"]')
+    if min_dte > max_dte:
+        raise ValueError(
+            'contract_filter_rule 需满足 min_dte <= max_dte，'
+            f'现在为 {min_dte} > {max_dte}。')
+
+    min_volume = candidate['min_volume']
+    if (isinstance(min_volume, bool)
+            or not isinstance(min_volume, (int, float))
+            or not np.isfinite(min_volume)
+            or min_volume < 0):
+        raise ValueError(
+            'contract_filter_rule["min_volume"] 必须是非负数值，'
+            f'收到 {min_volume!r}。')
+    return {
+        'min_dte': min_dte,
+        'max_dte': max_dte,
+        'min_volume': min_volume,
+    }
+
+
+def _weighted_inverse_slope(
+        group: pd.DataFrame,
+        price_col: str,
+        weight_var: str,
+) -> float:
+    """对单日有效合约截面估计年化对数价格斜率，并返回其相反数。"""
+    x = group['_dte'].to_numpy(dtype='float64') / 365.0
+    y = np.log(group[price_col].to_numpy(dtype='float64'))
+    weights = group[weight_var].to_numpy(dtype='float64')
+    design = np.column_stack([np.ones_like(x), x])
+    sqrt_w = np.sqrt(weights)
+    try:
+        coefficients, *_ = np.linalg.lstsq(
+            design * sqrt_w[:, None], y * sqrt_w, rcond=None)
+    except np.linalg.LinAlgError:
+        return np.nan
+    return -float(coefficients[1])
+
+
+class CurveSlope(Factor, WarningMixin):
     """
     全曲线斜率因子，机制：利用全部活跃合约估计 backwardation/contango。
     公式：log P_i = a + b d_i / 365 加权回归，F = -b；
@@ -630,35 +703,6 @@ class CurveSlope(Factor):
             request_params={'price_col': self._price_col}
         )
         return (req,)
-
-    def _reg_beta(self, data: pd.DataFrame) -> float:
-        """估计有效合约截面的年化对数价格斜率。"""
-        if len(data) < self._min_contract:
-            return np.nan
-        if data['dte'].nunique() < 2:
-            return np.nan
-        y = np.log(data[self._price_col].to_numpy())
-        X = data['dte'] / 365.0
-        X = sm.add_constant(X, has_constant='add')
-        w = data[self._weight_var].to_numpy()
-        res = sm.WLS(y, X, weights=w).fit() # pyright: ignore[reportArgumentType]
-        params: pd.Series = res.params
-        return float(params['dte'])
-
-    def _filter_contract(self, data: pd.DataFrame) -> pd.DataFrame:
-        """剔除无法参与曲线拟合或不满足期限、流动性条件的合约。"""
-        mask_invalid = (
-            (~np.isfinite(data[self._price_col])) |
-            (~np.isfinite(data['dte'])) |
-            (~np.isfinite(data[self._weight_var])) |
-            (~np.isfinite(data['Volume'])) |
-            (data[self._price_col] <= 0) |
-            (data[self._weight_var] <= 0) |
-            (data['dte'] < self._rule['min_dte']) |
-            (data['dte'] > self._rule['max_dte']) | 
-            (data['Volume'] < self._rule['min_volume']) 
-        )
-        return data[~mask_invalid]
 
     def compute(self, data: pd.DataFrame) -> pd.Series:
         """
