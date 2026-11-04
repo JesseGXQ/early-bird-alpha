@@ -19,6 +19,8 @@ def reindex_to_full_dates(
     ------
     data: pd.DataFrame or pd.Series
         - MultiIndex[timestamp, product]
+    env_config: EnvironmentConfig
+        环境配置。用于构造交易规则组件 -> 构造品种的交易日历。
     
     Returns
     ------

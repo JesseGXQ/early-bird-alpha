@@ -9,7 +9,7 @@
 >>> from factors.presets import build_dataset, build_dataset_with_facade
 >>> dataset = build_dataset()                      # 主面板，默认品种池与日期
 >>> dataset = build_dataset(sources=('term_structure',))   # 加期限结构
->>> dataset, facade = build_dataset_with_facade()  # 还要用 rule_query 时
+>>> dataset, facade = build_dataset_with_facade()  # 还要用 facade.rule_query 等时
 """
 from __future__ import annotations
 

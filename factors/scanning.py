@@ -61,6 +61,14 @@ def join_candidates_sequences(
             k +=1
     return joined_cands
 
+
+# 这里 factor_param_grid 的值是 Sequence[Hashable]，是因为这里的想法是
+# 把“因子参数”作为返回的字典的键。但是注意，这里的局限是，不是每个因子的参数都能被哈希，
+# 例如 CurveSlop 因子有个参数contract_filter_rule : Mapping[str, int] or None
+# 这个参数本身可以接受字典，因而是不可哈希的。所以这个函数的设计并不完善。
+# 这里返回的字典的键，其本质是表达“因子计算时”的唯一决定身份的东西，而因子参数很自然地是，
+# 但是也并不意味着不能通过构造一个字符串来作为键，例如 curve_slope.ipynb 中的做法，只要
+# 这个字符串可以唯一决定返回中的因子值Series即可。
 def precompute_shared_factors(
         factor_cls: type[Factor], 
         factor_param_grid: dict[str, Sequence[Hashable]],
