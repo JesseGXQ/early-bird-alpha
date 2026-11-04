@@ -64,6 +64,15 @@ class FactorPreprocessor(ABC):
             raise ValueError(f'因子{values.name}的索引中存在不属于品种池准入'
                              '(eligible)索引的元素。')
 
+    def _apply_eligible_mask(
+            self, values: pd.Series, eligible: pd.Series | None
+    ) -> pd.Series:
+        """把品种池外的观测置为缺失值；``eligible`` 为 None 时原样返回。"""
+        if eligible is None:
+            return values
+        self._verify_index_inclusion(values, eligible)
+        return values.where(eligible.reindex(values.index))
+
 class FittedFactorPreprocessor(FactorPreprocessor, ABC):
     """
     符合 Fit -> Transform 流程的可拟合预处理组件的抽象基类。

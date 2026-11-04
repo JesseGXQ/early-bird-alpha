@@ -37,6 +37,7 @@ class RollingTimeSeriesMissingHandler(FactorPreprocessor):
     def transform(
             self, 
             values: pd.Series, # 可能是单品种，也可能是多品种
+            eligible: pd.Series | None = None,
     ) -> PreprocessingResult:
         values = values.copy()
 
@@ -47,7 +48,7 @@ class RollingTimeSeriesMissingHandler(FactorPreprocessor):
             metadata = {'missing_count': missing_count,
                         'missing_percent': missing_pct}
             return PreprocessingResult(
-                values = values,
+                values = self._apply_eligible_mask(values, eligible),
                 warnings = [],
                 metadata = metadata
             )
@@ -55,7 +56,7 @@ class RollingTimeSeriesMissingHandler(FactorPreprocessor):
         elif self._policy == 'impute':
             values, flags = self._impute_missings(values)
             return PreprocessingResult(
-                values=values,
+                values=self._apply_eligible_mask(values, eligible),
                 warnings=[],
                 metadata={'is_imputed': flags}
             )
@@ -115,6 +116,7 @@ class CrossSectionalMissingHandler(FactorPreprocessor):
     def transform(
             self, 
             values: pd.Series, 
+            eligible: pd.Series | None = None,
     ) -> PreprocessingResult:
         values = values.copy()
 
@@ -127,7 +129,7 @@ class CrossSectionalMissingHandler(FactorPreprocessor):
             missing_pct.name = 'missing_percent'
             metadata = {'missing_count': missing_count, 'missing_percent': missing_pct}
             return PreprocessingResult(
-                values = values,
+                values = self._apply_eligible_mask(values, eligible),
                 warnings = [],
                 metadata = metadata
             )
@@ -142,7 +144,7 @@ class CrossSectionalMissingHandler(FactorPreprocessor):
             
             flags.name = 'is_imputed'
             return PreprocessingResult(
-                values = values,
+                values = self._apply_eligible_mask(values, eligible),
                 warnings = [],
                 metadata={'is_imputed': flags}
             )

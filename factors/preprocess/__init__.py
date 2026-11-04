@@ -15,7 +15,7 @@
         CrossSectionalMissingHandler(policy='impute'),
         CrossSectionalWinsorizer(),
     ])
->>>    result = pipeline.process(values)
+>>>    result = pipeline.process(values, eligible)
 
 各组件/管线骨架定义于子模块，这里统一导出稳定公共接口。
 """

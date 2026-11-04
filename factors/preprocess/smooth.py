@@ -27,8 +27,12 @@ class SMASmoother(FactorPreprocessor):
     def parameters(self) -> dict[str, Any]:
         return {'window': self._window}
 
-    def transform(self, values: pd.Series) -> PreprocessingResult:
-        values = values.copy()
+    def transform(
+            self,
+            values: pd.Series,
+            eligible: pd.Series | None = None,
+    ) -> PreprocessingResult:
+        values = self._apply_eligible_mask(values.copy(), eligible)
 
         sma = clean_multiindex(values \
         .groupby('product') \
@@ -67,8 +71,12 @@ class EMASmoother(FactorPreprocessor):
     def parameters(self) -> dict[str, Any]:
         return {'span': self._span, 'warmup_eps': self._warmup_eps}
 
-    def transform(self, values: pd.Series) -> PreprocessingResult:
-        values = values.copy()
+    def transform(
+            self,
+            values: pd.Series,
+            eligible: pd.Series | None = None,
+    ) -> PreprocessingResult:
+        values = self._apply_eligible_mask(values.copy(), eligible)
 
         ema = clean_multiindex(values \
         .groupby(level='product') \

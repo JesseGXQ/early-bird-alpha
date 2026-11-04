@@ -8,7 +8,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 def test_default_paths_are_anchored_to_repository(monkeypatch, tmp_path):
     """默认路径由仓库位置推导，不受当前工作目录影响。"""
-    monkeypatch.delenv('EARLY_BIRD_RAW_DATA_ROOT', raising=False)
+    monkeypatch.delenv('EARLY_BIRD_HIGH_FREQ_RAW_DATA_ROOT', raising=False)
     monkeypatch.chdir(tmp_path)
 
     config = EnvironmentConfig()
@@ -28,7 +28,8 @@ def test_raw_data_root_environment_variable_overrides_default(
         monkeypatch, tmp_path):
     """环境变量可把原始行情根目录放到任意位置。"""
     raw_data_root = tmp_path / 'custom_raw_data'
-    monkeypatch.setenv('EARLY_BIRD_RAW_DATA_ROOT', str(raw_data_root))
+    monkeypatch.setenv(
+        'EARLY_BIRD_HIGH_FREQ_RAW_DATA_ROOT', str(raw_data_root))
 
     config = EnvironmentConfig()
 
@@ -41,7 +42,8 @@ def test_explicit_path_has_priority_over_environment_variable(
     """构造函数显式传入的路径优先于环境变量推导值。"""
     raw_data_root = tmp_path / 'environment_raw_data'
     explicit_1min = tmp_path / 'explicit_1min'
-    monkeypatch.setenv('EARLY_BIRD_RAW_DATA_ROOT', str(raw_data_root))
+    monkeypatch.setenv(
+        'EARLY_BIRD_HIGH_FREQ_RAW_DATA_ROOT', str(raw_data_root))
 
     config = EnvironmentConfig(data_dir_1min=str(explicit_1min))
 

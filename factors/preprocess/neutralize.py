@@ -137,7 +137,11 @@ class SectorExposureNeutralizer(FactorPreprocessor):
     def parameters(self) -> dict[str, Any]:
         return {'level': self._level}
 
-    def transform(self, values: pd.Series) -> PreprocessingResult:
+    def transform(
+            self,
+            values: pd.Series,
+            eligible: pd.Series | None = None,
+    ) -> PreprocessingResult:
         """对每个截面，将因子对品种组虚拟变量矩阵做回归，取残差。"""
 
         # 1. 首先检查输入values的所有品种是否都在分类表中
@@ -148,7 +152,7 @@ class SectorExposureNeutralizer(FactorPreprocessor):
             raise ValueError(f'品种 {miss} 不在分类表中，先补齐品种分类表。')
 
         # 2. 准备数据
-        values = values.copy()
+        values = self._apply_eligible_mask(values.copy(), eligible)
 
         dummies = pd.get_dummies(self._class_df.set_index('product')[self._level])
         reg_data = pd.merge(
@@ -232,8 +236,12 @@ class VolatilityExposureNeutralizer(FactorPreprocessor):
     def parameters(self) -> dict[str, Any]:
         return {'method': self._method, 'n': self._n}
 
-    def transform(self, values: pd.Series) -> PreprocessingResult:
-        values = values.copy()
+    def transform(
+            self,
+            values: pd.Series,
+            eligible: pd.Series | None = None,
+    ) -> PreprocessingResult:
+        values = self._apply_eligible_mask(values.copy(), eligible)
 
         df = pd.merge(values, self._vol, left_index=True, right_index=True, how='left')
         
@@ -292,8 +300,12 @@ class LiquidityExposureNeutralizer(FactorPreprocessor):
     def parameters(self) -> dict[str, Any]:
         return {'liquidity_vars': self._vars}
 
-    def transform(self, values: pd.Series) -> PreprocessingResult:
-        values = values.copy()
+    def transform(
+            self,
+            values: pd.Series,
+            eligible: pd.Series | None = None,
+    ) -> PreprocessingResult:
+        values = self._apply_eligible_mask(values.copy(), eligible)
 
         df = pd.merge(values, self._liquidity_df, left_index=True, right_index=True,
                       how='left')

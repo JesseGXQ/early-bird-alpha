@@ -106,10 +106,55 @@ def test_secondary_tie_uses_input_order_and_excludes_higher_interest():
 
 
 @pytest.mark.parametrize('combo', ['near_next', 'near_dominant', 'near_farthest'])
-def test_tied_nearest_maturity_keeps_rank_error(combo):
-    """最近到期日并列而不存在第一名时，保留原有排名异常。"""
-    with pytest.raises(IndexError):
-        RollYieldFactor(combination=combo, volnorm=False).compute(_frame(dtes=(0, 0, 60, 90)))
+def test_tied_nearest_maturity_returns_nan_and_warning(combo):
+    """最近到期日并列时，仅跳过歧义截面并记录结构化警告。"""
+    factor = RollYieldFactor(combination=combo, volnorm=False)
+
+    result = factor.compute(_frame(dtes=(0, 0, 60, 90)))
+
+    assert result.isna().all()
+    role = '近月或次近月' if combo == 'near_next' else '近月'
+    assert factor.warnings == [
+        'timestamp=2026-01-02 00:00:00, product=RB:'
+        f'根据 combination ={combo} 选择合约时出错。'
+        f'错误原因为 error: 合约到期日排名存在并列，无法唯一确定{role}合约'
+    ]
+
+
+def test_tied_second_maturity_returns_nan_and_warning():
+    """次近月到期日并列时，near_next 不应猜测具体合约。"""
+    factor = RollYieldFactor(combination='near_next', volnorm=False)
+
+    result = factor.compute(_frame(dtes=(0, 30, 30, 90)))
+
+    assert result.isna().all()
+    assert factor.warnings == [
+        'timestamp=2026-01-02 00:00:00, product=RB:'
+        '根据 combination =near_next 选择合约时出错。'
+        '错误原因为 error: 合约到期日排名存在并列，无法唯一确定近月或次近月合约'
+    ]
+
+
+def test_ambiguous_group_does_not_interrupt_valid_groups():
+    """批次含歧义截面时，其他截面仍应正常计算且索引保持完整。"""
+    valid = _frame(product='RB', dtes=(0, 30, 60, 90))
+    ambiguous = _frame(product='FU', dtes=(0, 0, 60, 90)).copy()
+    ambiguous.index = pd.MultiIndex.from_tuples(
+        [(pd.Timestamp('2026-01-03'), 'FU', f'FU{i}') for i in range(4)],
+        names=ambiguous.index.names,
+    )
+    ambiguous['last_trade_date'] += pd.Timedelta(days=1)
+    factor = RollYieldFactor(combination='near_next', volnorm=False)
+
+    result = factor.compute(pd.concat([valid, ambiguous]))
+
+    expected_value = (110 / 100 - 1) / 30 * 365
+    assert result.loc[(pd.Timestamp('2026-01-02'), 'RB')] == expected_value
+    assert pd.isna(result.loc[(pd.Timestamp('2026-01-03'), 'FU')])
+    assert result.index.names == ['timestamp', 'product']
+    assert len(factor.warnings) == 1
+    assert 'product=FU' in factor.warnings[0]
+    assert '无法唯一确定近月或次近月合约' in factor.warnings[0]
 
 
 def test_secondary_rejects_multiple_dominant_contracts():

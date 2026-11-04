@@ -236,8 +236,10 @@ if __name__ == '__main__':
     values[24] = 10.0
     s = pd.Series(values, index=index, name='test_factor')
 
-    winsorizer = RollingTimeseriesWinsorizer(lower_quantile=0.1, upper_quantile=0.9, window=10)
-    s_trans = winsorizer.transform(s)
+    winsorizer = RollingTimeseriesWinsorizer(
+        lower_quantile=0.1, upper_quantile=0.9, window=10,
+        min_observations=10, lagged=False, na_action='keep_raw')
+    s_trans = winsorizer.transform(s, eligible=None)
 
     # 第 25 个值应被缩到该滚动窗口（values[15:25]）的 90% 分位
     expected_upper = np.quantile(s.values[15:25], 0.9)

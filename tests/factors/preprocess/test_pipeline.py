@@ -57,9 +57,13 @@ APPROX_ATOL = 1e-9
 LOW_Q, HIGH_Q = 0.01, 0.99
 
 
-def _unpack(pipe: PreprocessingPipeline, values: pd.Series):
+def _unpack(
+        pipe: PreprocessingPipeline,
+        values: pd.Series,
+        eligible: pd.Series | None = None,
+):
     """运行流水线并把 PreprocessingPipelineResult 解包为 (values, warnings, metadata)。"""
-    result = pipe.process(values)
+    result = pipe.process(values, eligible)
     return result.values, result.warnings, result.metadata
 
 
@@ -108,6 +112,7 @@ def _ref_rts_impute_median(s: pd.Series, window: int = WARMUP) -> pd.Series:
 
 def _ref_rts_winsor(s: pd.Series, window: int = WARMUP,
                     lo=LOW_Q, up=HIGH_Q) -> pd.Series:
+    """参考实现对应 ``lagged=False, na_action='keep_raw'`` 的组件口径。"""
     lower = clean_multiindex(s.groupby(level='product')
                              .rolling(window, min_periods=window)
                              .quantile(lo)).reindex(s.index)
@@ -181,7 +186,7 @@ def test_p1_cs_missing_winsor_voldev_zscore_chain(dataset, v_dirty, ts):
             VolatilityDataConstructor(dataset), method='devision', n=WARMUP),
         CrossSectionalZscore(method='conventional'),
     ])
-    out, warns, meta = _unpack(pipe, v_dirty)
+    out, warns, meta = _unpack(pipe, v_dirty, dataset.universe.eligible)
 
     assert out.index.equals(v_dirty.index)
     assert out.index.names == ['timestamp', 'product']
@@ -222,15 +227,18 @@ def test_p1_cs_missing_winsor_voldev_zscore_chain(dataset, v_dirty, ts):
 # ============================================================
 # P2-B 纯时序链路
 # ============================================================
-def test_p2_sma_rtsmissing_winsor_rtszscore_chain(v_dirty, ts):
+def test_p2_sma_rtsmissing_winsor_rtszscore_chain(dataset, v_dirty, ts):
     pipe = PreprocessingPipeline([
         SMASmoother(window=3),
         RollingTimeSeriesMissingHandler(
             policy='impute', method='median', window=WARMUP, min_periods=1),
-        RollingTimeseriesWinsorizer(LOW_Q, HIGH_Q, WARMUP),
+        RollingTimeseriesWinsorizer(
+            lower_quantile=LOW_Q, upper_quantile=HIGH_Q,
+            window=WARMUP, min_observations=WARMUP,
+            lagged=False, na_action='keep_raw'),
         RollingTimeSeriesZscore(method='robust', window=WARMUP),
     ])
-    out, warns, meta = _unpack(pipe, v_dirty)
+    out, warns, meta = _unpack(pipe, v_dirty, dataset.universe.eligible)
 
     assert out.index.equals(v_dirty.index)
 
@@ -253,7 +261,8 @@ def test_p2_sma_rtsmissing_winsor_rtszscore_chain(v_dirty, ts):
     assert not np.isnan(out.loc[(ts[MISS30], 'MA')])
 
     for nm in ('sma_smoother_3', 'rts_missing_handler_impute_median_20',
-               'rts_winsorizer_0.01_0.99_20', 'rts_zscore_robust_20'):
+               'rts_winsorizer_per-product_0.01_0.99_20',
+               'rts_zscore_robust_20'):
         assert nm in warns and nm in meta
 
 
@@ -267,7 +276,7 @@ def test_p3_sector_rank_normal_chain(dataset, v_clean):
         SectorExposureNeutralizer(SectorDataConstructor(dataset), level='sector'),
         CrossSectionalRankNormalizer(method='normal'),
     ])
-    out, warns, meta = _unpack(pipe, v_clean)
+    out, warns, meta = _unpack(pipe, v_clean, dataset.universe.eligible)
 
     assert out.index.equals(v_clean.index)
 
@@ -299,12 +308,15 @@ def test_p4_rts_winsor_liquidity_robustz_chain(dataset, v_dirty, ts):
     pipe = PreprocessingPipeline([
         RollingTimeSeriesMissingHandler(
             policy='impute', method='median', window=WARMUP, min_periods=1),
-        RollingTimeseriesWinsorizer(LOW_Q, HIGH_Q, WARMUP),
+        RollingTimeseriesWinsorizer(
+            lower_quantile=LOW_Q, upper_quantile=HIGH_Q,
+            window=WARMUP, min_observations=WARMUP,
+            lagged=False, na_action='keep_raw'),
         LiquidityExposureNeutralizer(
             LiquidityDataConstructor(dataset), liquidity_vars=['Volume']),
         CrossSectionalZscore(method='robust'),
     ])
-    out, warns, meta = _unpack(pipe, v_dirty)
+    out, warns, meta = _unpack(pipe, v_dirty, dataset.universe.eligible)
 
     assert out.index.equals(v_dirty.index)
 
@@ -332,12 +344,12 @@ def test_p4_rts_winsor_liquidity_robustz_chain(dataset, v_dirty, ts):
 # ============================================================
 def test_p5_fitted_ts_zscore_fit_then_transform(dataset, v_train, v_test):
     fitter = FittedTimeSeriesZscore(method='conventional')
-    fitter.fit(v_train)
+    fitter.fit(v_train, eligible=dataset.universe.eligible)
     pipe = PreprocessingPipeline([
         CrossSectionalMissingHandler(policy='impute', method='median'),
         fitter,
     ])
-    out, warns, meta = _unpack(pipe, v_test)
+    out, warns, meta = _unpack(pipe, v_test, dataset.universe.eligible)
 
     assert out.index.equals(v_test.index)
 
@@ -370,7 +382,7 @@ def test_fitted_ts_zscore_requires_fit(v_train, v_test):
     with pytest.raises(ValueError, match='必须先调用 fit'):
         _ = fitter.states_
     with pytest.raises(ValueError, match='必须先调用 fit'):
-        fitter.transform(v_test)
+        fitter.transform(v_test, eligible=None)
 
 
 def test_fitted_pooled_scalar_fit_then_transform():
@@ -387,14 +399,14 @@ def test_fitted_pooled_scalar_fit_then_transform():
     with pytest.raises(ValueError, match='必须先调用 fit'):
         _ = scalar.states_
     with pytest.raises(ValueError, match='必须先调用 fit'):
-        scalar.transform(values)
+        scalar.transform(values, eligible=eligible)
 
     scalar.fit(values, eligible=eligible)
     expected_scale = np.sqrt(np.mean([1.0, 4.0, 16.0]))
     assert scalar.states_['scaling_coef'] == pytest.approx(1 / expected_scale)
     assert scalar.scaling_coef_ == pytest.approx(1 / expected_scale)
 
-    result = scalar.transform(values)
+    result = scalar.transform(values, eligible=eligible)
     assert np.allclose(result.values.values, values.values / expected_scale)
     assert result.values.index.equals(values.index)
 
@@ -406,7 +418,7 @@ def test_all_pipelines_preserve_input_index(dataset, v_clean, v_dirty, v_train, 
     """通用不变量：所有 pipeline 的 process() 输出索引顺序与输入 values 完全一致。"""
     def _build_p5() -> PreprocessingPipeline:
         fitter = FittedTimeSeriesZscore(method='conventional')
-        fitter.fit(v_train)
+        fitter.fit(v_train, eligible=dataset.universe.eligible)
         return PreprocessingPipeline([
             CrossSectionalMissingHandler(policy='impute', method='median'),
             fitter,
@@ -424,7 +436,10 @@ def test_all_pipelines_preserve_input_index(dataset, v_clean, v_dirty, v_train, 
             SMASmoother(window=3),
             RollingTimeSeriesMissingHandler(
                 policy='impute', method='median', window=WARMUP, min_periods=1),
-            RollingTimeseriesWinsorizer(LOW_Q, HIGH_Q, WARMUP),
+            RollingTimeseriesWinsorizer(
+                lower_quantile=LOW_Q, upper_quantile=HIGH_Q,
+                window=WARMUP, min_observations=WARMUP,
+                lagged=False, na_action='keep_raw'),
             RollingTimeSeriesZscore(method='robust', window=WARMUP),
         ]),
         'p3': lambda: PreprocessingPipeline([
@@ -436,7 +451,10 @@ def test_all_pipelines_preserve_input_index(dataset, v_clean, v_dirty, v_train, 
         'p4': lambda: PreprocessingPipeline([
             RollingTimeSeriesMissingHandler(
                 policy='impute', method='median', window=WARMUP, min_periods=1),
-            RollingTimeseriesWinsorizer(LOW_Q, HIGH_Q, WARMUP),
+            RollingTimeseriesWinsorizer(
+                lower_quantile=LOW_Q, upper_quantile=HIGH_Q,
+                window=WARMUP, min_observations=WARMUP,
+                lagged=False, na_action='keep_raw'),
             LiquidityExposureNeutralizer(
                 LiquidityDataConstructor(dataset), liquidity_vars=['Volume']),
             CrossSectionalZscore(method='robust'),
@@ -451,7 +469,7 @@ def test_all_pipelines_preserve_input_index(dataset, v_clean, v_dirty, v_train, 
         ('p5', v_test),
     ]
     for label, values in cases:
-        out, _, _ = _unpack(builders[label](), values)
+        out, _, _ = _unpack(builders[label](), values, dataset.universe.eligible)
         assert out.index.equals(values.index), \
             f'{label}: 输出索引与输入顺序不一致'
         assert out.index.names == values.index.names, \
@@ -468,7 +486,7 @@ def test_process_output_structure_and_config(dataset, v_clean):
         'cs_winsorizer_0.01_0.99': {'lower_quantile': LOW_Q, 'upper_quantile': HIGH_Q},
     }
 
-    vals, warnings, metadata = _unpack(pipe, v_clean)
+    vals, warnings, metadata = _unpack(pipe, v_clean, dataset.universe.eligible)
     assert isinstance(vals, pd.Series)
     assert vals.index.equals(v_clean.index), '输出索引顺序与输入不一致'
     assert isinstance(warnings, dict) and isinstance(metadata, dict)
@@ -481,8 +499,8 @@ def test_process_output_structure_and_config(dataset, v_clean):
     nz = VolatilityExposureNeutralizer(
         VolatilityDataConstructor(dataset), method='regression', n=WARMUP)
     p2 = PreprocessingPipeline([nz])
-    _w1 = _unpack(p2, v_clean)[1]
-    _w2 = _unpack(p2, v_clean)[1]
+    _w1 = _unpack(p2, v_clean, dataset.universe.eligible)[1]
+    _w2 = _unpack(p2, v_clean, dataset.universe.eligible)[1]
     assert _w1 == _w2
 
 
@@ -497,7 +515,8 @@ def test_constant_segment_generates_rts_zscore_warning():
     s = pd.concat(parts).sort_index()
 
     pipe = PreprocessingPipeline([RollingTimeSeriesZscore(method='conventional', window=3)])
-    out, warns, meta = _unpack(pipe, s)
+    # 该用例自建序列，索引与 dataset 面板不同，故不应用品种池准入。
+    out, warns, meta = _unpack(pipe, s, None)
 
     assert out.index.equals(s.index), '输出索引顺序与输入不一致'
     assert any('标准差统计量不可用' in w for w in warns['rts_zscore_conventional_3'])

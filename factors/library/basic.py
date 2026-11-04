@@ -568,16 +568,19 @@ class CurveSlope(Factor):
     price_col : Literal['Close', 'Settle'], default 'Close'
         估计曲线所使用的价格列。
     contract_filter_rule : Mapping[str, int] or None, optional
-        合约筛选规则，包含 ``min_dte``（剔除临近到期合约）、
-        ``max_dte``（剔除过远合约）、``min_volume``（流动性约束）；
+        合约筛选规则，必须同时给出 ``min_dte``（剔除临近到期合约）、
+        ``max_dte``（剔除过远合约）、``min_volume``（流动性约束）三个键；
         None 使用默认值 ``{'min_dte': 3, 'max_dte': 300, 'min_volume': 100}``。
     min_contract_fit : int, default 3
-        估计曲线所需的最少合约数。
+        估计曲线所需的最少合约数，至少为 2。
 
     Note
     ---
     是为``RollYieldFactor`` 的扩展。
     """
+    _DEFAULT_RULE: Mapping[str, int] = {
+        'min_dte': 3, 'max_dte': 300, 'min_volume': 100}
+
     def __init__(
             self, 
             weight_var: Literal['OpenInterest', 'Volume'] = 'OpenInterest',
@@ -585,12 +588,18 @@ class CurveSlope(Factor):
             contract_filter_rule: Mapping[str, int] | None = None,
             min_contract_fit: int = 3,
     ):
-        default_rule = {'min_dte': 3, 'max_dte': 300, 'min_volume': 100}
-        rule = contract_filter_rule or default_rule
-        self._weight_var = weight_var
-        self._price_col = price_col
-        self._rule = rule
-        self._min_contract = min_contract_fit
+        if weight_var not in ('OpenInterest', 'Volume'):
+            raise ValueError(
+                "weight_var 仅支持 'OpenInterest' 或 'Volume'，"
+                f'收到 {weight_var!r}。')
+        self._weight_var = str(weight_var)
+        self._price_col = require_price_col(price_col)
+        self._rule = _validate_contract_filter_rule(
+            contract_filter_rule, self._DEFAULT_RULE)
+        # 两个合约才能确定一条直线，因此最少拟合合约数为 2。
+        self._min_contract = require_positive_int(
+            min_contract_fit, 'min_contract_fit', minimum=2)
+        self._reset_warnings()
 
     @property
     def name(self) -> str:
@@ -664,27 +673,56 @@ class CurveSlope(Factor):
         Returns
         ------
         pd.Series
-            因子值。 MultiIndex[timestamp, product]
+            因子值。 MultiIndex[timestamp, product]。
+            有效合约不足或期限结构退化的截面保留索引并取值为 NaN。
         """
-        assert pd.Index(
-            [self._price_col, 'last_trade_date', 'OpenInterest', 'Volume']
-        ).isin(data.columns).all()
-        assert list(data.index.names) == ['timestamp', 'product', 'contract']
+        self._reset_warnings()
+        if data is None or data.empty:
+            return empty_factor_series(self.name)
 
-        term_df = data.copy()
-
-        term_df['dte'] = (
-            (pd.to_datetime(term_df['last_trade_date']) 
-            - term_df.index.get_level_values('timestamp'))
-            .dt.days # pyright: ignore[reportAttributeAccessIssue]
+        prepared = prepare_term_structure_frame(
+            data,
+            self._price_col,
+            min_dte=self._rule['min_dte'],
+            max_dte=self._rule['max_dte'],
+            min_volume=self._rule['min_volume'],
         )
-        term_df = self._filter_contract(term_df)
-        if term_df.empty:
-            raise ValueError(f'按规则剔除合约后，得到空 DataFrame，无法继续计算。')
-        
-        inverse_slope_series = - term_df.groupby(level=('timestamp', 'product'))\
-            .apply(self._reg_beta).rename(self.name)
-        return inverse_slope_series
+
+        # 先记录全部截面键，保证被剔除的截面以 NaN 保留，而不是被 groupby 丢弃。
+        keys = prepared.index.droplevel('contract').unique()
+        values: dict[tuple[pd.Timestamp, str], float] = {}
+
+        for (timestamp, product), group in prepared.groupby(
+                level=['timestamp', 'product'], sort=True): # pyright: ignore[reportArgumentType]
+            valid = group[group['_valid']]
+            label = f'timestamp={timestamp}, product={product}'
+            if len(valid) < self._min_contract:
+                self._warn(
+                    f'{label}: 有效合约数 {len(valid)} 少于 '
+                    f'min_contract_fit={self._min_contract}，返回 NaN。')
+                continue
+            if valid['_dte'].nunique() < 2:
+                self._warn(
+                    f'{label}: 有效合约的剩余到期日无横截面差异，'
+                    '无法拟合曲线，返回 NaN。')
+                continue
+            inverse_slope = _weighted_inverse_slope(
+                valid, self._price_col, self._weight_var)
+            if np.isnan(inverse_slope):
+                self._warn(f'{label}: 加权回归无法求解，返回 NaN。')
+                continue
+            values[(pd.Timestamp(timestamp), str(product))] = inverse_slope
+
+        computed = pd.Series(
+            list(values.values()),
+            index=pd.MultiIndex.from_tuples(list(values), names=INDEX_NAMES),
+            name=self.name,
+            dtype='float64',
+        )
+        result = computed.reindex(keys)
+        result.name = self.name
+        self._log_warnings(logger, self.name)
+        return result
     
 # ===================================
 # inline smoke test

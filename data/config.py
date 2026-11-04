@@ -121,12 +121,14 @@ class EnvironmentConfig:
     
     data_dir_1min : str, optional
         存放 1 分钟 K 线数据的目录路径。默认使用仓库同级目录
-        ``RAW_DATA/1min``；设置环境变量 ``EARLY_BIRD_RAW_DATA_ROOT``
-        后，使用该根目录下的 ``1min`` 子目录。
+        ``RAW_DATA/1min``；设置环境变量
+        ``EARLY_BIRD_HIGH_FREQ_RAW_DATA_ROOT`` 后，使用该根目录下的
+        ``1min`` 子目录。
     data_dir_tick: str, optinal
         存放原始 TICK 数据的目录路径。默认使用仓库同级目录
-        ``RAW_DATA/TICK``；设置环境变量 ``EARLY_BIRD_RAW_DATA_ROOT``
-        后，使用该根目录下的 ``TICK`` 子目录。
+        ``RAW_DATA/TICK``；设置环境变量
+        ``EARLY_BIRD_HIGH_FREQ_RAW_DATA_ROOT`` 后，使用该根目录下的
+        ``TICK`` 子目录。
     daily_snapshot_dir : str, optional
         存放日频快照数据的目录路径。
     warehouse_receipt_dir : str, optional

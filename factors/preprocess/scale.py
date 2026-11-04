@@ -137,10 +137,12 @@ class FittedTimeSeriesZscore(FittedFactorPreprocessor):
 
         # 3. 检验 transform 中的品种是否都已参与 fit
         products = values.index.get_level_values('product')
-        assert self._mu is not None
-        assert self._median is not None
-        fit_products = self._mu.index if self._method == 'conventional' \
-            else self._median.index
+        if self._method == 'conventional':
+            assert self._mu is not None
+            fit_products = self._mu.index
+        else:
+            assert self._median is not None
+            fit_products = self._median.index
         never_fitted = products[~products.isin(fit_products)].unique()
         if len(never_fitted) > 0:
             raise ValueError(f'transform 中出现未参与 fit 的品种: {list(never_fitted)}')
