@@ -1,27 +1,17 @@
 # ==========================================
-# 忽略规则
-# ==========================================
 # 数据库
-
+# ==========================================
 db/market/daily_snapshots/bar_1d/bar_1d_tushare/raw/
 db/market/daily_snapshots/upper_lower_price_limits/
 db/rules_ingestion/data/
 db/fundamental_ingestion/data/
-
-
-# API 凭证
-db/rules_ingestion/supplements/API凭证.txt
-
-# 2. 忽略数据库生成的大型数据文件（Parquet, CSV 等）
-# 这样可以保留 db/ 目录下的 Python 代码 和 Markdown 设计文档（如 rules_ingestion/*.md）
-
 db/**/*.parquet.tmp
-
 db/**/*.xlsx
 db/**/*.db
 db/**/*.sqlite
 
-
+# API 凭证
+db/rules_ingestion/supplements/API凭证.txt
 
 # 3. 忽略根目录下可能存在的其他临时数据文件
 /*.parquet
@@ -40,6 +30,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+.pytest-basetemp/
 .vscode/
 .idea/
 .DS_Store

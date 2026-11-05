@@ -102,7 +102,7 @@ python -m pytest
 
 ## 数据库
 
-克隆项目后，自动获得以下（见 `db/`）：
+克隆项目后自动获得（见 `db/`）：
 - 交易日历、交易所节假日
 - (derived) 换月日历、换月总表
 - **日频k线**
@@ -112,7 +112,7 @@ python -m pytest
 - 交易所仓单
 
 最新数据截止至2026年6月21日，目前不包含每日更新计划。1分钟k线和TICK级行情体积较大，未提交到 Git，
-克隆项目不会自动获得。
+克隆不自动获得。
 
 
 ## 研究成果
@@ -126,4 +126,8 @@ python -m pytest
 - [全曲线斜率, CurveSlop](research\notebooks\202611\curve_slope.ipynb)
 
 ### 多因子策略
+
+## 许可证
+
+本项目源代码采用 [MIT License](LICENSE)。`db/` 中的行情和衍生数据不自动适用 MIT License，请遵循原始数据提供方的条款。
 
