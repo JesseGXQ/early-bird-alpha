@@ -4,7 +4,9 @@
 
 ## 运行环境
 
-- Conda `base` env（Anaconda，`C:\Users\Jesse\AppData\Local\anaconda3\python.exe`），Python 3.12。**仓库没有 requirements.txt / pyproject.toml，依赖只在 conda env 里**；不要擅自引入依赖清单。
+- Conda `base` env（Anaconda，`C:\Users\Jesse\AppData\Local\anaconda3\python.exe`），Python 3.12。日常开发、跑脚本、pytest 都在 base 里执行。
+- 依赖清单是根目录 `environment.yml`（conda 环境名 `early-bird-alpha`，Python 3.12 + 各库版本区间）：用于新机器复现、对外发布和给第三方用户，与 base 的版本区间保持一致。**不要新增 requirements.txt / pyproject.toml 等其他形式的依赖清单**，需要加依赖时改 `environment.yml`。
+- `quantstats`（`analytics/recorder.py`）与 `bs4` / `websocket-client` / `tushare` / `chinese-calendar` / `bigquant`（`db/rules_ingestion/**`、`db/fundamental_ingestion/script/**` 的一次性入库脚本）**不在 environment.yml 里**，前者是函数内延迟导入的可选依赖，后者不属于运行期依赖，都不需要补进清单。
 - 没有 lint / typecheck / CI 配置，验证一律靠 pytest。
 
 ## 测试

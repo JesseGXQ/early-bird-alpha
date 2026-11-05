@@ -1,0 +1,37 @@
+name: 公开环境验证
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-tests:
+    name: Quickstart 与默认测试
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: 拉取仓库
+        uses: actions/checkout@v4
+
+      - name: 根据 environment.yml 创建 Conda 环境
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          activate-environment: early-bird-alpha
+          environment-file: environment.yml
+          auto-activate-base: false
+
+      - name: 显示 Python 版本
+        run: conda run -n early-bird-alpha python --version
+
+      - name: 运行 Factors Quickstart
+        run: >-
+          conda run -n early-bird-alpha python
+          examples/factor_quickstart.py --no-spinner
+
+      - name: 运行默认测试
+        run: conda run -n early-bird-alpha python -m pytest

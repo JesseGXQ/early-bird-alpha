@@ -1,4 +1,26 @@
-"""使用小型真实行情样本运行一个最小 factors 研究闭环。"""
+"""使用小型真实行情样本运行一个最小 factors 研究闭环。
+
+命令行使用范例（在仓库根目录执行）::
+
+    # 1) 默认运行：使用随仓库发布的样本，净值曲线写入默认路径
+    python examples/factor_quickstart.py
+
+    # 2) 自定义净值曲线输出路径
+    python examples/factor_quickstart.py --plot-output artifacts/nav.png
+
+    # 3) 关闭转圈提示（适合重定向日志或 CI 环境）
+    python examples/factor_quickstart.py --no-spinner
+
+    # 4) 组合参数
+    python examples/factor_quickstart.py \\
+        --plot-output artifacts/momentum_nav.png --no-spinner
+
+    # 5) 查看帮助
+    python examples/factor_quickstart.py --help
+
+    # 6) 以模块方式运行（PYTHONPATH 已包含仓库根目录）
+    python -m examples.factor_quickstart --no-spinner
+"""
 
 from __future__ import annotations
 

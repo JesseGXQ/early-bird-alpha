@@ -48,7 +48,9 @@ __pycache__/
 # 配置文件
 # ==========================
 .agents/
-.github/
+.github/*
+!.github/workflows/
+!.github/workflows/*.yml
 .pytest_cache/
 .VSCodeCounter/
 
