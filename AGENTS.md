@@ -1,13 +1,12 @@
 # AGENTS.md
 
-个人期货量化研究平台。分层管道：`data` → `factors` → `strategy` → `portfolio` → `backtester` → `executor` → `account` → `analytics`。代码注释、docstring、提交信息均用中文。
+个人量化研究平台，主期货。分层管道：`data` → `factors` → `strategy` → `portfolio` → `backtester` → `executor` → `account` → `analytics`。代码注释、docstring、提交信息均用中文。
 
 ## 运行环境
 
 - Conda `base` env（Anaconda，`C:\Users\Jesse\AppData\Local\anaconda3\python.exe`），Python 3.12。日常开发、跑脚本、pytest 都在 base 里执行。
 - 依赖清单是根目录 `environment.yml`（conda 环境名 `early-bird-alpha`，Python 3.12 + 各库版本区间）：用于新机器复现、对外发布和给第三方用户，与 base 的版本区间保持一致。**不要新增 requirements.txt / pyproject.toml 等其他形式的依赖清单**，需要加依赖时改 `environment.yml`。
 - `quantstats`（`analytics/recorder.py`）与 `bs4` / `websocket-client` / `tushare` / `chinese-calendar` / `bigquant`（`db/rules_ingestion/**`、`db/fundamental_ingestion/script/**` 的一次性入库脚本）**不在 environment.yml 里**，前者是函数内延迟导入的可选依赖，后者不属于运行期依赖，都不需要补进清单。
-- 没有 lint / typecheck / CI 配置，验证一律靠 pytest。
 
 ## 测试
 
@@ -43,11 +42,11 @@
 ## 数据与数据库
 
 - 三层规则数据库在 `db/rules/`（YAML，已入库 git）：`product_meta`(tier1)、`instrument_registry`(tier2)、`instrument_daily_status`(tier3)，另有 `exchange_holiday`、`product_classification`。
-- 行情数据 `db/market/daily_snapshots/...`、派生 `db/derived/master_tables/`、日历 `db/calendar/trading_calendars/`。**所有 parquet/csv/db 数据文件被 gitignore**（`db/**/*.parquet` 等），git 只跟踪规则 YAML 和代码。
-- 原始行情在仓库外：`D:\量化策略\CTA策略\RAW_DATA\{1min,TICK}`，绝对路径暂时硬编码在 `data/config.py`。
+- 行情数据 `db/market/daily_snapshots/...`、派生 `db/derived/master_tables/`、日历 `db/calendar/trading_calendars/`。
 - `db/rules_ingestion/` 是"外部数据源 → 规则库"的入库工作区。
 
 ## 注意事项
 
 - 详细设计记录按日期归档在 `docs/Development Notes/YYYYMMDD 主题.md`，按需参阅，注意，架构设计文档是代码写作方案的**原始参考**，最终代码架构决策可能偏离。
 - 不要读取 `docs/Development Notes/*-log.md`, `docs\Development Notes\* 代码[重构|修改]笔记.md`。这类文档是开发日志，包含大量过时和遗弃设计。
+- 输出 markdown 文档时，数学公式单行用 `$...$`，多行用 `$$...$$``。

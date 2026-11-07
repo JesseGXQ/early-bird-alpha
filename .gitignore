@@ -85,7 +85,7 @@ tests/factors/diagnostic_portfolio/my_test_production_20261003.ipynb
 # ==========================================
 research/artifacts/
 research/experiments/alpha101/artifacts/
-examples/artifacts/
+
 
 # Quickstart 使用的可公开小型真实日频样本。
 !examples/data/factor_quickstart/research_sample.parquet
