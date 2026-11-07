@@ -47,6 +47,12 @@ from factors.diagnostic_portfolio.storage import (
     build_replay_inputs,
     replay_stored_run,
 )
+from factors.diagnostic_portfolio.robustness import (
+    AnchorVariantResult,
+    MetricName,
+    examine_rebalance_timing_luck,
+    run_anchor_robustness,
+)
 
 __all__ = [
     'DiagnosticPortfolioExperimentRunner',
@@ -63,4 +69,8 @@ __all__ = [
     'StoredDiagnosticPortfolioRun',
     'build_replay_inputs',
     'replay_stored_run',
+    'MetricName',
+    'AnchorVariantResult',
+    'run_anchor_robustness',
+    'examine_rebalance_timing_luck',
 ]
