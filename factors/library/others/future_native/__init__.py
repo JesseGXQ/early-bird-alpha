@@ -15,6 +15,7 @@ MultiIndex[timestamp, product] 的命名 Series。
 
 from factors.library.others.future_native.delivery import (
     DeliverableCoverage,
+    ReceiptChange,
     SeasonalReceiptScarcity,
 )
 from factors.library.others.future_native.margin import (
@@ -41,6 +42,7 @@ __all__ = [
     'OpenInterestExhaustion',
     'SeasonalReceiptScarcity',
     'DeliverableCoverage',
+    'ReceiptChange',
     'CloseSettleDeviation',
     'LimitPressure',
     'MarginShockDeleveraging',

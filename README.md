@@ -305,9 +305,10 @@ python -m pytest
 
 ### 单因子策略测试
 
-- [动量, MomentumFactor](research/notebooks/202611/momentum_factor.ipynb)（`research/notebooks/202611/momentum_factor.ipynb`）。
-- [展期收益率, RollYileFactor](research\notebooks\202611\roll_yield_factor.ipynb)
-- [全曲线斜率, CurveSlop](research\notebooks\202611\curve_slope.ipynb)
+- [动量, MomentumFactor](research/notebooks/202611/momentum_factor.ipynb)
+- [展期收益率, RollYileFactor](research/notebooks/202611/roll_yield_factor.ipynb)
+- [全曲线斜率, CurveSlop](research/notebooks/202611/curve_slope.ipynb)
+- [仓单变化率, ReceiptCahnge](research/notebooks/202611/receipt_change.ipynb)
 
 ### 多因子策略
 

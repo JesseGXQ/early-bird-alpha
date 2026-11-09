@@ -239,7 +239,8 @@ def examine_rebalance_timing_luck(
     plot : bool, optional
         是否绘图，默认 False。
     **plot_kwargs
-        透传给 phase 散点；``ax`` 与 ``figsize`` 由本函数消费。
+        透传给 phase 散点；可包含 ``ax``, ``figsize``, ``dpi``，其余
+        传给 scatter plot。
 
     Returns
     -------
@@ -619,9 +620,10 @@ def _plot_anchor_runs(
 
     ax = plot_kwargs.pop('ax', None)
     figsize = plot_kwargs.pop('figsize', (10, 5))
+    dpi = plot_kwargs.pop('dpi', 100)
     created_figure = ax is None
     if ax is None:
-        fig, ax = plt.subplots(figsize=figsize)
+        fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
     else:
         fig = ax.figure
 
