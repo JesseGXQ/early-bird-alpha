@@ -11,6 +11,7 @@ from arch.bootstrap import \
     CircularBlockBootstrap as cb_bootstrap
 from factors.evaluation.common import \
     SelectedGroup, select_group_sample, group_to_series
+import warnings
 
 @dataclass(frozen=True)
 class ICSummary:
@@ -44,10 +45,8 @@ class CSICEvaluationResults:
     ic_summary: ICSummary
     icir: float
     icir_annual: float
-    newey_mean_test_results: \
-        NeweyWestMeanTestResults | None
-    bootstrap_confidence_intervals: \
-        BootstrapConfidenceIntervals | None
+    newey_mean_test_results: NeweyWestMeanTestResults | None
+    bootstrap_confidence_intervals: BootstrapConfidenceIntervals | None
 
 @dataclass(frozen=True)
 class TSICEvaluationResults:
@@ -448,4 +447,99 @@ def ic_details(
             )
             results.append(res)
     return results[0], results[1]
-        
+
+#===========================================================================
+# 2026-11：
+# 原有 IC 计算性能拉胯，主要是不断地做 groupby apply/transform
+# 操作非常耗时。这一块重构有成本，我选择保留，作为更细致和全面的检验入口。
+# 同时新写性能更好的向量化版本，以便支持研究中的参数扫描需求。
+# ==========================================================================
+
+def fast_cs_ic_matrix_input(
+        fmat: np.ndarray,
+        lmat: np.ndarray, 
+        rank: bool = False,
+) -> np.ndarray:
+    """
+    截面 Pearson 或 Rank IC，向量化版本，仅接收矩阵输入。默认计算 Pearson IC。
+
+    `fmat`, `lmat` 必须为 n*k 的矩阵，其中 n 为时间期数(`timestamp`)，k 为品种数(`product`)。
+    
+    两者 shape 必须相等，且**必须已应用品种池准入，将池外的置为 NaN**。
+    
+    """
+    assert fmat.shape == lmat.shape
+
+    if rank:
+        _fmat = fmat.argsort(axis=1).argsort(axis=1)
+        fmat = np.where(np.isnan(fmat), np.nan, _fmat)
+        _lmat = lmat.argsort(axis=1).argsort(axis=1)
+        lmat = np.where(np.isnan(lmat), np.nan, _lmat)
+    
+    # 将对方是 NaN 的地方置 NaN，避免后续进入 mean 的计算
+    fmat = np.where(np.isnan(lmat), np.nan, fmat)
+    lmat = np.where(np.isnan(fmat), np.nan, lmat)
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore', message='Mean of empty slice', 
+                                category=RuntimeWarning)
+        fmat_centered = fmat - np.nanmean(fmat, axis=1, keepdims=True)
+        lmat_centered = lmat - np.nanmean(lmat, axis=1, keepdims=True)
+
+    # 分子: \sum_{i=1}^n (x_i - x_mean)*(y_i - y_mean)，
+    # 分母： sqrt( \sum_{i=1}^n [ ((x_i - x_mean)**2 ) * ( (y_i - y_mean)**2) ] )
+    numerator = np.nansum(fmat_centered * lmat_centered, axis=1)
+    denominator = np.sqrt(
+        np.nansum(fmat_centered**2, axis=1) * np.nansum(lmat_centered**2, axis=1)
+    )
+    denominator = np.where(denominator==0, np.nan, denominator) # avoid devision of 0
+    return numerator / denominator
+    
+
+def fast_cs_ic(
+        factor: pd.Series | pd.DataFrame, 
+        label: pd.Series | pd.DataFrame, 
+        eligible: pd.Series | pd.DataFrame, 
+        rank: bool = False) -> pd.Series:
+    """
+    截面 Pearson 或 Rank IC， 向量化版本。
+
+    `factor`, `label`, `eligible` 必须同时为 Series，或同时为 DataFrame。
+
+    Parameters
+    ------
+    factor: Series or DataFrame
+        因子值。
+    label: Series or DataFrame
+        标签值。
+    eligible: Series or DataFrame
+        品种池准入。
+    rank: bool, default False
+        是否计算 Rank IC，默认计算 Pearson IC。
+    
+    Returns
+    ------
+    pd.Series
+        IC值序列，Index[timestamp]。索引为 `factor`和`label` 的索引的 timestamp 层交集。
+
+    Notes
+    ------
+    - rank 实现为 chain twice numpy argsort。因此 rank 结果从 0 开始，并且相同取值按照出现
+    次序排名（类似 pandas 的 rank 方法， `method='first'`）。例如 [1,2, nan, 2,3] 排序结果为 
+    [0, 1, nan, 2, 3]。另外，注意 pandas 的 rank()是默认从 1 开始。
+    """
+    if isinstance(factor, pd.Series):
+        assert isinstance(label, pd.Series) and isinstance(eligible, pd.Series)
+        factor = factor[eligible].unstack(level='product')
+        label = label[eligible].unstack(level='product')
+    else:
+        assert isinstance(label, pd.DataFrame) and isinstance(eligible, pd.DataFrame)
+        factor = factor[eligible]
+        label = label[eligible]
+
+    joint_idx = factor.index.intersection(label.index)
+    fmat = factor.reindex(joint_idx).to_numpy().astype('float')
+    lmat = label.reindex(joint_idx).to_numpy().astype('float')
+
+    ic_arr = fast_cs_ic_matrix_input(fmat, lmat, rank)
+    return pd.Series(ic_arr, index=joint_idx)

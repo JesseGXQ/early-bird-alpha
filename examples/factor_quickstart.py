@@ -162,7 +162,7 @@ def run_quickstart(
         min_valid_obs=LABEL_HORIZON,
     )
     with stage(f'构建标签：{LABEL_HORIZON}D 未来收益'):
-        label = LabelBuilder(label_spec, dataset).compute().labels.squeeze()
+        label = LabelBuilder(label_spec, dataset).build().labels.squeeze()
     evaluation_frame = pd.concat(
         [
             factor_values.rename('factor'),

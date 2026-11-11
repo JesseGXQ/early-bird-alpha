@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from math import sqrt
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any
 import pandas as pd
-
+from collections.abc import Sequence, Mapping
 from utils.datetime_utils import annualization_factor
 from factors.preprocess.base import clean_multiindex
 
@@ -16,7 +16,7 @@ class LabelBuilder:
 
     def __init__(
         self, 
-        specs: LabelSpec | tuple[LabelSpec, ...], 
+        specs: LabelSpec | Sequence[LabelSpec], 
         dataset: ResearchDataset
         ):
         # 统一 specs 的格式为 tuple of LabelSpec
@@ -26,7 +26,7 @@ class LabelBuilder:
             self._specs = tuple(specs)
         self._dataset = dataset
 
-    def compute(self) -> LabelResult:
+    def build(self) -> LabelResult:
         label_collection: list[pd.Series] = []
         for spec in self._specs:
             lab = self._compute_spec(spec=spec)
@@ -35,6 +35,7 @@ class LabelBuilder:
         # 拼接起来
         labels = pd.concat(label_collection, axis=1)
         assert isinstance(labels, pd.DataFrame)
+        labels.columns = [spec.name for spec in self._specs]
 
         return LabelResult(
             labels = labels,

@@ -709,7 +709,14 @@ class ReceiptChange(Factor, WarningMixin):
         }
 
     def compute(self, data: Mapping[str, pd.DataFrame]) -> pd.Series:
-        """批量计算仓单变化。"""
+        """批量计算仓单变化。
+        data:
+        {
+            'main_panel': MultiIndex[timestamp, product]，只要它的交易日索引，
+            'warehouse_receipt': 品种-交易日聚合仓单数据，
+        }
+        
+        """
         self._reset_warnings()
         if not isinstance(data, Mapping):
             raise ValueError(

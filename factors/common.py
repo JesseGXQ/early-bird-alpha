@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 import pandas as pd
 from data.factory import _create_trading_rule_components
 from data.config import EnvironmentConfig
@@ -5,8 +7,46 @@ from data.calendar.product_calendar import ProductCalendar
 from dataclasses import dataclass
 from typing import Literal
 import numpy as np
-
+import statsmodels.api as sm
 from factors.models import INDEX_NAMES
+
+def regression_residual(df: pd.DataFrame, 
+                 y_var: str, X_vars : Sequence[str],
+                 nocons: bool = False) -> tuple[pd.Series, int]:
+    """
+    获取 y_var 对 X_vars 回归后的残差。返回（残差序列，exit_code）。
+
+    当出现以下两种情况时，返回全nan的残差序列。
+    1. 按行剔除nan和inf后，变为空 DataFrame， exit_code = 1；
+    2. 按行剔除nan和inf后，某列和截距完全共线， exit_code = 2；
+
+    若以上未出现，则返回正常的回归残差序列，exit_code = 0
+    """
+    # 先剔除缺失值和 inf
+    mask_nan_inf = df.isna().any(axis=1) | df.isin([np.inf, -np.inf]).any(axis=1)
+    df_valid = df[~mask_nan_inf].copy()
+
+    y = df_valid[y_var]
+    X = df_valid[X_vars]
+    index_valid = df_valid.index
+
+    all_nans = pd.Series(np.full(len(df), np.nan), index=df.index) 
+    if df_valid.empty: # 若为空，则返回全nan序列
+        return all_nans, 1
+    if not nocons:
+        try:
+            X = sm.add_constant(X, has_constant='raise')
+        except ValueError as e:  #若出现某个 x 和截距项完全共线，不静默剔除该变量后回归，而是返回全空序列
+            # print(e.args)
+            return all_nans, 2
+    
+    # 使用 numpy 向量化方法计算 OLS 残差: resid = y - X @ beta
+    beta = np.linalg.lstsq(X, y, rcond=None)[0]
+    resid = y - X @ beta
+    res = pd.Series(resid, index=index_valid, name=y_var)
+    res = res.reindex(df.index) # 将被丢弃的那些行补回去，使用 默认的 nan 填充。
+
+    return res, 0
 
 def reindex_to_full_dates(
         data: pd.DataFrame | pd.Series,

@@ -24,6 +24,48 @@ def quick_glance_at(
         plot_box: bool = False,
         figsize: tuple[int, int] = (6, 4)
     ) -> dict[str, Any]:
+    """快速概览因子取值的基本统计特征。
+
+    计算描述性统计量、零值/缺失/正负值占比以及唯一值个数，可选打印结果
+    并绘制箱线图。适合在探索性阶段对因子做第一轮体检。
+
+    Parameters
+    ----------
+    values : pd.Series
+        待检查的因子值序列，其 `name` 用于打印标题与绘图标题。
+    percentiles : list[float], default [0.01, 0.25, 0.5, 0.75, 0.99]
+        需要额外计算的分位数列表，透传给 `Series.describe`。
+    print_out : bool, default False
+        是否将统计结果打印到标准输出。
+    plot_box : bool, default False
+        是否绘制箱线图。会调用 `plt.show()`，因此仅在交互式环境中使用。
+    figsize : tuple[int, int], default (6, 4)
+        箱线图的画布尺寸，单位为英寸，仅在 `plot_box=True` 时生效。
+
+    Returns
+    -------
+    dict[str, Any]
+        统计结果字典，包含以下键：
+
+        - ``'description'`` : pd.Series，`values.describe` 的完整输出。
+        - ``'percentage_zero'`` : float，等于 0 的样本占比。
+        - ``'percentage_NaN'`` : float，缺失值占比。
+        - ``'n_unique'`` : int，唯一值个数。
+        - ``'percentage_positive'`` : float，大于 0 的样本占比。
+        - ``'percentage_negative'`` : float，小于 0 的样本占比。
+
+    Notes
+    -----
+    各项占比均以序列总长度为分母（含 NaN），因此
+    ``percentage_zero + percentage_positive + percentage_negative``
+    加上 ``percentage_NaN`` 之和为 1。
+
+    Examples
+    --------
+    >>> stats = quick_glance_at(factor_values, print_out=True)
+    >>> stats['percentage_NaN']
+    0.0123
+    """
     description = values.describe(percentiles=percentiles)
     pct_0 = (values==0).mean()
     pct_nan = values.isna().mean()
