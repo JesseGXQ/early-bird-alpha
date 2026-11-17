@@ -60,7 +60,7 @@ class WarningMixin:
         if self._warning_count == 0:
             return
         logger.warning(
-            '【%s】本次计算共记录 %d 条警告，明细见该因子的 warnings 属性。',
+            '【%s】本次计算共记录 %d 条警告，明细见 warnings 属性。',
             factor_name,
             self._warning_count,
         )

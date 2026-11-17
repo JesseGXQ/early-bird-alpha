@@ -79,6 +79,7 @@ docs/海通证券_20170818_海通证券FICC系列研究之五：商品期货因�
 research/experiments/alpha101/ref/101 Formulaic Alphas.pdf
 tests/research/experiments/alpha101/
 tests/factors/diagnostic_portfolio/my_test_production_20261003.ipynb
+docs/others/QR decomposition theory and proofs/*
 
 # ==========================================
 # 研究工作区
@@ -98,3 +99,4 @@ tests/factors/library/others/
 
 
 
+research/notebooks/202611/multi-factor-strategy-test_20261109.ipynb

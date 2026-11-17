@@ -449,7 +449,7 @@ class FittedPooledScalar(FittedFactorPreprocessor):
             values: pd.Series,
             eligible: pd.Series | None
     ) -> PreprocessingResult:
-        """目前不会在应用品种池。即品种池外的因子值 transform 后不会被置NaN。"""
+        """目前不会应用品种池。即品种池外的因子值 transform 后不会被置NaN。"""
         self._check_is_fitted()
         assert self._scaling_coef is not None
         assert values.index.names == INDEX_NAMES

@@ -419,18 +419,11 @@ class LabelSpec:
     """
     name: str
     horizon: int
-    type: Literal[
-        'forward_return',
-        'direction',
-        'future_volatility',
-        'residual_return',
-        'event',
-    ] = 'forward_return'
+    type: Literal['forward_return','direction','future_volatility',
+        'residual_return','event'] = 'forward_return'
     source_column: str = 'True_Return'
     min_valid_obs: int = 1
-    additional_data_requirements: \
-        tuple[DataRequirement, ...] | None = None \
-        # （除了 main_panel 外，额外的数据需求）
+    additional_data_requirements: tuple[DataRequirement, ...] | None = None # （除了 main_panel 外，额外的数据需求）
     parameters: Mapping[str, Any] | None = None
 
 @dataclass(frozen=True)
