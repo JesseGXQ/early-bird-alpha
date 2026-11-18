@@ -20,7 +20,6 @@ import pandas as pd
 
 from factors.library.base import Factor
 from factors.library.others.future_native._utils import (
-    WarningMixin,
     empty_factor_series,
     prepare_term_structure_frame,
     require_non_negative_int,
@@ -29,6 +28,7 @@ from factors.library.others.future_native._utils import (
     to_float,
     validate_panel_index,
 )
+from factors.common import WarningMixin
 from factors.models import DataRequirement, INDEX_NAMES
 
 logger = logging.getLogger(__name__)
@@ -132,6 +132,9 @@ class SeasonalReceiptScarcity(Factor, WarningMixin):
         同季节匹配的 ISO 周容差。1 表示同周及前后各一周。
     min_years : int, default 3
         历史样本至少覆盖的不同年份数。小于 2 没有统计意义。
+    warning_limit : int or None, optional
+        警告明细保留条数上限；``None`` 沿用默认值 100，``0`` 表示只计数、
+        不保留明细。
 
     Notes
     -----
@@ -145,6 +148,8 @@ class SeasonalReceiptScarcity(Factor, WarningMixin):
             self,
             week_window: int = 1,
             min_years: int = 3,
+            *,
+            warning_limit: int | None = None,
     ):
         self.week_window = require_non_negative_int(
             week_window, 'week_window'
@@ -152,7 +157,7 @@ class SeasonalReceiptScarcity(Factor, WarningMixin):
         self.min_years = require_positive_int(
             min_years, 'min_years', minimum=2
         )
-        self._reset_warnings()
+        self._init_warnings(warning_limit)
 
     @property
     def name(self) -> str:
@@ -334,6 +339,9 @@ class DeliverableCoverage(Factor, WarningMixin):
         调大可以剔除临近到期、流动性骤降的合约。
     price_col : {'Close', 'Settle'}, default 'Close'
         用于判断合约价格有效性的价格口径。
+    warning_limit : int or None, optional
+        警告明细保留条数上限；``None`` 沿用默认值 100，``0`` 表示只计数、
+        不保留明细。
 
     Notes
     -----
@@ -347,12 +355,14 @@ class DeliverableCoverage(Factor, WarningMixin):
             self,
             near_dte_min: int = 0,
             price_col: Literal['Close', 'Settle'] = 'Close',
+            *,
+            warning_limit: int | None = None,
     ):
         self.near_dte_min = require_non_negative_int(
             near_dte_min, 'near_dte_min'
         )
         self.price_col = require_price_col(price_col)
-        self._reset_warnings()
+        self._init_warnings(warning_limit)
 
     @property
     def name(self) -> str:
@@ -633,6 +643,9 @@ class ReceiptChange(Factor, WarningMixin):
         仓单缺失日最多向前填充的**连续交易日数**；0 表示不填充，缺失日直接保留
         为 NaN。不提供无限填充：``ffill`` 只在“最近一次观测足够新”时才代表有效
         状态，跨越长期缺失的填充会伪造出并不存在的“仓单水平不变”。
+    warning_limit : int or None, optional
+        警告明细保留条数上限；``None`` 沿用默认值 100，``0`` 表示只计数、
+        不保留明细。
 
     推荐使用范围
     ------------
@@ -665,12 +678,14 @@ class ReceiptChange(Factor, WarningMixin):
             self,
             lookback: int = 20,
             ffill_limit: int = 5,
+            *,
+            warning_limit: int | None = None,
     ):
         self.lookback = require_positive_int(lookback, 'lookback')
         self.ffill_limit = require_non_negative_int(
             ffill_limit, 'ffill_limit'
         )
-        self._reset_warnings()
+        self._init_warnings(warning_limit)
 
     @property
     def name(self) -> str:

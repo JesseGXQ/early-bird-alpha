@@ -17,12 +17,12 @@ import pandas as pd
 
 from factors.library.base import Factor
 from factors.library.others.future_native._utils import (
-    WarningMixin,
     empty_factor_series,
     prepare_term_structure_frame,
     require_positive_int,
     require_price_col,
 )
+from factors.common import WarningMixin
 from factors.models import DataRequirement, INDEX_NAMES
 
 logger = logging.getLogger(__name__)
@@ -113,6 +113,9 @@ class CurveSlopeChange(Factor, WarningMixin):
         斜率差分窗口（按该品种实际有期限结构数据的交易日计）。
     price_col : {'Close', 'Settle'}, default 'Close'
         估计曲线使用的价格口径。
+    warning_limit : int or None, optional
+        警告明细保留条数上限；``None`` 沿用默认值 100，``0`` 表示只计数、
+        不保留明细。
 
     Notes
     -----
@@ -125,10 +128,12 @@ class CurveSlopeChange(Factor, WarningMixin):
             self,
             lookback: int = 5,
             price_col: Literal['Close', 'Settle'] = 'Close',
+            *,
+            warning_limit: int | None = None,
     ):
         self.lookback = require_positive_int(lookback, 'lookback')
         self.price_col = require_price_col(price_col)
-        self._reset_warnings()
+        self._init_warnings(warning_limit)
 
     @property
     def name(self) -> str:
@@ -251,6 +256,9 @@ class CurveRollDown(Factor, WarningMixin):
         假设合约剩余到期日缩短的日历天数。
     price_col : {'Close', 'Settle'}, default 'Close'
         价格口径。
+    warning_limit : int or None, optional
+        警告明细保留条数上限；``None`` 沿用默认值 100，``0`` 表示只计数、
+        不保留明细。
 
     Notes
     -----
@@ -263,12 +271,14 @@ class CurveRollDown(Factor, WarningMixin):
             self,
             horizon_days: int = 20,
             price_col: Literal['Close', 'Settle'] = 'Close',
+            *,
+            warning_limit: int | None = None,
     ):
         self.horizon_days = require_positive_int(
             horizon_days, 'horizon_days'
         )
         self.price_col = require_price_col(price_col)
-        self._reset_warnings()
+        self._init_warnings(warning_limit)
 
     @property
     def name(self) -> str:

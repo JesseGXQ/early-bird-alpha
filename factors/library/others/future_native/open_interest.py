@@ -18,7 +18,6 @@ import pandas as pd
 
 from factors.library.base import Factor
 from factors.library.others.future_native._utils import (
-    WarningMixin,
     cumulative_return,
     empty_factor_series,
     require_positive_int,
@@ -26,6 +25,7 @@ from factors.library.others.future_native._utils import (
     to_float,
     validate_panel_index,
 )
+from factors.common import WarningMixin
 from factors.models import DataRequirement, INDEX_NAMES
 
 logger = logging.getLogger(__name__)
@@ -41,9 +41,14 @@ class _OpenInterestFactor(Factor, WarningMixin):
 
     _mode: Literal['signed', 'exhaustion']
 
-    def __init__(self, lookback: int):
+    def __init__(
+            self,
+            lookback: int,
+            *,
+            warning_limit: int | None = None,
+    ):
         self.lookback = require_positive_int(lookback, 'lookback')
-        self._reset_warnings()
+        self._init_warnings(warning_limit)
 
     @property
     def computation_scope(self) -> Literal['per_product']:
@@ -163,6 +168,9 @@ class SignedOpenInterestChange(_OpenInterestFactor):
     ----------
     lookback : int, default 5
         收益率和持仓变化的回看期数（交易日）。
+    warning_limit : int or None, optional
+        警告明细保留条数上限；``None`` 沿用默认值 100，``0`` 表示只计数、
+        不保留明细。
 
     Notes
     -----
@@ -173,8 +181,13 @@ class SignedOpenInterestChange(_OpenInterestFactor):
 
     _mode: Literal['signed'] = 'signed'
 
-    def __init__(self, lookback: int = 5):
-        super().__init__(lookback=lookback)
+    def __init__(
+            self,
+            lookback: int = 5,
+            *,
+            warning_limit: int | None = None,
+    ):
+        super().__init__(lookback=lookback, warning_limit=warning_limit)
 
     @property
     def name(self) -> str:
@@ -210,6 +223,9 @@ class OpenInterestExhaustion(_OpenInterestFactor):
     ----------
     lookback : int, default 5
         收益率和持仓变化的回看期数（交易日）。
+    warning_limit : int or None, optional
+        警告明细保留条数上限；``None`` 沿用默认值 100，``0`` 表示只计数、
+        不保留明细。
 
     Notes
     -----
@@ -218,8 +234,13 @@ class OpenInterestExhaustion(_OpenInterestFactor):
 
     _mode: Literal['exhaustion'] = 'exhaustion'
 
-    def __init__(self, lookback: int = 5):
-        super().__init__(lookback=lookback)
+    def __init__(
+            self,
+            lookback: int = 5,
+            *,
+            warning_limit: int | None = None,
+    ):
+        super().__init__(lookback=lookback, warning_limit=warning_limit)
 
     @property
     def name(self) -> str:

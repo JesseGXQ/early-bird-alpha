@@ -17,11 +17,11 @@ import pandas as pd
 
 from factors.library.base import Factor
 from factors.library.others.future_native._utils import (
-    WarningMixin,
     empty_factor_series,
     to_float,
     validate_panel_index,
 )
+from factors.common import WarningMixin
 from factors.models import DataRequirement
 
 logger = logging.getLogger(__name__)
@@ -68,6 +68,9 @@ class OvernightDayReturn(Factor, WarningMixin):
     ----------
     component : {'night', 'day', 'diff'}, default 'night'
         输出哪一段收益或两段之差。
+    warning_limit : int or None, optional
+        警告明细保留条数上限；``None`` 沿用默认值 100，``0`` 表示只计数、
+        不保留明细。
 
     Notes
     -----
@@ -82,13 +85,15 @@ class OvernightDayReturn(Factor, WarningMixin):
     def __init__(
             self,
             component: Literal['night', 'day', 'diff'] = 'night',
+            *,
+            warning_limit: int | None = None,
     ):
         if component not in _COMPONENTS:
             raise ValueError(
                 f"component 仅支持 {_COMPONENTS}，收到 {component!r}。"
             )
         self.component = component
-        self._reset_warnings()
+        self._init_warnings(warning_limit)
 
     @property
     def name(self) -> str:

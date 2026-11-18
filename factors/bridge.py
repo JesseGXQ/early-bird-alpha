@@ -58,6 +58,7 @@ import numpy as np
 import pandas as pd
 
 from data.facade import DataFacade
+from factors.common import WarningMixin
 from factors.models import DataRequirement, ResearchDataset
 
 logger = logging.getLogger(__name__)
@@ -70,7 +71,6 @@ _SESSION_COLUMNS = ('night_return', 'day_return')
 
 # 为保证区间首日夜盘收益可计算，内部向前多取若干日历日；重叠段最终会被丢弃。
 _SESSION_OVERLAP_DAYS = 10
-_MAX_WARNINGS = 100
 
 _SourceLoader = Callable[
     [tuple[str, ...], date, date, tuple[str, ...] | None, Mapping[str, Any]],
@@ -78,7 +78,7 @@ _SourceLoader = Callable[
 ]
 
 
-class FactorDataBridge:
+class FactorDataBridge(WarningMixin):
     """按 ``DataRequirement`` 为因子 ``compute()`` 准备数据。
 
     Parameters
@@ -88,22 +88,26 @@ class FactorDataBridge:
     dataset : ResearchDataset | None, default None
         可复用的研究数据集。传入后，主面板、期限结构和仓单数据优先从
         ``dataset.main_panel`` / ``dataset.auxiliary`` 读取；缺失时回退到 facade。
+    warning_limit : int or None, optional
+        警告明细保留条数上限；``None`` 沿用默认值 100，``0`` 表示只计数、
+        不保留明细。
 
     Attributes
     ----------
     warnings : list[str]
-        最近一次 ``resolve`` 中记录的警告明细（最多 100 条）。
+        最近一次 ``resolve`` 中记录的警告明细。
     """
 
     def __init__(
             self,
             facade: DataFacade,
             dataset: ResearchDataset | None = None,
+            *,
+            warning_limit: int | None = None,
     ):
         self._facade = facade
         self._dataset = dataset
-        self.warnings: list[str] = []
-        self._warning_count = 0
+        self._init_warnings(warning_limit)
         self._loaders: dict[str, _SourceLoader] = {
             'main_panel': self._load_main_panel,
             'term_structure': self._load_term_structure,
@@ -174,7 +178,7 @@ class FactorDataBridge:
             self._validate_schema(source, frame)
             results[source] = self._select_columns(source, frame, columns)
 
-        self._log_warnings()
+        self._log_warnings(logger, 'FactorDataBridge')
         if len(results) == 1:
             return next(iter(results.values()))
         return results
@@ -291,23 +295,6 @@ class FactorDataBridge:
             )
         elif source == 'instrument_daily_status':
             self._require_base_columns(frame, _STATUS_BASE_COLUMNS, source)
-
-    def _reset_warnings(self) -> None:
-        self.warnings = []
-        self._warning_count = 0
-
-    def _warn(self, message: str) -> None:
-        self._warning_count += 1
-        if len(self.warnings) < _MAX_WARNINGS:
-            self.warnings.append(message)
-
-    def _log_warnings(self) -> None:
-        if self._warning_count:
-            logger.warning(
-                '【FactorDataBridge】本次取数共记录 %d 条警告，'
-                '明细见 warnings 属性。',
-                self._warning_count,
-            )
 
     # ============================================================
     # 数据集复用 / 日期过滤

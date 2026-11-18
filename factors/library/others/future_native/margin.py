@@ -18,7 +18,6 @@ import pandas as pd
 
 from factors.library.base import Factor
 from factors.library.others.future_native._utils import (
-    WarningMixin,
     cumulative_return,
     empty_factor_series,
     require_positive_int,
@@ -26,6 +25,7 @@ from factors.library.others.future_native._utils import (
     to_float,
     validate_panel_index,
 )
+from factors.common import WarningMixin
 from factors.models import DataRequirement, INDEX_NAMES
 
 logger = logging.getLogger(__name__)
@@ -70,6 +70,9 @@ class MarginShockDeleveraging(Factor, WarningMixin):
     ----------
     lookback : int, default 5
         保证金变化和前期动量的共同回看期数（交易日）。
+    warning_limit : int or None, optional
+        警告明细保留条数上限；``None`` 沿用默认值 100，``0`` 表示只计数、
+        不保留明细。
 
     Notes
     -----
@@ -80,9 +83,14 @@ class MarginShockDeleveraging(Factor, WarningMixin):
     - 交易所保证金率通常在 2007 年之后才有较完整的历史，早期样本可能缺失。
     """
 
-    def __init__(self, lookback: int = 5):
+    def __init__(
+            self,
+            lookback: int = 5,
+            *,
+            warning_limit: int | None = None,
+    ):
         self.lookback = require_positive_int(lookback, 'lookback')
-        self._reset_warnings()
+        self._init_warnings(warning_limit)
 
     @property
     def name(self) -> str:

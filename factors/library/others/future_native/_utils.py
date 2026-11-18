@@ -4,15 +4,14 @@
     - 参数校验；
     - 数值列归一化；
     - 期限结构数据的统一预处理；
-    - 主力合约稳定性掩码；
-    - 有上限的警告收集。
+    - 主力合约稳定性掩码。
 
-这里不包含任何因子经济逻辑，也不负责取数。
+这里不包含任何因子经济逻辑，也不负责取数。有上限的警告收集见
+``factors.common.WarningMixin``。
 """
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Iterable
 from typing import Any
 
@@ -21,49 +20,10 @@ import pandas as pd
 
 from factors.models import INDEX_NAMES
 
-# 警告明细最多保留的条数；超出的只计数，避免逐日逐品种刷屏。
-_MAX_WARNINGS = 100
-
 # 期限结构拟合的默认合约过滤口径。
 _TERM_MIN_DTE = 3
 _TERM_MAX_DTE = 300
 _TERM_MIN_VOLUME = 100.0
-
-
-class WarningMixin:
-    """为因子提供有上限的警告收集能力。
-
-    Attributes
-    ----------
-    warnings : list[str]
-        保留的警告明细，最多 ``_MAX_WARNINGS`` 条。
-    _warning_count : int
-        本次计算累计触发的警告总数。
-    """
-
-    warnings: list[str]
-    _warning_count: int
-
-    def _reset_warnings(self) -> None:
-        """每次批量计算前清空上一轮警告。"""
-        self.warnings = []
-        self._warning_count = 0
-
-    def _warn(self, message: str) -> None:
-        """记录一条警告；明细超过上限后只累计数量。"""
-        self._warning_count += 1
-        if len(self.warnings) < _MAX_WARNINGS:
-            self.warnings.append(message)
-
-    def _log_warnings(self, logger: logging.Logger, factor_name: str) -> None:
-        """汇总输出警告，避免每条明细都打日志。"""
-        if self._warning_count == 0:
-            return
-        logger.warning(
-            '【%s】本次计算共记录 %d 条警告，明细见 warnings 属性。',
-            factor_name,
-            self._warning_count,
-        )
 
 
 def require_positive_int(value: Any, parameter: str, minimum: int = 1) -> int:

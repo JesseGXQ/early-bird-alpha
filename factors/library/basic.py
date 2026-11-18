@@ -11,11 +11,11 @@ import pandas as pd
 
 from factors.library.base import Factor
 from factors.library.others.future_native._utils import (
-    WarningMixin, empty_factor_series, prepare_term_structure_frame,
+    empty_factor_series, prepare_term_structure_frame,
     require_non_negative_int, require_positive_int, require_price_col)
 from factors.models import (DataRequirement, FactorState,
                             IncrementalFactorResult, INDEX_NAMES)
-from factors.common import rolling_volatility
+from factors.common import WarningMixin, rolling_volatility
 
 logger = logging.getLogger(__name__)
 
@@ -646,6 +646,9 @@ class CurveSlope(Factor, WarningMixin):
         None 使用默认值 ``{'min_dte': 3, 'max_dte': 300, 'min_volume': 100}``。
     min_contract_fit : int, default 3
         估计曲线所需的最少合约数，至少为 2。
+    warning_limit : int or None, optional
+        警告明细保留条数上限；``None`` 沿用默认值 100，``0`` 表示只计数、
+        不保留明细。
 
     Note
     ---
@@ -660,6 +663,8 @@ class CurveSlope(Factor, WarningMixin):
             price_col: Literal['Close', 'Settle'] = 'Close',
             contract_filter_rule: Mapping[str, int] | None = None,
             min_contract_fit: int = 3,
+            *,
+            warning_limit: int | None = None,
     ):
         if weight_var not in ('OpenInterest', 'Volume'):
             raise ValueError(
@@ -672,7 +677,7 @@ class CurveSlope(Factor, WarningMixin):
         # 两个合约才能确定一条直线，因此最少拟合合约数为 2。
         self._min_contract = require_positive_int(
             min_contract_fit, 'min_contract_fit', minimum=2)
-        self._reset_warnings()
+        self._init_warnings(warning_limit)
 
     @property
     def name(self) -> str:

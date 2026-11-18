@@ -1,14 +1,94 @@
 from collections.abc import Sequence
+import logging
 
 import pandas as pd
 from data.factory import _create_trading_rule_components
 from data.config import EnvironmentConfig
 from data.calendar.product_calendar import ProductCalendar
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 import numpy as np
 import statsmodels.api as sm
 from factors.models import INDEX_NAMES
+
+# 警告明细默认最多保留的条数；超出的只计数，避免逐日逐品种刷屏。
+_DEFAULT_WARNING_LIMIT = 100
+
+
+def _validate_warning_limit(value: Any) -> int:
+    """校验警告明细上限：非负整数；``0`` 表示只计数、不留明细。"""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(
+            f'warning_limit 必须是非负整数，收到 {value!r}。'
+        )
+    return value
+
+
+class WarningMixin:
+    """为因子、预处理器等计算组件提供有上限的警告收集能力。
+
+    默认最多保留 ``_DEFAULT_WARNING_LIMIT`` 条明细，超出后只累计条数。
+    子类可以在类层面覆盖默认上限（``_warning_limit = 20``），也可以在实例化
+    时通过 ``warning_limit`` 参数指定，并在 ``__init__`` 中显式调用
+    ``_init_warnings()`` 完成初始化。
+
+    Attributes
+    ----------
+    warnings : list[str]
+        最近一次计算保留的警告明细。
+    _warning_count : int
+        最近一次计算累计触发的警告总数（不受上限影响）。
+    _warning_limit : int
+        明细条数上限；``0`` 表示只计数、不保留明细。
+
+    Notes
+    -----
+    本类刻意不定义 ``__init__``：现有子类都是 ``class X(Factor, WarningMixin)``
+    且各自实现了 ``__init__``，若依赖 ``super().__init__()`` 穿透基类传递参数，
+    则初始化是否正确将取决于整条 MRO 上每个类是否转发调用，失败模式是静默的。
+    改用普通方法 ``_init_warnings()`` 后，初始化动作在子类源码中显式可见；即使
+    某个子类忘记调用，``_warning_limit`` 也会回落到类属性默认值。
+    """
+
+    _warning_limit: int = _DEFAULT_WARNING_LIMIT
+    warnings: list[str]
+    _warning_count: int
+
+    def _init_warnings(self, limit: int | None = None) -> None:
+        """在子类 ``__init__`` 中初始化警告收集器。
+
+        Parameters
+        ----------
+        limit : int or None, default None
+            警告明细保留条数上限；``None`` 表示沿用类属性
+            ``_warning_limit`` 的当前值（默认 100）。
+        """
+        if limit is not None:
+            self._warning_limit = _validate_warning_limit(limit)
+        self._reset_warnings()
+
+    def _reset_warnings(self) -> None:
+        """每次批量计算前清空上一轮警告（不改变明细上限）。"""
+        self.warnings = []
+        self._warning_count = 0
+
+    def _warn(self, message: str) -> None:
+        """记录一条警告；明细达到上限后只累计数量。"""
+        self._warning_count += 1
+        if len(self.warnings) < self._warning_limit:
+            self.warnings.append(message)
+
+    def _log_warnings(self, logger: logging.Logger, factor_name: str) -> None:
+        """汇总输出警告，避免每条明细都打日志。"""
+        if self._warning_count == 0:
+            return
+        truncated = self._warning_count > len(self.warnings)
+        logger.warning(
+            '【%s】本次计算共记录 %d 条警告%s，明细见 warnings 属性。',
+            factor_name,
+            self._warning_count,
+            f'（仅保留前 {len(self.warnings)} 条）' if truncated else '',
+        )
 
 
 def regression_beta(
