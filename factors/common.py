@@ -1,3 +1,4 @@
+"""因子模块，通用工具。"""
 from collections.abc import Sequence
 import logging
 

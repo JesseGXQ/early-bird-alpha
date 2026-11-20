@@ -5,11 +5,11 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Self, TYPE_CHECKING, Literal
-from factors.common import walk_forward_split
 import copy
-
 import pandas as pd
 
+from factors._utils import verify_index_inclusion, apply_eligible_mask
+from factors.common import walk_forward_split
 if TYPE_CHECKING:
     from factors.models import ResearchDataset
 
@@ -58,20 +58,12 @@ class FactorPreprocessor(ABC):
     def _verify_index_inclusion(
             self, values: pd.Series, eligible: pd.Series
     ) -> None:
-        if values.index.equals(eligible.index):
-            return
-        if not values.index.isin(eligible.index).all():
-            raise ValueError(f'因子{values.name}的索引中存在不属于品种池准入'
-                             '(eligible)索引的元素。')
+        return verify_index_inclusion(values, eligible)
 
     def _apply_eligible_mask(
             self, values: pd.Series, eligible: pd.Series | None
     ) -> pd.Series:
-        """把品种池外的观测置为缺失值；``eligible`` 为 None 时原样返回。"""
-        if eligible is None:
-            return values
-        self._verify_index_inclusion(values, eligible)
-        return values.where(eligible.reindex(values.index))
+        return apply_eligible_mask(values, eligible)
 
 class FittedFactorPreprocessor(FactorPreprocessor, ABC):
     """
