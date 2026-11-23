@@ -1,4 +1,4 @@
-"""预处理——因子间正交化组件。"""
+﻿"""预处理——因子间正交化组件。"""
 from __future__ import annotations
 from collections.abc import Sequence
 import pandas as pd
@@ -26,7 +26,7 @@ QR_REASON_CODES = {
 
 LSTSQ_REASON_CODES = {
     0: 'success', 
-    3: 'collinear',
+    5: 'dropped',
     4: 'N<K'
 }
 
@@ -79,7 +79,7 @@ def _qr_core(F: np.ndarray, tol: float = 1e-8) -> tuple[np.ndarray, np.ndarray]:
     #G[:, s < tol] = 0   
     return G, s  
 
-def _find_degenerate_and_all_missing_cols(
+def _qr_find_degenerate_and_all_missing_cols(
         F: np.ndarray
 ) -> tuple[list[int], list[int]]:
     """Give the positions for degenerate and all-missing columns in F."""
@@ -96,11 +96,20 @@ def _find_degenerate_and_all_missing_cols(
     col_pos_deg = list(col_pos_all_nonnan[deg_col_mask_rel])
     return col_pos_deg, col_pos_all_nan
 
-def _find_collinear_cols(F: np.ndarray, tol: float) -> list[int]:
+def _qr_find_collinear_cols(
+        F: np.ndarray, 
+        tol: float, 
+) -> list[int]:
     """Give the collinear column positions in F."""
+    # To use this function, F must have no degenerate columns.
+    assert not (np.std(F, axis=0) == 0.0).any()
+    assert (~np.isnan(F)).all().all()
+
     col_pos_collinear: list[int] = []
     K = F.shape[1]
-    # Here F has no degenerate or all-NaN columns, so this operation is safe.
+
+    # Scale F before check colliearity
+    # F has no degenerate or all-NaN columns, so this operation is safe.
     F_norm: np.ndarray = (F - F.mean(axis=0)) / F.std(axis=0) 
     valid_col_pos_comb = [0]
     for k in range(1, K):
@@ -113,6 +122,9 @@ def _find_collinear_cols(F: np.ndarray, tol: float) -> list[int]:
             # full rank => no collinearity
             valid_col_pos_comb = pos_comb_check
     return col_pos_collinear
+
+
+
 
 def _seq_orth_qr_safe(
         F: np.ndarray, 
@@ -160,7 +172,7 @@ def _seq_orth_qr_safe(
     # Note: F_policy's row count will be smaller or equal to F(input).
     # And have the same column count with F(input).
 
-    col_pos_deg, col_pos_all_nan = _find_degenerate_and_all_missing_cols(F_policy) # 进这个函数的，其列要么全NaN，要么全非NaN。
+    col_pos_deg, col_pos_all_nan = _qr_find_degenerate_and_all_missing_cols(F_policy) # 进这个函数的，其列要么全NaN，要么全非NaN。
     col_pos_deg: list[int]; col_pos_all_nan: list[int]
     for pos in col_pos_deg: 
         reason_codes[pos] = 1
@@ -171,10 +183,13 @@ def _seq_orth_qr_safe(
                        for k in range(K_input)]
     F_deg_allnan_col_dropped = F_policy[:, valid_col_mask] # here we are deleting columns, so K will become smaller, no need to check whether N<K
     if F_deg_allnan_col_dropped.size == 0: # all columns are either degenerate or all-missing
+        # for degenerate columns, set Q and s to zero.
+        Q_out = np.where(col_pos_deg, 0.0, nan_Q)
+        s_out = np.where(col_pos_deg, 0.0, nan_s)
         return nan_Q, nan_s, reason_codes
     
     if F_deg_allnan_col_dropped.shape[1] > 1:
-        relative_col_pos_collinear:list[int] = _find_collinear_cols(F_deg_allnan_col_dropped, tol=tol) # check this `tol` parameter, suitable to be passed through here?
+        relative_col_pos_collinear:list[int] = _qr_find_collinear_cols(F_deg_allnan_col_dropped, tol=tol) # check this `tol` parameter, suitable to be passed through here?
         remaining_col_pos_after_dropping_deg_allnan = [pos for pos in range(K_input) 
                              if pos not in (col_pos_deg+col_pos_all_nan)] 
         col_pos_collinear = [remaining_col_pos_after_dropping_deg_allnan[pos] for pos in relative_col_pos_collinear]
@@ -194,7 +209,15 @@ def _seq_orth_qr_safe(
     
     into_core_col_mask = [False if k in (col_pos_deg+col_pos_all_nan+col_pos_collinear)
                      else True for k in range(K_input)] # 指示送进 qr_core 函数的是哪些列
-    G[:, into_core_col_mask] = G_core
+    # Remember, under 'drop_if_missing_any',
+    # we have use `valid_row_mask` to select only "valid" rows.
+    # So here we need to fill only those "valid" rows, and keep "invalid" place
+    # as is(NaN).
+    if policy == 'drop_if_missing_any': 
+        G[np.ix_(valid_row_mask, into_core_col_mask)] = G_core # pyright: ignore[reportPossiblyUnboundVariable]
+    else: # Under 'fill_with_mean', we have never deleted rows. So number of rows of G_core and G must be the same.
+        G[:, into_core_col_mask] = G_core
+
     s[into_core_col_mask] = s_core
 
     # 剩余的列，degenerate 列和共线列用 0填充，all-NaN 列填NaN（原本就是NaN初始化，直接不管）
@@ -210,144 +233,210 @@ def _seq_orth_qr_safe(
 
 
 # [Implementation Note]
-# sequentially, if one factor is collinear with previous ones,
-# then we should ignore it in the sequentially orthogonalization process.
-def _seq_lstsq_beta_with_nan(
+# What are the problems that we are going to solve?
+# Essentially there are two goals: 
+# First, we need to assure that the design matrix send into np.linalg.lstsq is of
+# "full-rank". Second, we need to assure that the detection of design matrix rank 
+# and the least-square process use the same numerical condition for the rank determination process.
+# That is, if we use some type of "scaling" and some tolerance level 
+# for the rank determination procedure, then for the regression part, 
+# we should use the same "scaling", else there will be disparity 
+# between regression and rank determination. 
+type FitOks = list[bool | None]
+type Keeps = list[list[int]]
+type Scales = list[np.ndarray]
+type Gammas = list[np.ndarray]
+type ReasonCodes = list[list[int]]
+type Ratios = list[float]
+
+def _lstsq_beta_smart(
+        X: np.ndarray, 
+        y: np.ndarray, 
+        tol: float
+) -> tuple[np.ndarray, list[int], np.ndarray, np.ndarray]:
+    """
+    （1）先对 X 每列做 MaxAbs 缩放。
+    （2）从 X 中筛选出一个满秩的 design matrix，然后进行回归。
+    （3）返回 `(safe_scale, keep, gamma, e)`，
+    gamma 为回归系数，对应的是被 scale 过的 X。
+    
+    """
+    scale: np.ndarray = np.max(np.abs(X), axis=0)
+    is_zero = scale == 0.0
+    safe_scale = np.where(is_zero, 1.0, scale) 
+    Z = X / safe_scale
+    # 首先根据X选择出合法列作为 design matrix
+    keep: list[int] = []
+    rhs = np.zeros_like(Z)
+    for j in range(Z.shape[1]):
+        if is_zero[j]:
+            continue
+        trail = keep + [j]
+        _, _, rank, _ = np.linalg.lstsq(Z[:, trail], rhs, rcond=tol)
+        if rank == len(trail):
+            keep = trail
+    # 若有效基底为空，此时残差为目标变量y本身
+    if not keep:
+        gamma = np.empty(0)
+        e = y.copy() 
+    # 若不为空，则执行 least-square 算法
+    else:
+        A = Z[:, keep]
+        gamma, _, rank, _ = np.linalg.lstsq(A, y, rcond=tol)
+        if rank != A.shape[1]:
+            raise ValueError(f'least-square 算法仍然不满秩。请检查数值条件等问题。')
+        e = y - A @ gamma
+    return safe_scale, keep, gamma, e
+
+def _seq_lstsq_beta_safe(
         F: np.ndarray,
-        rcond: float | None = None, 
+        tol: float, 
         intercept: bool = False,
         policy: Literal['common', 'own'] = 'own'
-) -> tuple[list[np.ndarray], list[None | int], list[float]]:
+) -> tuple[FitOks, Keeps, Scales, Gammas, ReasonCodes, Ratios]:
     """
     Use least-square method for sequentially orthogonalization.
-
-    returns `betas, reason_codes, ratios.`
-
+    
     """
     K_input = F.shape[1]
+
+    def post_conditions(fit_oks, keeps, scales, betas, reason_codes, ratios):
+        assert len(fit_oks) == K_input
+        assert len(keeps) == K_input
+        assert len(scales) == K_input
+        assert len(betas) == K_input
+        assert len(reason_codes) == K_input
+        for k, codes in enumerate(reason_codes):
+            assert len(codes) == k + int(intercept) 
+        assert len(ratios) == K_input
+
     if intercept:
         ones = np.ones((F.shape[0], 1))
         F = np.hstack([ones, F])
     
     N, K = F.shape
-    nan_betas = [np.asarray([np.nan]*i) for i in range(K)]
+    nan_gammas = [np.asarray([np.nan]*i) for i in range(K)]
 
-    if N < K: # 如果样本数不足，直接返回全 nan beta
-        nan_betas_re = nan_betas if not intercept else nan_betas[1:]
-        assert len(nan_betas_re) == K_input # post-condition 
-        return nan_betas_re, [4]*K_input, [np.nan]*K_input
+    if N < K: # 样本不足，直接短路返回
+        fit_oks = [False] * K_input
+        keeps = [[] for k in range(K_input)]
+        empty_scales = [np.asarray([])] * K_input
+        nan_betas_re = nan_gammas if not intercept else nan_gammas[1:]
+        nan_reason_codes = [[4]*(k+int(intercept)) for k in range(K_input)]
+        nan_ratios = [np.nan]*K_input
+        post_conditions(fit_oks, keeps, empty_scales, nan_betas_re, nan_reason_codes, nan_ratios)
+        return (fit_oks, keeps, empty_scales, nan_betas_re, nan_reason_codes, nan_ratios)
 
     valid = np.isfinite(F).all(axis=1) # 1-d boolean, indicating "row validity"
-    betas: list[np.ndarray] = []
-    col_pos_collinear: list[int] = [] 
-    reason_codes: list[None | int] = []
+    fit_oks: list[bool|None] = []
+    keeps: list[list[int]] = []
+    scales: list[np.ndarray] = []
+    gammas: list[np.ndarray] = []
+    reason_codes: list[list[int]] = []
     ratios: list[float] = []
 
     if not intercept:
-        betas.append(np.asarray([]))
-        reason_codes.append(None)
+        fit_oks.append(None)
+        keeps.append([])
+        scales.append(np.asarray([]))
+        gammas.append(np.asarray([]))
+        reason_codes.append([])
         ratios.append(np.nan)
     
     for k in range(1, K):
         valid = valid if policy=='common' else np.isfinite(F[:, :k+1]).all(axis=1)
         if valid.sum() < k: # 由于越往后面的因子走，k会越来越大，而有效样本只可能减小或不变，所以后续的回归可以直接不用做了，直接用nan beta
-            betas.extend(nan_betas[k:])
-            reason_codes.extend([4]*(K-k))
+            fit_oks.extend([False] * (K-k))
+            keeps.extend([[] for _ in range(k, K)])
+            scales.extend([np.asarray([])] *(K-k))
+            gammas.extend(nan_gammas[k:])
+            reason_codes.extend([[4]*j for j in range(k, K)])
             ratios.extend([np.nan]*(K-k))
             break
-        # Note that here `_pos` are deleting columns, so no need
-        # to check N, K relationship again(there will be less columns, making 
-        # the N, K relationship safer.)
-        _pos = [j for j in range(k) if j not in col_pos_collinear]
-        X = F[np.ix_(valid, _pos)] # use np.ix_ to construct a grid(or say, mesh) for fancy indexing
+        X = F[valid, :k]
         y = F[valid, k]
-        beta, ss_res, rank, _= np.linalg.lstsq(X, y, rcond=rcond)
-        # Note that we are doing least-square sequentially, 
-        # and we have used col_pos_non_collinear for selecting columns,
-        # so all columns before k are "valid(non-collinear)", then
-        # rank deficiency must mean the latest-added column k-1 is "collinear"
-        # We must delete the last column and do least square again, since
-        # np.linalg.lstsq doesn't drop the collinear column automatically.
-        # That is, we must drop the last column manually and fit again.
-        if rank < X.shape[1]: 
-            reason_codes.append(3)
-            col_pos_collinear.append(k-1)
-            beta, ss_res, rank_, _ = np.linalg.lstsq(X[:, :-1], y, rcond=rcond)
-            assert rank_ == X[:, :-1].shape[1] 
-            ss_res = ss_res[0]
-            e = y - X[:, :-1] @ beta
-        else: # full rank
-            reason_codes.append(0)
-            e = y - X @ beta
-        # ---------------------------------------------------------------#
-        # Here the beta coefficients corresponds to columns 
-        # in F that are not "collinear"
-        # (because here we have fitted only on "non-collinear" columns).
-        _gen = (b for b in beta)
-        beta = np.asarray(
-            [next(_gen) if j not in col_pos_collinear else np.nan 
-            for j in range(k)]
-        ) 
-        # ---------------------------------------------------------------#
-        betas.append(beta)
+        safe_scale, keep, gamma, e = _lstsq_beta_smart(X, y, tol)
+        # 记录结果
+        fit_oks.append(True)
+        keeps.append(keep)
+        scales.append(safe_scale)
+        gammas.append(gamma)
+        codes = [0 if j in keep else 5 for j in range(k)]
+        reason_codes.append(codes)
         # compute std(e)/std(y), need to be used as metadata
         std_e = float(np.std(e))
         std_y = float(np.std(y))
         ratios.append(std_e/std_y if std_y!=0.0 else np.nan)
 
-    # post-condition
-    assert len(betas) == K_input # betas的长度一定等于输入的矩阵的列数
-    assert len(reason_codes) == K_input
-    assert len(ratios) == K_input
-    return betas, reason_codes, ratios
+    post_conditions(fit_oks, keeps, scales, gammas, reason_codes, ratios)
+    return fit_oks, keeps, scales, gammas, reason_codes, ratios
 
 def _seq_res_with_fitted_betas(
         F: np.ndarray,
-        betas: Sequence[np.ndarray],
+        fit_oks: FitOks,
+        keeps: Keeps,
+        scales: Scales,
+        gammas: Gammas,
         intercept: bool = False,
 ) -> np.ndarray:
     """
-    根据betas中的回归系数序列，依次计算F中每一列的残差(第1列不动，第2列取第1列*beta的残差，
-    第3列取第[1,2]列*beta的残差，依次类推。
-
-    注意，由于存在可能的共线，即 beta 中可能有 np.nan，此时需要把F中对应列剔除掉。
-    例如 F = [f1, f2, f3, f4, f5]，f2和f1共线，f3独立，f4和[f1, f3]共线，f5独立。
-    那么
-    - f1的残差，是f1本身；
-    - f2的残差，是f2对f1的残差；
-    - f3的残差，是f3是对f1的残差(r3 = f3 - f1*b1)；
-    - f4的残差，是f4对 [f1, f3] 的残差；
-    - f5的残差，是f5对 [f1, f3] 的残差。
-
     """
-    assert len(betas) == F.shape[1]
+    assert len(gammas) == F.shape[1]
     
     if intercept:
-        X = np.hstack([np.ones((F.shape[0], 1)), F])
-        bs = [np.asarray([])] + list(betas)
-    else:
-        X = F
-        bs = betas
-    N, K = X.shape
-    R = np.full_like(X, fill_value=np.nan)
-    R[:, 0] = X[:, 0]
+        F = np.hstack([np.ones((F.shape[0], 1)), F])
+        fit_oks = [None] + fit_oks
+        keeps = [[]] + keeps
+        scales = [np.asarray([])] + scales
+        gammas = [np.asarray([])] + list(gammas)
+    N, K = F.shape
+    R = np.empty_like(F)
+    R[:, 0] = F[:, 0]
     for k in range(1, K):
-        b = bs[k]
-        A = X[:, :k]
-        # Note that b could have NaN entries(meaning collinear columns 
-        # during the fit phase.)
-        # we need to de-select those columns. Otherwise, we would have 
-        # all-NaN A@b thus all-NaN residuals.
-        A = A[:, ~np.isnan(b)]
-        b = b[~np.isnan(b)]
-        y = X[:, k]
-        r = y - A @ b
-        R[:, k] = r
+        y = F[:, k]
+        ok, keep, scale, g = fit_oks[k], keeps[k], scales[k], gammas[k]
+        assert ok is not None
+        if not ok:
+            R[:, k] = np.nan
+        else:
+            if not keep:
+                R[:, k] = y.copy()
+            else:
+                X = F[:, :k]
+                Z = X / scale
+                A = Z[:, keep]
+                R[:, k] = y - A @ g
     return R if not intercept else R[:, 1:]
 
 
 class CSGramSchmidtOrthogonalizer(WarningMixin):
+    """"
+    截面模式下的 Gram-Schmidt 序贯正交化组件。
 
+    Parameters
+    ------
+    method: {'lstsq', 'qr'}, default 'qr'
+        正交化方法，目前仅支持  'qr'。
+    qr_missing_policy: {'drop_if_missing_any', 'fill_with_mean'}, 
+    default 'fill_with_mean'
+        qr 方法下的缺失值政策。若为 'drop_if_missing_any'，则对某一行若任一
+        因子有缺失值，则剔除整行（品种）。若为 'fill_with_mean'，则会先对截面上因子值缺失
+        的品种用均值填充。
+        - 'fill_with_mean' 模式下，返回的残差化因子会根据输入中的缺失值重新置回缺失值，因此
+        无法保证残差依然正交，因为此时“正交”的语义是对填充了缺失值后的因子做正交。
+    qr_tol: float, default 1e-8
+        qr 模式下的秩判定阈值，会送入 `np.linalg.matrix_rank`，秩判定时，内部会先做zscore化
+        以改善数值条件。
+    warning_limit: int or None, default None
+        `WarningMixin` 类的内部缓存警告条数上限。为 None 时采用该类内部设定的默认值。
+    
+    Methods
+    ------
+    transform(*factors, eligible)
+        对每个截面做序贯正交化变换，得到残差化因子。
+        
+        
+    """
 
     def __init__(
             self, 
@@ -372,6 +461,22 @@ class CSGramSchmidtOrthogonalizer(WarningMixin):
             *factors: pd.Series, 
             eligible: pd.Series[bool]
     ) -> OrthogonalizationResult:
+        """
+        对每个截面做序贯正交化变换。
+
+        Parameters
+        *factors: pd.Series
+            多个待做正交化的因子。
+        eligible: pd.Series
+            品种池准入掩码。
+        
+        Returns
+        ------
+        OrthogonalizationResult
+            正交化结果。包含 `values: pd.Series`, `warnings: tuple[str]`, 
+            `metadata: dict[str, Any]`。
+        
+        """
         self._reset_warnings()
 
         names = [f.name if isinstance(f.name, str) else f'factor{i}_unnamed' 
@@ -433,29 +538,83 @@ class CSGramSchmidtOrthogonalizer(WarningMixin):
 
 
 class TSGramSchmidtOrthogonalizer(WarningMixin):
+    """
+    时序模式下的 Gram-Schmidt 正交化组件。
+
+    Parameters
+    ------
+    fit_intercept: bool, optional, default False
+        正交化（回归）时，是否包含截距。
+    rcond_tol: float or None, optional, default None
+        送入 `np.linalg.lstsq` 的 rcond 参数取值，用于秩判定，默认为 None 时，
+        内部会设置为1e-10。
+    sample_policy: {'common', 'own'}, default 'own'
+        序贯正交化时，如何选择样本，为 'common' 时，会取所有因子的非缺失样本（任一
+        因子有缺失值即删除整行），为 'own' 时，目标因子作为被解释变量，只会删除该目标因子
+        和前序因子的缺失行，后面因子的缺失值没有影响。
+    warning_limit: int or None, optional, default None
+        `WarningMixin` 类的内部缓存警告条数上限。为 None 时采用该类内部设定的默认值。
+    
+    Methods
+    ------
+    fit(*factors, eligible)
+        对训练期样本做正交化拟合，得到回归系数等。
+    transform(*factors, eligible)
+        对变换期的样本做正交（残差化）处理，内部利用训练期的回归系数等。
+    """
 
     def __init__(
             self, 
             fit_intercept: bool = False,
-            rcond: float | None = None,
+            rond_tol: float | None = None,
             sample_policy: Literal['common', 'own'] = 'own',
             *,
             warning_limit: int | None = None,
     ):
-        self._intercept = fit_intercept
-        self._rcond = rcond
-        self._policy: Literal['common', 'own'] = sample_policy
-        self._fit_factor_names: list[str] | None
-        self._betas_by_product: dict[str, list[np.ndarray]] | None = None
-        self._res_std_ratios_by_product: dict[str, list[float]] | None = None
-        self._reason_codes_by_product: dict[str, list[None|int]] | None = None
         self._init_warnings(warning_limit)
+
+        self._intercept = fit_intercept
+        self._tol = rond_tol or 1e-10
+        self._policy: Literal['common', 'own'] = sample_policy
+
+        self._fit_factor_names: list[str] | None
+
+        self._fit_oks_by_product: dict[str, FitOks] | None = None
+        self._keeps_by_product: dict[str, Keeps] | None = None
+        self._scales_by_product: dict[str, Scales] | None = None
+        self._gammas_by_product: dict[str, Gammas] | None = None
+        self._reason_codes_by_product: dict[str, ReasonCodes] | None = None
+        self._ratios_by_product: dict[str, Ratios] | None = None
+        
 
     def fit(
             self, 
             *factors: pd.Series, 
             eligible: pd.Series[bool]
     ) -> Self:
+        """
+        利用训练期因子数据做拟合，得到回归结果。
+        回归结果包含：
+        -（对于每个目标变量）是否回归成功
+        - (对于每个目标变量) 保留了哪些因子列
+        - (对于每个目标变量) 对每个因子如何做缩放，用于改善秩判定的数值条件
+        - (对于每个目标变量) 回归系数
+        - (对于每个目标变量) 每个前序因子是否包含在回归中以及为什么的原因码
+        - 每个因子的残差标准差比例，表达正交化后还剩多少波动。
+
+        Parameters
+        ------
+        *factors: pd.Series
+            待正交化的多个因子，从左到右做序贯正交。
+        eligible: pd.Series
+            品种池准入掩码。
+
+        Returns
+        ------
+        Self
+            返回自身，内部保留回归结果作为“状态”。
+        
+        """
         self._reset_warnings()
 
         names = [f.name if isinstance(f.name, str) else f'factor{i}_unnamed' 
@@ -466,43 +625,76 @@ class TSGramSchmidtOrthogonalizer(WarningMixin):
         factor_df = pd.concat(factors, axis=1, join='outer') # MultiIndex[timestamp, product], Column[factor]
         factor_df = factor_df.loc[eligible]
         factor_df = factor_df.astype(float)
-
         grouped = factor_df.groupby(level='product')
-        betas_by_prod: dict[str, list[np.ndarray]] = {}
-        codes_by_prod: dict[str, list[None|int]] = {}
-        ratios_by_prod: dict[str, list[float]] = {}
+
+        fit_oks_by_product: dict[str, FitOks] = {}
+        keeps_by_product: dict[str, Keeps] = {}
+        scales_by_product: dict[str, Scales] = {}
+        gammas_by_product: dict[str, Gammas] = {}
+        reason_codes_by_product: dict[str, ReasonCodes] = {}
+        ratios_by_product: dict[str, Ratios] = {}
+
         for prod, df in grouped:
             assert isinstance(prod, str)
             F = df.to_numpy()
-            betas, reason_codes, ratios = _seq_lstsq_beta_with_nan( # CoA refers to "coefficient of alienation"
-                F, self._rcond, self._intercept, self._policy)
-            # (1) record betas
-            betas_by_prod[prod] = betas
-            # (2) record reason_codes and possible warnings.
-            codes_by_prod[prod] = reason_codes
-            n_failed = sum([c not in {None, 0} for c in reason_codes])
-            if n_failed != 0:
-                self._warn(f'{prod}: operation failed for {n_failed} factors.')
-            # (3) record ratios
-            ratios_by_prod[prod] = ratios
+            fit_oks, keeps, scales, gammas, codes, ratios = _seq_lstsq_beta_safe( 
+                F, self._tol, self._intercept, self._policy)
+            # ------------------------------------
+            # 记录结果
+            fit_oks_by_product[prod] = fit_oks
+            keeps_by_product[prod] = keeps
+            scales_by_product[prod] = scales
+            gammas_by_product[prod] = gammas
+            reason_codes_by_product[prod] = codes
+            ratios_by_product[prod] = ratios
+            # ------------------------------------
+            n_fit_failed = sum([1 if x == False else 0 for x in fit_oks])
+            if n_fit_failed != 0:
+                self._warn(f'{prod}: Orthogonalization failed for {n_fit_failed} factors.')
         
         # publish results
-        self._betas_by_product = betas_by_prod
-        self._reason_codes_by_product = codes_by_prod
-        self._res_std_ratios_by_product = ratios_by_prod
+        self._fit_oks_by_product = fit_oks_by_product
+        self._keeps_by_product = keeps_by_product
+        self._scales_by_product = scales_by_product
+        self._gammas_by_product = gammas_by_product
+        self._reason_codes_by_product = reason_codes_by_product
+        self._ratios_by_product = ratios_by_product
 
         self._log_warnings(logger, f'Multifactor TS orthogonalization: fit phase')
         return self
 
     def _check_is_fitted(self, ):
-        if self._betas_by_product is None:
+        if self._gammas_by_product is None:
             raise ValueError(f'Not fitted. Fit first please.')
+        
     # TODO: 增加fit-transform 窗口不重叠校验
     def transform(
             self,
             *factors: pd.Series,
             eligible: pd.Series[bool] | None
     ) -> OrthogonalizationResult:
+        """
+        利用训练期拟合的“状态”，对变换期因子数据做序贯正交化。
+
+        Parameters
+        ------
+        *factors: pd.Series
+            变换期待做序贯正交化的多个因子，输入因子的顺序和名称必须和训练期对齐。
+        eligible: pd.Series
+            品种池准入掩码。
+        
+        Returns
+        ------
+        OrthogonalizationResult
+            正交化结果。包含 `values: pd.Series`, `warnings: tuple[str]`, 
+            `metadata: dict[str, Any]`。
+
+        Notes
+        ------
+        1. 注意，不保证变换期的各因子在数值上得到相互正交属性。
+
+        
+        """
         self._check_is_fitted()
 
         trans_factor_names = [f.name if isinstance(f.name, str) else f'factor{i}_unnamed' 
@@ -520,13 +712,15 @@ class TSGramSchmidtOrthogonalizer(WarningMixin):
         Rs: list[np.ndarray] = []
         indices: list[pd.Index] = []
 
-        assert self._betas_by_product is not None
         for prod, df in grouped:
             assert isinstance(prod, str)
             F = df.to_numpy()
-            betas = self._betas_by_product.get(prod, None) 
-            if betas is not None:
-                R = _seq_res_with_fitted_betas(F, betas, self._intercept) 
+            fit_oks = self._fit_oks_by_product.get(prod, None) # pyright: ignore[reportOptionalMemberAccess]
+            keeps = self._keeps_by_product.get(prod, None) # pyright: ignore[reportOptionalMemberAccess]
+            scales = self._scales_by_product.get(prod, None) # pyright: ignore[reportOptionalMemberAccess]
+            gammas = self._gammas_by_product.get(prod, None)  # pyright: ignore[reportOptionalMemberAccess]
+            if gammas is not None:
+                R = _seq_res_with_fitted_betas(F, fit_oks, keeps, scales, gammas, self._intercept)  # pyright: ignore[reportArgumentType]
             else: 
                 R = np.full_like(F, fill_value=np.nan)
                 self._warn(f'transform phase, product {prod} fitted betas not found(fit data did not contain this product).')
@@ -546,10 +740,12 @@ class TSGramSchmidtOrthogonalizer(WarningMixin):
             values=tuple(transed_factor_df[col] for col in transed_factor_df),
             warnings=tuple(self.warnings),
             metadata={
-                'betas': self._build_df_from_dict('_betas_by_product'),
-                'residual_std_ratios_fit': self._build_df_from_dict('_res_std_ratios_by_product'),
-                'failed_reasons_fit': (self._build_df_from_dict('_reason_codes_by_product')
-                                       .replace(LSTSQ_REASON_CODES).astype('category'))
+                'fit_oks': self._build_df_from_dict('_fit_oks_by_product'),
+                'fit_keeps': self._build_df_from_dict('_keeps_by_product'),
+                'fit_scales': self._build_df_from_dict('_scales_by_product'),
+                'gammas': self._build_df_from_dict('_gammas_by_product'),
+                'fit_residual_std_ratios': self._build_df_from_dict('_ratios_by_product'),
+                'fit_reason_codes': (self._build_df_from_dict('_reason_codes_by_product'))
             }
         )
 
@@ -570,7 +766,32 @@ def walk_forward_orthogonalize(
         fit_size: int | pd.DateOffset,
         transform_size: int | pd.DateOffset,
         mode: Literal['rolling', 'expanding'] = 'rolling'
-):
+) -> OrthogonalizationResult:
+    """
+    时序模式下的“推进拟合->变换”的正交化。
+
+    Parameters
+    ------
+    * factors: pd.Series
+        待做序贯正交化的多个因子，顺序从左到右。
+    eligible: pd.Series
+        品种池准入掩码。
+    ts_orthogonalizer
+        时序模式下支持 `fit` 和 `transform` 方法的正交化组件。
+        - 目前仅支持 :class:`TSGramSchmidtOrthogonalizer`
+    fit_size: int or pd.DateOffset
+        拟合窗口大小。
+    transform_size: int or pd.DateOffset
+        变换窗口大小。拟合和变换窗口要么都是 `int`，要么都是 `DateOffset`。
+    mode: {'rolling', 'expanding'}, optional, default 'rolling'
+        窗口向前推进模式，滚动或扩展，默认为滚动。
+    
+    Returns
+    ------
+    OrthogonalizationResult
+        正交化结果，包含 `values: pd.Series`, `warnings: tuple[str]`, `metadata: dict[str, Any]`。
+
+    """
     orth = ts_orthogonalizer
     joint_index = reduce(lambda idx_a, idx_b: idx_a.union(idx_b), 
                          [f.index for f in factors])
@@ -691,7 +912,7 @@ if __name__ == '__main__':
 
     # --------------------------------- test of TS mode --------------------
     import numpy as np
-    from factors.preprocess.orthogonalize import _seq_lstsq_beta_with_nan, _seq_res_with_fitted_betas
+    from factors.preprocess.orthogonalize import _seq_lstsq_beta_safe, _seq_res_with_fitted_betas
     rng = np.random.default_rng(42)
     f1 = rng.standard_normal((10, 1))
     f2 = f1.copy() + rng.standard_normal((10, 1))/1e25
@@ -703,8 +924,6 @@ if __name__ == '__main__':
     print(f'F is :\n{F}')
 
 
-    rst  = _seq_lstsq_beta_with_nan(F, )
-    print(rst)
 
     
 
