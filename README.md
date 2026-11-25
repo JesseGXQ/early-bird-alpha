@@ -96,7 +96,7 @@ NAV chart：
 
 ![Factor Quickstart NAV](examples/artifacts/factor_quickstart_nav.png)
 
-## 研究组件清单（20261107版本）
+## 研究组件清单（20261125版本）
 
 现有研究能力集中在两层：
 - `data`： 数据引擎，负责原始行情 -> 结构化的数据面板，
@@ -106,9 +106,9 @@ NAV chart：
 取数    DataFacade：ResearchFeed / TermStructureFeed / FundamentalFeed / SimulationFeed
 构建    ResearchDatasetBuilder → ResearchDataset（含数据质量摘要）
 选池    DynamicUniverse：逐时点品种准入，保留排除原因
-因子    Factor.compute → FactorPreprocessor/PreprocessingPipeline
+因子    Factor.compute → FactorPreprocessor/PreprocessingPipeline（含正交化）
 标签    LabelBuilder
-评价    evaluation/*：覆盖率、IC / Rank IC、分组收益、回归、方向命中率
+评价    evaluation/*：覆盖率、IC / Rank IC（含向量化版本）、分组收益、回归、方向命中率
 组合    combination（因子合成）→ DiagnosticPortfolio（研究权重、成本、净值、归因）
 ```
 
@@ -208,7 +208,7 @@ NAV chart：
 | --- | --- | --- |
 | `Factor` | 因子抽象基类，约定 `name`、`data_requirements`、`compute`，并提供可选增量接口。 | `factors/library/base.py` |
 | `basic` | 基础因子：`MomentumFactor`、`RollYieldFactor`、`CurveSlope`。 | `factors/library/basic.py` |
-| `future_native` | 期货原生机制因子，按机制分文件：期限结构、持仓、交割、结算、涨跌停、保证金、交易时段。 | `factors/library/others/future_native/` |
+| `future_native` | 期货原生机制因子，按机制分文件：期限结构、持仓、交割与仓单（`ReceiptChange` 等）、结算、涨跌停、保证金、交易时段。 | `factors/library/others/future_native/` |
 
 #### preprocess 预处理
 
@@ -219,6 +219,7 @@ NAV chart：
 | 缩放 | 截面 zscore、秩归一化、池化 RMS/MA、时序 zscore（fit-once 与 rolling）。 | `factors/preprocess/scale.py` |
 | 中性化 | 对板块、波动率、流动性暴露做回归中性化。 | `factors/preprocess/neutralize.py` |
 | 平滑 | SMA、EMA。 | `factors/preprocess/smooth.py` |
+| `CSGramSchmidtOrthogonalizer` / `TSGramSchmidtOrthogonalizer` | 序贯 Gram-Schmidt 正交化：截面模式用 QR 逐截面处理，时序模式用 LSTSQ 逐品种拟合（`fit` / `transform`）；配合 `walk_forward_orthogonalize` 做推进拟合。输出残差化因子、残差波动比例与失败原因 metadata。 | `factors/preprocess/orthogonalize.py` |
 | 截断 | 按上下界截断极端值。 | `factors/preprocess/scale.py` |
 | `PreprocessingPipeline` | 串联上述组件，统一 `fit` / `transform`。 | `factors/preprocess/base.py` |
 | `WalkForwardTransformer` | 借 walk-forward 切分做推进式拟合变换，避免未来信息泄漏。 | `factors/preprocess/base.py` |
@@ -235,6 +236,7 @@ NAV chart：
 | --- | --- | --- |
 | `coverage_stats` | 覆盖率：总体、按时间、按品种。 | `factors/evaluation/coverage.py` |
 | `ic_details` | IC / Rank IC、ICIR、Newey-West 检验与 bootstrap 区间。 | `factors/evaluation/ic.py` |
+| `fast_cs_ic` | 向量化截面 IC / Rank IC（Series 与矩阵两种输入），供参数扫描等大批量计算使用。 | `factors/evaluation/ic.py` |
 | `grouped_details` | 分组收益与多空组合（high-minus-low）。 | `factors/evaluation/grouped.py` |
 | `regression_details` | 截面 Fama–MacBeth 或时序固定效应回归。 | `factors/evaluation/regression.py` |
 | `hit_rate_details` | 方向命中率及相对基准的增量统计。 | `factors/evaluation/hit.py` |
@@ -256,7 +258,7 @@ NAV chart：
 | `risk` | 事前单品种波动率与组合波动率估计。 | `factors/diagnostic_portfolio/risk.py` |
 | `accounting` | 换手、成本、收益贡献、暴露、绩效与归因。 | `factors/diagnostic_portfolio/accounting.py` |
 | `storage` | 以 manifest + 哈希落盘，支持加载与复跑校验。 | `factors/diagnostic_portfolio/storage/` |
-| `robustness` | 调仓时点（anchor）敏感性检验。 | `factors/diagnostic_portfolio/robustness.py` |
+| `robustness` | 调仓时点（anchor）敏感性检验：单次 `run_anchor_robustness` 与多持有期 `examine_rebalance_timing_luck`（支持进程池并行）。 | `factors/diagnostic_portfolio/robustness.py` |
 
 #### 研究辅助
 
@@ -265,11 +267,12 @@ NAV chart：
 | `profiles` | 六个中低频期货收获范式常量，V1 组合实验支持其中三个配方：market_rank_ls，市场中性多空无杠杆；ts_inv_vol_gross_one，逆波动率定仓无杠杆；ts_inv_vol_target_vol，逆波动率定仓+目标波动率缩放。 | `factors/profiles.py` |
 | `scanning` | 参数网格扫描，输出候选参数 × 指标表。 | `factors/scanning.py` |
 | `exploration.xray` | 探索期体检：缺失/异常值检查与分布、时序作图。 | `factors/exploration/xray.py` |
-| `common` | 补齐交易日、walk-forward 切分、滚动波动率。 | `factors/common.py` |
+| `common` | 补齐交易日、walk-forward 切分、滚动波动率、回归工具（`regression_beta` / `regression_residual`）；`WarningMixin` 为因子与预处理器提供有上限的警告收集。 | `factors/common.py` |
+| `_utils` | 通用校验：品种池准入掩码应用、索引包含关系、因子名唯一性。 | `factors/_utils.py` |
 
 </details>
 
-### 
+### 开发文档
 
 本项目开发文档集，可见 `docs/Development Notes` 与 `docs/Development Noes/others`。
 
@@ -311,6 +314,9 @@ python -m pytest
 - [仓单变化率, ReceiptCahnge](research/notebooks/202611/receipt_change.ipynb)
 
 ### 多因子策略
+
+#### 教学范本
+- [从单因子到两因子（动量+展期）的研究范本](research/notebooks/202611/single-to-two-factor_research_standard.ipynb)。**By Codex**，用于学习研究流程和规范。
 
 ## 许可证
 
