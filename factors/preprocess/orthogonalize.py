@@ -417,12 +417,13 @@ class CSGramSchmidtOrthogonalizer(WarningMixin):
     ------
     method: {'lstsq', 'qr'}, default 'qr'
         正交化方法，目前仅支持  'qr'。
-    qr_missing_policy: {'drop_if_missing_any', 'fill_with_mean'}, 
-    default 'fill_with_mean'
-        qr 方法下的缺失值政策。若为 'drop_if_missing_any'，则对某一行若任一
-        因子有缺失值，则剔除整行（品种）。若为 'fill_with_mean'，则会先对截面上因子值缺失
-        的品种用均值填充。
-        - 'fill_with_mean' 模式下，返回的残差化因子会根据输入中的缺失值重新置回缺失值，因此
+    qr_missing_policy: {'drop_if_missing_any', 'fill_with_mean'}, default 'fill_with_mean'
+        qr 方法下的缺失值政策。若为 'drop_if_missing_any'，对某一截面而言，则对某一行若任一
+        因子有缺失值，则剔除整行（品种），即后续因子缺失会额外删除影响前面的样本。
+        若某一个因子全部为缺失值，会导致该截面正交化整体失败。
+        若为 'fill_with_mean'，则会先对截面上因子值缺失的品种用其余品种的均值填充。
+        此时若某个因子全缺失，该因子会被剔除，残差为NaN，留下的因子正常做序贯正交化。
+        - 注意：'fill_with_mean' 模式下，返回的残差化因子会根据输入中的缺失值重新置回缺失值，因此
         无法保证残差依然正交，因为此时“正交”的语义是对填充了缺失值后的因子做正交。
     qr_tol: float, default 1e-8
         qr 模式下的秩判定阈值，会送入 `np.linalg.matrix_rank`，秩判定时，内部会先做zscore化
@@ -550,8 +551,12 @@ class TSGramSchmidtOrthogonalizer(WarningMixin):
         内部会设置为1e-10。
     sample_policy: {'common', 'own'}, default 'own'
         序贯正交化时，如何选择样本，为 'common' 时，会取所有因子的非缺失样本（任一
-        因子有缺失值即删除整行），为 'own' 时，目标因子作为被解释变量，只会删除该目标因子
-        和前序因子的缺失行，后面因子的缺失值没有影响。
+        因子有缺失值即删除整行，后面的因子缺失会影响前面的样本）。若某一因子整体缺失，会
+        导致正交化失败。
+        为 'own' 时，目标因子作为被解释变量，只会删除该目标因子
+        和前序因子的缺失行，后面因子的缺失值没有影响。若某一因子整体缺失，则该因子之前的
+        所有因子可以正常正交化，从该因子直到最后一个无法得到残差。
+
     warning_limit: int or None, optional, default None
         `WarningMixin` 类的内部缓存警告条数上限。为 None 时采用该类内部设定的默认值。
     

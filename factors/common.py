@@ -154,7 +154,11 @@ def regression_residual(
         else:
             X = df[X_vars]
         y = df[y_var]
-        res: pd.Series = y - X @ beta
+        assert isinstance(X, (pd.Series, pd.DataFrame))
+        res = pd.Series(
+            y.to_numpy() - X.to_numpy() @ beta.to_numpy(), 
+            index=y.index
+        )
         res = res.mask(np.isinf(res), np.nan)
         return res, 0
     else:
